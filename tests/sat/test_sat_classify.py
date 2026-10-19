@@ -1,0 +1,310 @@
+import numpy as np
+import pandas as pd
+
+from cenfuse.sat.annotate import ARR_COLS
+from cenfuse.sat.classify import assign_cen_associated, choose_centromeric, family_metrics, make_clusters
+from cenfuse.sat.params import Params
+
+P = Params()
+CH = {f"c{i}": 10_000_000 for i in range(1, 5)}
+
+
+def arr(fam, chrom, start, n, mlen=180):
+    return (0, chrom, start, start + n * mlen, "+", fam, n, 0.9, mlen)
+
+
+def test_make_clusters_bp_and_order():
+    cl = make_clusters([(0, 100), (50, 200), (10_000, 10_050), (600_000, 600_300)], 500)
+    assert [(c.start, c.end, c.bp) for c in cl] == [(600_000, 600_300, 300), (0, 200, 200), (10_000, 10_050, 50)]
+
+
+def test_chromosome_specific_and_layered_families():
+    rows = [arr("A", "c1", 5_000_000, 1000), arr("A", "c2", 5_000_000, 1000),
+            arr("B", "c3", 4_000_000, 800), arr("B", "c4", 4_000_000, 800),
+            arr("C", "c1", 5_300_000, 200),                                      # layered next to A on c1
+            arr("D", "c1", 100_000, 300), arr("D", "c1", 9_700_000, 300),
+            arr("D", "c3", 50_000, 300), arr("D", "c3", 9_800_000, 300)]         # subtelomeric: both ends
+    rows += [arr("S", f"c{1 + i % 4}", 300_000 + (i // 4) * 900_000, 120) for i in range(40)]   # scattered
+    info = {"A": dict(superfamily="A", length=180, rdna="."), "B": dict(superfamily="B", length=180, rdna="."),
+            "C": dict(superfamily="A", length=175, rdna="."), "D": dict(superfamily="D", length=90, rdna="."),
+            "S": dict(superfamily="S", length=120, rdna=".")}
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    f = fams.set_index("family")
+    assert f.loc["A", "cls"] == f.loc["B", "cls"] == f.loc["C", "cls"] == "centromeric"
+    assert f.loc["D", "cls"] == "other" and "subtel_frac" in f.loc["D", "reason"]
+    assert f.loc["S", "cls"] == "other" and "concentration" in f.loc["S", "reason"]
+    assert per_chrom["c1"] == ["A", "C"] and per_chrom["c3"] == ["B"]
+    assert f.loc["A", "strength"] == "strong" and f.loc["C", "strength"] == "weak"
+
+
+def test_gene_rich_cluster_is_vetoed():
+    genes = {c: np.arange(0, 10_000_000, 5_000, dtype=np.int64) for c in ("c1", "c2")}
+    fams, _ = family_metrics(pd.DataFrame([arr("G", "c1", 5_000_000, 500)], columns=ARR_COLS), CH, genes, P)
+    assert not fams.eligible.iloc[0] and "gene_ratio" in fams.reason.iloc[0]
+
+
+def test_empty_arrays():
+    fams, mains = family_metrics(pd.DataFrame(columns=ARR_COLS), CH, None, P)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P)
+    assert fams.empty and per_chrom == {}
+
+
+def test_assign_cen_associated():
+    rows = [arr("A", "c1", 5_000_000, 1000), arr("X", "c1", 5_050_000, 100), arr("X", "c2", 1_500_000, 20)]
+    arrays = pd.DataFrame(rows, columns=ARR_COLS)
+    fams, mains = family_metrics(arrays, CH, None, P)
+    fams, _ = choose_centromeric(fams, mains, CH, P)
+    regions = {"c1": dict(evidence="satellite", cen_start=5_000_000, cen_end=5_180_000),
+               "c2": dict(evidence="none")}
+    out = assign_cen_associated(fams, arrays, regions, P).set_index("family")
+    assert out.loc["X", "cls"] == "cen_associated"                            # 18 of 21.6 kb inside
+
+
+def test_unrelated_adjacent_family_is_not_co_centromeric():
+    """Review C2: an eligible 5S-rDNA-like 500-bp family next to the CEN180 cluster must not become primary;
+    a related layer (same superfamily, or period within 15%) still does."""
+    rows = [arr("A", "c1", 5_000_000, 1000), arr("A", "c2", 5_000_000, 1000),
+            arr("R", "c1", 5_200_000, 60, 500),                       # abutting, unrelated 500-bp family
+            arr("L", "c2", 5_250_000, 200, 159)]                      # 159 vs 180: within 15% (AthCEN159-like)
+    info = {"A": dict(superfamily="A", length=180, rdna="."), "R": dict(superfamily="R", length=500, rdna="."),
+            "L": dict(superfamily="L", length=159, rdna=".")}
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert per_chrom["c1"] == ["A"] and per_chrom["c2"] == ["A", "L"]
+    assert fams.set_index("family").loc["R", "cls"] == "other"
+
+
+def test_rdna_family_is_never_eligible():
+    rows = [arr("R", "c1", 5_000_000, 200, 500), arr("R", "c2", 5_000_000, 200, 500)]
+    info = {"R": dict(superfamily="R", length=500, rdna="5S_rRNA")}
+    fams, _ = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    assert not fams.eligible.iloc[0] and "rDNA (5S_rRNA)" in fams.reason.iloc[0]
+
+
+def test_strong_family_takes_precedence_over_larger_unrelated_satellite():
+    """Real data (B. juncea A09): the genome's centromeric satellite (strong on most chromosomes) has a 69 kb
+    cluster, but a pericentromeric 238-bp satellite forms a larger 162 kb cluster nearby. The strong family's
+    superfamily must define the centromere where it has a >= chrom_min_bp cluster; the largest-cluster rule is
+    only the fallback (chromosome without such a cluster)."""
+    info = {"A": dict(superfamily="A", length=180, rdna="."), "T": dict(superfamily="T", length=238, rdna=".")}
+    rows = [arr("A", c, 5_000_000, 1000) for c in ("c1", "c2", "c3")]          # strong: 3/4 chromosomes, 180 kb
+    rows += [arr("A", "c4", 5_000_000, 390), arr("T", "c4", 4_600_000, 670, 238)]   # c4: A 70 kb, T 160 kb
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert per_chrom["c4"] == ["A"]
+    rows = rows[:3] + [arr("T", "c4", 4_600_000, 670, 238)]                      # c4 without A: fallback to T
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert per_chrom["c4"] == ["T"]
+
+
+def test_widespread_pericentromeric_satellite_gets_no_precedence():
+    """Real data (B. napus A06, v0.3.6): a 228-bp pericentromeric satellite with >= 100 kb clusters on half the
+    chromosomes passed the 'strong' prevalence test, and where its cluster was larger than CentBr's it defined the
+    centromere. Precedence belongs only to families whose kind is also the largest cluster on >= strong_prevalence
+    of chromosomes; two such unrelated families (each winning half) still compete by cluster size."""
+    info = {"A": dict(superfamily="A", length=180, rdna="."), "T": dict(superfamily="T", length=238, rdna="."),
+            "B": dict(superfamily="B", length=120, rdna=".")}
+    rows = [arr("A", c, 5_000_000, 1000) for c in ("c1", "c2", "c3")]              # A largest on c1-c3 (180 kb)
+    rows += [arr("T", c, 4_500_000, 500, 238) for c in ("c1", "c2")]                # T 119 kb beside A
+    rows += [arr("A", "c4", 5_000_000, 390), arr("T", "c4", 4_600_000, 670, 238)]  # c4: A 70 kb, T 160 kb
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    assert fams.set_index("family").loc["T", "prevalence"] >= P.strong_prevalence
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert per_chrom["c4"] == ["A"]
+    assert fams.set_index("family").loc["T", "cls"] == "other"
+    rows = [arr("A", c, 5_000_000, 1000) for c in ("c1", "c2")] + [arr("B", c, 5_000_000, 1200, 120)
+                                                                   for c in ("c3", "c4")]
+    rows += [arr("B", "c1", 4_500_000, 900, 120)]                                   # B 108 kb beside A 180 kb
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert per_chrom["c1"] == ["A"] and per_chrom["c3"] == ["B"]
+
+
+def test_borrowed_classification_uses_source_families():
+    """Contig assemblies: per-chromosome tests are meaningless on contigs (a contig holds only part of a centromere),
+    so a target genome takes the union of its sources' centromeric families; its own metrics are reported."""
+    from cenfuse.sat.classify import borrow_centromeric
+    ch = {f"t{i}": 1_000_000 for i in range(1, 4)}
+    rows = [arr("A", "t1", 900_000, 500), arr("A", "t2", 0, 500), arr("B", "t3", 100_000, 200),
+            arr("D", "t1", 0, 30)]
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), ch, None, P)
+    src = {"S1": pd.DataFrame([dict(family="A", cls="centromeric", strength="weak"),
+                               dict(family="B", cls="other", strength="."),
+                               dict(family="Z", cls="centromeric", strength="strong")]),
+           "S2": pd.DataFrame([dict(family="A", cls="centromeric", strength="strong")])}
+    out, per_chrom = borrow_centromeric(fams, mains, src, P)
+    f = out.set_index("family")
+    assert len(out) == len(fams) and f.index.is_unique and "Z" not in f.index
+    assert f.loc["A", "cls"] == "centromeric" and f.loc["A", "strength"] == "strong"
+    assert f.loc["A", "defines"] == "t1,t2" and f.loc["A", "reason"].startswith("borrowed from S1+S2")
+    assert "own contig metrics: " in f.loc["A", "reason"]
+    assert f.loc["B", "cls"] == "other" and f.loc["B", "reason"].startswith("not centromeric in S1+S2")
+    assert f.loc["D", "defines"] == "." and per_chrom == {"t1": ["A"], "t2": ["A"]}
+
+
+def test_rdna_associated_family_becomes_ineligible():
+    from cenfuse.sat.classify import apply_rdna
+    fams = pd.DataFrame(dict(family=["igs", "sat", "few"], eligible=[True, True, True],
+                             reason=["eligible"] * 3))
+    out = apply_rdna(fams, {"igs": (10, 9), "sat": (10, 0), "few": (2, 1)}, Params()).set_index("family")
+    assert not out.loc["igs", "eligible"] and out.loc["igs", "reason"].startswith("rDNA-associated")
+    assert out.loc["sat", "eligible"] and out.loc["few", "eligible"] == (1 / 2 < Params().rdna_array_frac)
+
+
+def test_te_rejected_needs_a_majority_of_disagreeing_chromosomes():
+    from cenfuse.sat.classify import Cluster, te_rejected
+    core = dict(start=1_000_000, end=1_500_000)
+    cores = {c: core for c in ("c1", "c2", "c3")}
+    at, away = Cluster(1_100_000, 1_400_000, 200_000), Cluster(8_000_000, 8_300_000, 200_000)
+    fams = pd.DataFrame([dict(family="F", cls="centromeric", defines="c1,c2,c3"),
+                         dict(family="H", cls="other", defines=".")])
+    m = lambda x: {("F", "c1"): x[0], ("F", "c2"): x[1], ("F", "c3"): x[2]}
+    assert te_rejected(fams, m([at, at, away]), cores) == {}                    # 1 of 3 disagree
+    assert te_rejected(fams, m([away, away, at]), cores) == {"F": (2, 3)}
+    assert te_rejected(fams, m([away, away, away]), {}) == {}                   # no core: no test
+
+
+def test_te_vote_is_per_family_kind_so_subfamilies_are_not_rejected_alone():
+    """A. thaliana CEN180 subfamily / B. juncea CentBr2: a subfamily defining few chromosomes, away from the core
+    there, belongs to a kind that agrees overall; an unrelated family must still be judged on its own."""
+    from cenfuse.sat.classify import Cluster, te_rejected
+    core = dict(start=1_000_000, end=1_500_000)
+    cores = {c: core for c in ("c1", "c2", "c3", "c4")}
+    at, away = Cluster(1_100_000, 1_400_000, 200_000), Cluster(8_000_000, 8_300_000, 200_000)
+    fams = pd.DataFrame([dict(family="A178", cls="centromeric", defines="c1,c2,c3"),
+                         dict(family="A176", cls="centromeric", defines="c4"),
+                         dict(family="X90", cls="centromeric", defines="c4")])
+    info = {"A178": dict(superfamily="S1", length=178), "A176": dict(superfamily="S1", length=176),
+            "X90": dict(superfamily="S9", length=90)}
+    mains = {("A178", "c1"): at, ("A178", "c2"): at, ("A178", "c3"): at, ("A176", "c4"): away, ("X90", "c4"): away}
+    assert te_rejected(fams, mains, cores, info) == {"X90": (1, 1)}
+
+
+
+def test_only_decisive_retrotransposon_evidence_rejects():
+    """B. juncea A: only pericentromeric clades (Retand, Athila) qualify; their cores sit beside CentBr. Evidence that
+    is not the centromere-specific CRM lineage flags disagreement but never rejects the satellite."""
+    from cenfuse.sat.classify import Cluster, choose_with_te
+    fams = pd.DataFrame([dict(family="CentBr", bp=500_000, n_arrays=20, prevalence=1.0, concentration=0.9,
+                              subtel_frac=0.0, gene_ratio=0.1, median_main_bp=250_000, eligible=True, cls="other",
+                              strength=".", defines=".", dominant=False, reason="eligible")])
+    chroms = {"c1": 20_000_000, "c2": 20_000_000}
+    mains = {("CentBr", c): Cluster(1_100_000, 1_400_000, 250_000) for c in chroms}
+    far = {c: dict(start=9_000_000, end=9_500_000) for c in chroms}
+    p = Params()
+    out, _, rej = choose_with_te(fams, mains, chroms, p, None, ("Retand", far, False))
+    assert rej == {} and set(out.cls) == {"centromeric"}
+    out, _, rej = choose_with_te(fams, mains, chroms, p, None, ("CRM", far, True))
+    assert rej == {"CentBr": (2, 2)} and set(out.cls) == {"other"}
+
+
+def test_subtelomere_is_beyond_the_outermost_gene():
+    """The subtelomere is the stretch between a chromosome end and its outermost gene. Fragaria x ananassa Chr1D: the
+    CENH3-bound Type II array lies 1.0 Mb from the end with 5 genes beyond it (kept); rice TrsC and the Solanum 182-bp
+    blocks have no gene beyond them (subtelomeric), at one end or both."""
+    import numpy as np
+    from cenfuse.sat.classify import end_zone, terminal_bp
+    L = 27_106_190
+    assert end_zone(L, P) == int(0.05 * L) and end_zone(2_000_000, P) == 100_000      # no floor: small chromosomes
+    mids = np.array([10_000, 5_000_000, 26_500_000, 27_030_000])
+    assert terminal_bp([(25_974_330, 26_073_822)], L, P, mids) == 0                    # genes beyond: not terminal
+    assert terminal_bp([(0, 9_000)], L, P, mids) == 9_000                              # before the first gene
+    assert terminal_bp([(27_040_000, 27_100_000)], L, P, mids) == 60_000               # after the last gene
+    assert terminal_bp([(25_974_330, 26_073_822)], L, P, None) == 99_492               # no genes: 5% end zone
+
+
+def test_acrocentric_satellite_can_be_centromeric():
+    import numpy as np
+    rows = [arr("A", "c1", 5_000_000, 1000), arr("A", "c2", 5_000_000, 1000), arr("A", "c3", 5_000_000, 1000),
+            arr("T", "c4", 9_700_000, 400)]                                            # c4: centromere near one end
+    info = {"A": dict(superfamily="A", length=180, rdna="."), "T": dict(superfamily="T", length=146, rdna=".")}
+    genes = {c: np.array([100_000, 2_000_000, 9_900_000, 9_950_000]) for c in CH}      # genes beyond the c4 array
+    fams, mains = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, genes, P, info)
+    fams, per_chrom = choose_centromeric(fams, mains, CH, P, info)
+    assert fams.set_index("family").loc["T", "eligible"] and per_chrom["c4"] == ["T"]
+    bare = {c: np.array([100_000, 2_000_000, 9_000_000]) for c in CH}                  # no gene beyond: subtelomeric
+    fams, _ = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, bare, P, info)
+    assert "subtel_frac" in fams.set_index("family").loc["T", "reason"]
+
+
+def test_rdna_tag_in_one_genome_holds_in_all():
+    from cenfuse.sat.classify import apply_rdna
+    fams = pd.DataFrame([dict(family="R", eligible=True, reason="eligible"), dict(family="A", eligible=True, reason="eligible")])
+    out = apply_rdna(fams, {"R": (6, 1)}, P, elsewhere={"R": ("G2", 5, 9)}).set_index("family")
+    assert not out.loc["R", "eligible"] and "G2" in out.loc["R", "reason"] and out.loc["A", "eligible"]
+
+
+def test_subtelomeric_vote_over_the_complex():
+    """A family terminal in one genome only (truncated assembly end, Populus clone 741) stays eligible; one terminal in
+    most genomes (rice TrsC, Solanum 182 bp) is subtelomeric where it is terminal. Other genomes never make an interior
+    family subtelomeric (R. sativus CL1, terminal only in the truncated RRCC assembly)."""
+    rows = [arr("T", "c4", 9_700_000, 400)]
+    fams, _ = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, subtel_vote={"T": (1, 3)})
+    assert fams.set_index("family").loc["T", "eligible"]                       # 1/3 genomes: not subtelomeric
+    fams, _ = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, subtel_vote={"T": (2, 3)})
+    f = fams.set_index("family").loc["T"]
+    assert not f.eligible and "2/3 genomes" in f.reason                        # terminal here and in most genomes
+    mid = [arr("T", "c4", 5_000_000, 400)]
+    fams, _ = family_metrics(pd.DataFrame(mid, columns=ARR_COLS), CH, None, P, subtel_vote={"T": (2, 3)})
+    assert fams.set_index("family").loc["T", "eligible"]                       # interior here: never imposed
+    import numpy as np                                                         # near-end: gene-bounded, 5% zone
+    near = [arr("T", "c4", 9_700_000, 400)]
+    genes = {c: np.array([100_000, 5_000_000, 9_950_000]) for c in CH}          # a gene model beyond the array
+    fams, _ = family_metrics(pd.DataFrame(near, columns=ARR_COLS), CH, genes, P, subtel_vote={"T": (1, 2)})
+    f = fams.set_index("family").loc["T"]
+    assert not f.eligible and "near ends" in f.reason                          # terminal elsewhere: S. acaule SG3
+    fams, _ = family_metrics(pd.DataFrame(near, columns=ARR_COLS), CH, genes, P, subtel_vote={"T": (0, 2)})
+    assert fams.set_index("family").loc["T", "eligible"]                       # Fragaria Chr1D Type II: kept
+
+
+def test_te_kinds_are_sequence_related_not_period_related():
+    """Populus: the 148-bp knob (own superfamily) must not drag the 156-bp centromeric family into its rejection."""
+    from cenfuse.sat.classify import same_sequence
+    info = {"K": dict(superfamily="K", chain_group="K", length=148, rdna="."),
+            "C": dict(superfamily="C", chain_group="C", length=156, rdna="."),
+            "C2": dict(superfamily="C", chain_group="C2", length=155, rdna="."),
+            "O": dict(superfamily="O165", chain_group="O", length=155, rdna="."),
+            "O2": dict(superfamily="O155", chain_group="O", length=165, rdna=".")}
+    assert not same_sequence("K", "C", info)
+    assert same_sequence("C", "C2", info) and same_sequence("O", "O2", info)    # superfamily / chain group
+
+
+def test_roles_report_what_classify_found():
+    """One role per family and genome, first match wins: rDNA, centromeric, cen_associated, subtelomeric,
+    interstitial (concentrated, not the centromere: knobs land here), dispersed, minor; contigs: unassessed."""
+    from cenfuse.sat.classify import assign_roles
+    row = lambda fam, **k: {**dict(family=fam, bp=500_000, concentration=0.9, cls="other", subtelomeric=False,
+                                  rdna_tag="."), **k}
+    fams = pd.DataFrame([row("R5", rdna_tag="5S_rRNA", cls="centromeric"), row("C", cls="centromeric"),
+                         row("A", cls="cen_associated"), row("S", subtelomeric=True), row("K"),
+                         row("D", concentration=0.2), row("M", bp=5_000, concentration=float("nan"))])
+    r = dict(zip(fams.family, assign_roles(fams, P).role))
+    assert r == {"R5": "rDNA", "C": "centromeric", "A": "cen_associated", "S": "subtelomeric", "K": "interstitial",
+                 "D": "dispersed", "M": "minor"}
+    rb = dict(zip(fams.family, assign_roles(fams, P, borrowed=True).role))
+    assert rb["C"] == "centromeric" and rb["K"] == "unassessed" and rb["S"] == "unassessed"
+
+
+def test_45s_spacer_tag_and_5s_tag_kept():
+    from cenfuse.sat.classify import apply_rdna
+    fams = pd.DataFrame([dict(family="N", eligible=True, reason="eligible", rdna_tag="."),
+                         dict(family="F", eligible=False, reason="rDNA (5S_rRNA)", rdna_tag="5S_rRNA")])
+    out = apply_rdna(fams, {"N": (10, 9), "F": (10, 9)}, P).set_index("family")
+    assert out.loc["N", "rdna_tag"] == "45S_spacer" and out.loc["F", "rdna_tag"] == "5S_rRNA"
+    ineligible = pd.DataFrame([dict(family="N", eligible=False, reason="concentration=0.2<0.5", rdna_tag=".")])
+    out = apply_rdna(ineligible, {}, P, elsewhere={"N": ("G2", 9, 10)}).set_index("family")
+    assert out.loc["N", "rdna_tag"] == "45S_spacer" and out.loc["N", "reason"].startswith("concentration")
+
+
+def test_terminal_blocks_on_most_chromosomes_are_subtelomeric_whatever_the_vote():
+    """A truncated assembly end affects one chromosome; a subtelomeric family sits at the ends of most (M. sookensis G
+    687 bp: 10/14 chromosomes, terminal in 1/4 genomes)."""
+    rows = [arr("T", c, 9_700_000, 400) for c in ("c1", "c2", "c3")]          # 3/4 chromosomes: subtelomeric
+    fams, _ = family_metrics(pd.DataFrame(rows, columns=ARR_COLS), CH, None, P, subtel_vote={"T": (1, 4)})
+    f = fams.set_index("family").loc["T"]
+    assert not f.eligible and "terminal blocks on 3/4" in f.reason
+    one = [arr("T", "c4", 9_700_000, 400)]                                     # one chromosome: rescued by the vote
+    fams, _ = family_metrics(pd.DataFrame(one, columns=ARR_COLS), CH, None, P, subtel_vote={"T": (1, 4)})
+    assert fams.set_index("family").loc["T", "eligible"]

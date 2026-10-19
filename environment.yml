@@ -1,0 +1,26 @@
+# mamba env create -f environment.yml && mamba activate cenfuse && pip install --no-deps .
+name: cenfuse
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - pandas
+  - pysam
+  - pyhmmer>=0.12
+  - pyabpoa=1.5.7
+  - matplotlib
+  - h5py
+  - pytest
+  - pytest-xdist
+  # satellite engine (vendored cenrep 0.9.0)
+  - fastan=0.8                # default seed engine; fastga gives FAtoGDB, ONEview
+  - fastga=1.5.20260729
+  - trf=4.10.0rc2             # alternative seed engine (--seed-engine trf)
+  - blast>=2.16
+  - mafft=7.525
+  - cd-hit=4.8.1
+  - infernal
+  - minimap2                  # long-unit tandems; Hi-C mis-mapping null (cenfuse.hic simulate)
+  - samtools
+  - htslib                    # tabix/bgzip for bedMethyl
