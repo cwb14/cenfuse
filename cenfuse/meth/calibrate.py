@@ -14,7 +14,7 @@ import pandas as pd
 
 from . import params
 
-log = logging.getLogger("cenmeth")
+log = logging.getLogger("cenfuse-meth")
 ALL = "all"   # pseudo-class: the adjusted track itself (all classes together)
 
 

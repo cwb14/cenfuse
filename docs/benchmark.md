@@ -10,9 +10,10 @@ repository.
 
 Development status of the data. Every genome below was seen by at least one engine (the engines' own validation).
 These are tests of the integration, not of the engines:
-- P. annua and P. infirma: cenrep, cenhic and cenmeth development data.
-- The 8 T2T mammals: cenhic development genomes.
-- rice and potato: cenhic held-out genomes. Their cenhic calls are known: rice 0/12, potato 1/10.
+- P. annua and P. infirma: data used to develop the satellite, Hi-C and methylation engines.
+- The 8 T2T mammals: genomes used to develop the Hi-C engine.
+- rice and potato: genomes held out in the Hi-C engine's development. Their prior-free Hi-C calls are known: rice
+  0/12, potato 1/10.
 - Anchored, leave-one-chromosome-out Hi-C with gate and fusion has never been run on any of them. That is what is
   tested.
 
@@ -24,16 +25,16 @@ These are tests of the integration, not of the engines:
 | negctl | P. annua with Hi-C pairs permuted within chromosomes | as poa, minus infirma and methylation | Hi-C carries no centromere signal | negative control |
 | rice | T2T-NIP GCA_034140825.1, 12 chromosomes | satellite, Hi-C (SRR25241089) | CENH3, Shang 2023 Table S1 | functional truth; Hi-C de novo fails (all ends) |
 | potato | DM v6.1, chr01-chr12 | satellite, Hi-C (SRR11908553) | CENH3, Pham 2020 Table S5, 11 chromosomes | functional truth; half the centromeres satellite-free; Hi-C de novo fails (hotspots) |
-| mammals | chm13, mPanTro3, mPonPyg2, mPonAbe1, mSymSyn1, mGirTip1 | satellite (cenrep 0.8.9 outputs, `--satellite-dir`), Hi-C (public libraries of each assembly) | CHM13: CENP-A active HOR (censat; independent). Others: satellome locus (sequence-based, not independent of the satellite line) | does anchoring fix the wrong-cluster failure? (de novo: 97/188 overall; mPonAbe1 4/25, mGirTip1 0/15) |
-| stretch | barley MorexV3; gorilla mGorGor1 (cenrep engine run needed); horse EquCab3.0 | as rice; gorilla as mammals | ChIP truth (barley, horse); satellome (gorilla) | only if budget remains; else postponed |
+| mammals | chm13, mPanTro3, mPonPyg2, mPonAbe1, mSymSyn1, mGirTip1 | satellite (satellite-engine outputs from an earlier version, 0.8.9, imported with `--satellite-dir`), Hi-C (public libraries of each assembly) | CHM13: CENP-A active HOR (censat; independent). Others: satellome locus (sequence-based, not independent of the satellite line) | does anchoring fix the wrong-cluster failure? (de novo: 97/188 overall; mPonAbe1 4/25, mGirTip1 0/15) |
+| stretch | barley MorexV3; gorilla mGorGor1 (satellite engine run needed); horse EquCab3.0 | as rice; gorilla as mammals | ChIP truth (barley, horse); satellome (gorilla) | only if budget remains; else postponed |
 
 Inputs are the files of the engines' earlier benchmarks, symlinked, never copied or modified.
 Held-out FASTAs are reduced to chromosome-level sequences, as in the earlier benchmarks.
 
 ## Scoring
 
-- **Tolerance:** 4 bins at the Hi-C bin size cenhic picks for that genome, as in cenhic's benchmark criteria
-  (cenhic's partner half-window, the resolution the method claims).
+- **Tolerance:** 4 bins at the Hi-C bin size the Hi-C engine picks for that genome, as in the Hi-C engine's
+  benchmark criteria (its partner half-window, the resolution the method claims).
 - **Right:** the gap between the call interval and the truth interval is at most the tolerance (0 when they
   overlap).
   - For a Hi-C peak, the interval is the peak bin.
@@ -94,10 +95,10 @@ Every genome was rerun on the final code. All criteria are scored on those rerun
 
 | criterion | result | numbers |
 |---|---|---|
-| P1 Pa1A integrated call on 167-170 Mb | PASS | 163.0-169.4 Mb (the CRM core; the sequence call already moved there through cenrep's CRM rule); concordant, high; supported by TE, Hi-C (peak 168.0 Mb) and methylation |
+| P1 Pa1A integrated call on 167-170 Mb | PASS | 163.0-169.4 Mb (the CRM core; the sequence call already moved there through the satellite engine's CRM rule); concordant, high; supported by TE, Hi-C (peak 168.0 Mb) and methylation |
 | P2 the other 20 Poa calls unchanged | PASS | 20/20 |
 | P3 Poa gate | PASS | annua 14/14, infirma 7/7 |
-| P4 methylation supports non-Pa1A annua calls | PASS | 12/13; Pa2A `dip` (as in cenmeth's own validation) |
+| P4 methylation supports non-Pa1A annua calls | PASS | 12/13; Pa2A `dip` (as in the methylation engine's own validation) |
 | P5 Pa1A plant-specific candidates in the sample table | FAIL | C11 153.8 Mb (P 0.004) listed. J10 164.8 Mb (rank 2, P 0.006) exists in methylation/annua.candidates.tsv but is not in the sample table: it lies inside the reference's wide integrated call (163.0-169.4 Mb), and the table lists only candidates outside the call |
 | N1 permuted Hi-C | PASS | gate 0/14, no change, 14/14 calls = sequence calls |
 | H1 no harm (rice, potato; also horse) | PASS | rice 12/12 = 12/12; potato 2/11 = 2/11; horse 3/4 = 3/4 |
@@ -131,14 +132,14 @@ Every genome was rerun on the final code. All criteria are scored on those rerun
 
 ### What failed, and why
 - **Potato** (sequence 2/11).
-  - Without TE input, cenrep calls short pericentromeric satellites. This is the Solanaceae limitation in cenrep's
-    README; half of the potato centromeres are satellite-free.
+  - Without TE input, the satellite engine calls short pericentromeric satellites. This is its known Solanaceae
+    limitation; half of the potato centromeres are satellite-free.
   - Hi-C carries no centromere signal here: anchored 0/11, prior-free 1/10.
   - Neither line can rescue the other. The gate correctly kept Hi-C out.
 - **Horse chr11** (satellite-free).
   - The sequence call is 13.6 Mb off; both Hi-C peaks are 32.7 Mb off, at the chromosome end. Missed by every line.
   - The acrocentric CM009178.1 has no sequence call; prior-free Hi-C was right there, but Hi-C was not validated.
-- **M2.** Anchoring did not beat cenhic's prior-free location in mammals. In both orangutans and the giraffe, strongly
+- **M2.** Anchoring did not beat the prior-free Hi-C location in mammals. In both orangutans and the giraffe, strongly
   self-associated heterochromatin captures the anchored peaks too (interstitial blocks 18x in S. orangutan). The
   advantage of anchoring is genome-specific (rice 8 vs 0). The pre-registered general claim fails.
 - **CHM13.** 3 of 24 correct calls are `contested` (lowered to medium):
@@ -147,12 +148,12 @@ Every genome was rerun on the final code. All criteria are scored on those rerun
 
 ### Added after the pre-registered runs (not criteria)
 
-**The Hi-C move rule on real data: P. annua Pa1A.** No call moved in the pre-registered runs. With `tes/`, cenrep's CRM
-rule had already placed Pa1A on its CRM core.
+**The Hi-C move rule on real data: P. annua Pa1A.** No call moved in the pre-registered runs. With `tes/`, the satellite
+engine's CRM rule had already placed Pa1A on its CRM core.
 
 To exercise the integration's move rule:
 1. Run the satellite engine on P. annua without TE input. Pa1A is then called at its old satellite array,
-   146.12-146.76 Mb, satellite, high, as cenrep did before TE input.
+   146.12-146.76 Mb, satellite, high, as the satellite engine did before TE input.
 2. Import those calls (`--satellite-dir`) into a run with the TE, Hi-C and methylation lines.
 
 What the integration did on Pa1A:
@@ -210,13 +211,13 @@ Every finished run's outputs were rebuilt with these (checkpoints reused).
 
 - **The satellite line is wrong genome-wide.** Without TE input it picked non-centromeric satellites 185-356 Mb from
   every CENH3 centromere, three of them at high confidence. Barley centromeres are Cereba (CRM) retrotransposons
-  plus a 6-bp repeat outside cenrep's search.
-- **Hi-C has the answer but cannot use it.** cenhic's prior-free calls are right on 6/7 (barley nuclei are Rabl).
+  plus a 6-bp repeat outside the satellite engine's search.
+- **Hi-C has the answer but cannot use it.** The prior-free Hi-C calls are right on 6/7 (barley nuclei are Rabl).
   The anchored test sits on the wrong anchors, and the gate correctly finds that Hi-C disagrees with the sequence
   line. Two lines that disagree everywhere cannot say which is wrong, so cenfuse keeps the sequence calls and is wrong
   on 7/7.
-- **The fix is a third line.** `tes/` (CRM cores) would very likely move the sequence calls, through cenrep's CRM
-  rule, and the gate would then validate Hi-C. Not run: no barley TE annotation on disk.
+- **The fix is a third line.** `tes/` (CRM cores) would very likely move the sequence calls, through the satellite
+  engine's CRM rule, and the gate would then validate Hi-C. Not run: no barley TE annotation on disk.
 - **Added after this run (reporting only).** The genome-level diagnostic `hic_sequence_conflict` fires when the
   prior-free Hi-C calls are confident on most chromosomes but disagree with the sequence calls on most and the gate
   fails. It warns that one line is wrong genome-wide and asks for `tes/` or methylation. It fires on:
@@ -232,8 +233,8 @@ Every finished run's outputs were rebuilt with these (checkpoints reused).
 |---|---|---|---|---|---|---|---|---|
 | gorilla (mGorGor1, satellome truth) | 250 kb | 25/25 (P 9.6e-28) | 0/24 | 7/24 (P 3e-4) | 25/25 | 0/25 | 0 | PASS |
 
-- **Sequence and Hi-C.** cenrep 0.9.0 (FasTAN seeds) called all 25 on the satellome locus. cenhic's prior-free Hi-C
-  converges on interior clusters (0/24, as in the earlier benchmark).
+- **Sequence and Hi-C.** The satellite engine (0.9.0, FasTAN seeds) called all 25 on the satellome locus. The
+  prior-free Hi-C calls converge on interior clusters (0/24, as in the earlier benchmark).
 - **Anchoring and the gate.** Anchoring to the sequence calls lifts Hi-C only to 7/24. The gate fails on all 25, so
   Hi-C changes nothing, and `hic_sequence_conflict` fires.
 - **3D test.** Centromeres self-associate 3.5x (P = 0.001). The cluster exists but is not the dominant trans cluster.

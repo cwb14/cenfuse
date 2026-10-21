@@ -21,13 +21,13 @@ def test_end_to_end_with_anchors_and_resume(syn, prep, tmp_path, capsys):
                 "S1.adjusted.bedgraph", "S2.adjusted.bedgraph", "S3.adjusted.bedgraph"):
         assert (tmp_path / "r" / f"x.{suf}").stat().st_size > 0, suf
     head = (tmp_path / "r" / "x.candidates.bed").read_text().splitlines()[0]
-    assert head.startswith("#cenmeth") and "anchors=hic" in head and "CHG:LTR:CRM:down" in head
+    assert head.startswith("#cenfuse-meth") and "anchors=hic" in head and "CHG:LTR:CRM:down" in head
     cand = pd.read_csv(tmp_path / "r" / "x.candidates.tsv", sep="\t")
     assert (cand.label == "centromere_like").sum() >= 15
     assert set(cand.anchor_source) == {"hic"}
     assert all(len(ln.split("\t")) == 9 for ln in (tmp_path / "r" / "x.candidates.bed").read_text().splitlines()[1:])
     key = bins.fingerprint([syn["ltrquest"], syn["satellites"], syn["genes"]], "|".join(prep["cmap"].names))
-    assert [p.name for p in (tmp_path / "r" / "cenmeth_cache").iterdir()] == [key]     # keyed by the class list too
+    assert [p.name for p in (tmp_path / "r" / "meth_cache").iterdir()] == [key]     # keyed by the class list too
     capsys.readouterr()
     other = tmp_path / "r" / "y"                         # another prefix in the same folder shares the cache
     assert cli.main(_args(syn, other, "--anchors", str(syn["anchors"]), "--exclude", str(syn["exclude"]))) == 0

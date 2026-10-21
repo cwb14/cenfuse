@@ -1,11 +1,11 @@
 """The Hi-C line.
 
-1. cenhic's prior-free call, unchanged (outputs under OUT/hic/).
+1. The Hi-C engine's prior-free call, unchanged (outputs under OUT/hic/).
 2. The anchored test, on the same balanced matrix. Partner windows sit at the other chromosomes' sequence calls
-   (midpoint bin +/- cenhic's HALF_WIN). Each chromosome's score is the mean O/E with those windows; its own call is
+   (midpoint bin +/- the Hi-C engine's HALF_WIN). Each chromosome's score is the mean O/E with those windows; its own call is
    never a partner, so the test is leave-one-chromosome-out by construction. Which trans cluster dominates the
    genome then no longer matters: the score asks whether a place contacts the other chromosomes' (sequence-defined)
-   centromeres. Every anchored peak gets cenhic's own tests: Poisson bootstrap with the windows fixed,
+   centromeres. Every anchored peak gets the Hi-C engine's own tests: Poisson bootstrap with the windows fixed,
    leave-one-partner-out, and the position-aware null.
 3. The gate, per chromosome x: on the other chromosomes with a reference-grade sequence call, does the anchored peak
    land on that call more often than chance (Poisson-binomial tail <= GATE_P, and on a majority)? Only then is
@@ -38,7 +38,7 @@ HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confid
 
 
 def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
-    """cenhic `call` as its own command runs it; returns its rows and in-memory state."""
+    """The Hi-C engine's `call`, as its own command runs it; returns its rows and in-memory state."""
     args = Namespace(pairs=str(pairs), fai=str(fai), o=str(prefix), repeats=None,
                      satellites=[str(s) for s in satellites] or None, t=max(1, threads), verbose=False)
     try:
@@ -48,7 +48,7 @@ def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
 
 
 def bootstrap_all(M, bins, members, est, threads: int, n: int = hp.N_BOOT, seed: int = hp.SEED) -> dict:
-    """cenhic's bootstrap (Poisson resamples, re-balanced, partner windows fixed at est), but the peak of every
+    """The Hi-C engine's bootstrap (Poisson resamples, re-balanced, partner windows fixed at est), but the peak of every
     callable chromosome, not only of those holding a window."""
     ks = [int(k) for k in np.where(members)[0]]
 
@@ -62,7 +62,7 @@ def bootstrap_all(M, bins, members, est, threads: int, n: int = hp.N_BOOT, seed:
 
 
 def lopo_all(oe, bins, good, members) -> dict:
-    """Peak of every callable chromosome with each partner window left out in turn (cenhic's leave_one_out)."""
+    """Peak of every callable chromosome with each partner window left out in turn (the Hi-C engine's leave_one_out)."""
     out = {}
     for x in (int(k) for k in np.where(members)[0]):
         peaks = []
@@ -76,7 +76,7 @@ def lopo_all(oe, bins, good, members) -> dict:
 
 
 def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NULL, seed: int = hp.SEED) -> dict:
-    """cenhic's position-aware null, for every chromosome with a peak: partner windows moved to random bins at least
+    """The Hi-C engine's position-aware null, for every chromosome with a peak: partner windows moved to random bins at least
     NULL_EXCL from that partner's anchor and its ends; P = (1 + replicates reaching the observed peak ratio within
     NULL_REACH bins of the peak) / (1 + n). NaN when untestable."""
     rng = np.random.default_rng(seed)
@@ -160,7 +160,7 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
-    """state: cenhic's in-memory state; seq: {chrom: (start, end, confidence)} of the sequence calls (start -1 =
+    """state: the Hi-C engine's in-memory state; seq: {chrom: (start, end, confidence)} of the sequence calls (start -1 =
     none). Returns (per-chromosome table without the de novo columns, {'S': anchored score, 'est': partners})."""
     M, W, bins, good, mean, members = (state[k] for k in ("M", "W", "bins", "good", "mean", "members"))
     est = _partners(bins, members, seq)
@@ -207,7 +207,7 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
 
 
 def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
-    """cenhic's prior-free calls next to the anchored ones (reported; never used to decide)."""
+    """The prior-free Hi-C calls next to the anchored ones (reported; never used to decide)."""
     by = {r["chrom"]: r for r in rows}
     idx = {n: i for i, n in enumerate(bins.names)}
     cols = {c: [] for c in HIC_COLS if c.startswith("denovo_")}

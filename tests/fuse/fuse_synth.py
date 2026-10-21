@@ -1,5 +1,5 @@
 """Synthetic GENOME_DIR for cenfuse at the engines' real scales (Hi-C bins 250 kb, 100 per chromosome, enough for
-cenhic's null; cenmeth D ~ 270 kb): ten 25-Mb chromosomes, cenrep-format sequence calls (imported with --satellite-dir), LTRquest-style TEs, genes,
+the Hi-C engine's null; methylation D ~ 270 kb): ten 25-Mb chromosomes, satellite-engine-format sequence calls (imported with --satellite-dir), LTRquest-style TEs, genes,
 Hi-C pairs from a Rabl nucleus, and CHG bedMethyl for three plants.
 
 Functional centromere F (Hi-C cluster; CRM elements with CHG loss) vs satellite call S:
@@ -82,7 +82,7 @@ def write_fasta(path: Path, rng) -> None:
 
 
 def write_satellite(sat: Path, genome: str, plants: bool = False) -> None:
-    """cenrep outputs: summary (1-based), arrays GFF (roles, rdna tag), families TSV. plants: a second satA array at
+    """Satellite-engine outputs: summary (1-based), arrays GFF (roles, rdna tag), families TSV. plants: a second satA array at
     the shifted plant's centromere (200 kb at chr3 20 Mb)."""
     sat.mkdir(parents=True, exist_ok=True)
     cols = ["chrom", "chrom_len", "cen_start", "cen_end", "cen_len", "evidence", "confidence", "flags", "main_family",
@@ -112,7 +112,7 @@ def write_satellite(sat: Path, genome: str, plants: bool = False) -> None:
         f.write("##gff-version 3\n")
         for i, (c, s, e, fam, role, rd) in enumerate(sorted(arrays), 1):
             extra = f";rdna={rd}" if rd != "." else ""
-            f.write(f"{c}\tcenrep\tsatellite_DNA\t{s + 1}\t{e}\t.\t+\t.\tID=sat_{i};family={fam};role={role}{extra};"
+            f.write(f"{c}\tcenfuse\tsatellite_DNA\t{s + 1}\t{e}\t.\t+\t.\tID=sat_{i};family={fam};role={role}{extra};"
                     f"monomer_len=150;n_monomers={(e - s) // 150};mean_identity=0.9;in_centromere=false\n")
     with open(sat / "satellite_families.tsv", "w") as f:
         f.write("family\tgenome\tclass\trole\n")
@@ -162,7 +162,7 @@ def write_genes(path: Path, rng) -> list:
 
 
 def write_pairs(path: Path, rng, n_trans=400_000, n_cis=400_000, permute=False, cen_bins=None) -> None:
-    """cenhic's Rabl model (tests/hic/hic_synth.py) at the functional centromeres F (or cen_bins), plus a hub."""
+    """The Hi-C engine's Rabl model (tests/hic/hic_synth.py) at the functional centromeres F (or cen_bins), plus a hub."""
     names = CHROMS
     N = NB * len(names)
     chrom_of = np.repeat(np.arange(len(names)), NB)

@@ -1,7 +1,7 @@
 """Mis-mapping null: cis-only read pairs simulated from the assembly, mapped and paired like the real library.
 
 Every inter-chromosomal pair that survives is a mapping artefact. Counts are scaled to the real library by its
-cis-pair count and compared with the real centromere contacts of each `cenhic call` core."""
+cis-pair count and compared with the real centromere contacts of each `python -m cenfuse.hic call` core."""
 from __future__ import annotations
 
 import gzip
@@ -18,7 +18,7 @@ import pysam
 from . import params
 from .io import InputError, PairStats, check_readable, is_cool, iter_pairs, read_fai
 
-log = logging.getLogger("cenhic")
+log = logging.getLogger("cenfuse-hic")
 COMP = np.frombuffer(bytes.maketrans(b"ACGTN", b"TGCAN"), dtype=np.uint8)      # lookup tables, not parameters
 BASES = np.frombuffer(b"ACGT", dtype=np.uint8)
 
@@ -167,7 +167,7 @@ def run_simulate(args):
         raise InputError("minimap2 not found on PATH (needed to map the simulated reads)")
     cen = Path(f"{args.o}.centromeres.tsv")
     if not cen.exists():
-        raise InputError(f"{cen} not found: run `cenhic call -o {args.o}` first")
+        raise InputError(f"{cen} not found: run `python -m cenfuse.hic call -o {args.o}` first")
     fai_path = Path(str(args.fasta) + ".fai")
     if not fai_path.exists():
         raise InputError(f"{fai_path} not found: index the FASTA (samtools faidx)")

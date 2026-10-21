@@ -1,4 +1,4 @@
-"""cenrep's internal constants: every analysis threshold in one place, each with a one-line reason.
+"""The satellite engine's internal constants: every analysis threshold in one place, each with a one-line reason.
 
 None of them is a command-line option: a user should not have to tune 51 numbers, and a value tuned to one dataset
 does not travel. `Params` holds the stage-fingerprinted values; checkpoints (work/<stage>.done) are keyed by its
@@ -7,7 +7,7 @@ one named constant. 'prior' marks an absolute size with no data-derived rule yet
 constants live with their modules."""
 from dataclasses import asdict, dataclass
 
-from .util import CenrepError
+from .util import SatelliteError
 
 # ---- shared values: one concept, one number
 SEED_MAX_PERIOD = 2000         # longest seed unit = TRF's maximum period (FasTAN's longer units are dropped); longer
@@ -182,9 +182,9 @@ def parse_borrow(spec: str) -> dict:
         tgt, _, src = (x.strip() for x in item.partition("="))
         srcs = sorted({x.strip() for x in src.split("+")})
         if not tgt or "=" not in item or not all(srcs):
-            raise CenrepError(f"--classify-from: {item!r} is not TARGET=SOURCE[+SOURCE...]")
+            raise SatelliteError(f"--classify-from: {item!r} is not TARGET=SOURCE[+SOURCE...]")
         if tgt in out:
-            raise CenrepError(f"--classify-from: {tgt} is given more than once")
+            raise SatelliteError(f"--classify-from: {tgt} is given more than once")
         out[tgt] = srcs
     return out
 

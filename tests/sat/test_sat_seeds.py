@@ -32,7 +32,7 @@ def test_dedupe_period_tolerance_scales_with_the_unit():
 
 
 def test_trf_cache_name_is_unchanged(tmp_path):
-    """TRF caches written by earlier cenrep versions (hours per large genome) must still be found."""
+    """TRF caches written by earlier satellite-engine versions (hours per large genome) must still be found."""
     assert cache_path(tmp_path, "abc", Params(seed_engine="trf")).name == "abc.25429390.trf.tsv.gz"
 
 

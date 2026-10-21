@@ -1,6 +1,6 @@
-"""cenmeth run: inputs -> class bins (cached in <output folder>/cenmeth_cache/, shared by runs in that folder) ->
+"""Methylation engine run: inputs -> class bins (cached in <output folder>/meth_cache/, shared by runs in that folder) ->
 depth filter -> calibration at the anchors (if given) -> candidates -> outputs. Errors in the input stop the run with
-'cenmeth: error: ...' (exit 2)."""
+'cenfuse-meth: error: ...' (exit 2)."""
 from __future__ import annotations
 
 import argparse
@@ -14,13 +14,13 @@ import numpy as np
 from . import __version__, bins, calibrate, candidates, classes, io, output, params, plot, track
 from .scan import scan
 
-log = logging.getLogger("cenmeth")
+log = logging.getLogger("cenfuse-meth")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="cenmeth", description="Centromere-like regions from DNA methylation "
+    p = argparse.ArgumentParser(prog="python -m cenfuse.meth", description="Centromere-like regions from DNA methylation "
                                 "(exploratory evidence, never bona fide centromere calls).")
-    p.add_argument("--version", action="version", version=f"cenmeth {__version__}")
+    p.add_argument("--version", action="version", version=f"cenfuse-meth {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="scan samples for centromere-like methylation; calibrate on anchors if given")
     r.add_argument("--samples", required=True, help="TSV: sample, CHG [, CG, CHH] = modkit bedMethyl (bgzip+tabix)")
@@ -29,9 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     te.add_argument("--ltrquest", help="LTRquest *_LTRs_all_depth_LTR_cleaned.gff3 (preferred: clades, nesting)")
     te.add_argument("--edta", help="EDTA *.TEanno.gff3 (superfamily classes; coarser)")
     r.add_argument("--satellites", required=True,
-                   help="cenrep <genome>_satellite_arrays.gff, or any BED/GFF3 with the family as name")
+                   help="cenfuse <genome>_satellite_arrays.gff, or any BED/GFF3 with the family as name")
     r.add_argument("--genes", help="GFF3 with gene features (gene-body class)")
-    r.add_argument("--anchors", help="known centromeres: cenhic BED, cenrep GFF3, or BED (e.g. CENH3 ChIP)")
+    r.add_argument("--anchors", help="known centromeres: cenfuse Hi-C BED, GFF3 with centromere features, or BED (e.g. CENH3 ChIP)")
     r.add_argument("--exclude", help="BED of regions to drop; optional 4th column = sample (blank = all)")
     r.add_argument("-o", "--out", required=True, help="output prefix, e.g. out/x")
     r.add_argument("-t", "--threads", type=int, default=8, help="parallel processes [8]")
@@ -113,7 +113,7 @@ def run(a) -> None:
     log.info("sequence classes: %d", len(cmap.names))
     ann = [x for x in (a.ltrquest or a.edta, a.satellites, a.genes) if x]
     key = bins.fingerprint(ann, "|".join(cmap.names))     # same files, other analysed chromosomes -> other classes
-    raw = bins.collect(samples, chroms, cmap, key, out.parent / "cenmeth_cache" / key, max(1, a.threads))
+    raw = bins.collect(samples, chroms, cmap, key, out.parent / "meth_cache" / key, max(1, a.threads))
     filt, dstats = bins.depth_filter(raw, samples, chroms, excl)
     for d in dstats:
         if not np.isfinite(d.median_depth):
@@ -152,7 +152,7 @@ def run(a) -> None:
             log.warning("%d anchors without data (< %d calls in every sample): %s", len(empty), params.MIN_CALLS,
                         ", ".join(empty[:5]))
     sig_txt = ",".join(f"{r.context}:{r.cls}:{r.direction}" for r in sig.itertuples()) or "none"
-    header = (f"#cenmeth {__version__} D={round(D)} direction={direction}({dsrc}) anchors={src} "
+    header = (f"#cenfuse-meth {__version__} D={round(D)} direction={direction}({dsrc}) anchors={src} "
               f"signature={sig_txt}")
     output.write_bed(cand, header, f"{out}.candidates.bed")
     output.write_tsv(cand, f"{out}.candidates.tsv")
@@ -185,7 +185,7 @@ def run(a) -> None:
 
 class _Fmt(logging.Formatter):
     def format(self, r):
-        return f"cenmeth: {'warning: ' if r.levelno >= logging.WARNING else ''}{r.getMessage()}"
+        return f"cenfuse-meth: {'warning: ' if r.levelno >= logging.WARNING else ''}{r.getMessage()}"
 
 
 def main(argv=None) -> int:
@@ -198,6 +198,6 @@ def main(argv=None) -> int:
     try:
         run(a)
     except io.InputError as e:
-        print(f"cenmeth: error: {e}", file=sys.stderr)
+        print(f"cenfuse-meth: error: {e}", file=sys.stderr)
         return 2
     return 0

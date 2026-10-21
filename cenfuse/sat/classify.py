@@ -299,7 +299,7 @@ def assign_roles(fams: pd.DataFrame, p, borrowed: bool = False) -> pd.DataFrame:
     """One role per family in this genome (ROLES, first match wins), from the tests classify already ran:
     rDNA (5S rRNA by Rfam on the consensus, or 45S spacer: arrays among 45S rRNA genes), centromeric,
     cen_associated (most bp inside centromere calls), subtelomeric (the family_metrics verdict), interstitial (concentrated at one
-    locus per chromosome, not the centromere: knobs and other heterochromatic blocks land here; cenrep cannot tell
+    locus per chromosome, not the centromere: knobs and other heterochromatic blocks land here; the engine cannot tell
     them apart), dispersed (spread along chromosomes), minor (< chrom_min_bp in this genome: too little to judge).
     Borrowed genomes (contigs): per-chromosome tests are meaningless, so only rDNA / centromeric / cen_associated
     are assigned and the rest is 'unassessed'."""

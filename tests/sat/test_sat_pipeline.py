@@ -3,7 +3,7 @@ from dataclasses import fields
 import pytest
 
 from cenfuse.sat.params import Params
-from cenfuse.sat.util import CenrepError
+from cenfuse.sat.util import SatelliteError
 from cenfuse.sat.pipeline import STAGE_PARAMS, STAGES
 
 
@@ -32,7 +32,7 @@ def _complex(d, names, nseq=1):
 def test_classify_from_is_validated(tmp_path, spec, msg):
     from cenfuse.sat.pipeline import Pipeline
     cdir = _complex(tmp_path, "abc")
-    with pytest.raises(CenrepError, match=msg):
+    with pytest.raises(SatelliteError, match=msg):
         Pipeline(cdir, 1, tmp_path / "cache", Params(classify_from=spec))
 
 
@@ -54,7 +54,7 @@ def test_seed_engine_changes_every_fingerprint(tmp_path):
 
 
 def test_default_cache_keeps_using_an_older_runs_trf_cache(tmp_path):
-    """Runs of cenrep < 0.9 cached TRF in OUTDIR/work/trf_cache (hours per large genome); a rerun must find it."""
+    """Runs of satellite engine < 0.9 cached TRF in OUTDIR/work/trf_cache (hours per large genome); a rerun must find it."""
     from cenfuse.sat.pipeline import Pipeline
     cdir = _complex(tmp_path, ["a"])
     assert Pipeline(cdir, 1, None, Params()).cache == cdir / "centromere" / "work" / "seed_cache"
@@ -64,7 +64,7 @@ def test_default_cache_keeps_using_an_older_runs_trf_cache(tmp_path):
 
 def test_unknown_seed_engine_fails_clearly(tmp_path):
     from cenfuse.sat.pipeline import Pipeline
-    with pytest.raises(CenrepError, match="seed engine 'nope'"):
+    with pytest.raises(SatelliteError, match="seed engine 'nope'"):
         Pipeline(_complex(tmp_path, ["a"]), 1, tmp_path / "cache", Params(seed_engine="nope"))
 
 

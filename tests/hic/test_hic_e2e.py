@@ -1,4 +1,4 @@
-"""End-to-end: the full `cenhic call` pipeline on a synthetic genome with planted centromeres."""
+"""End-to-end: the full Hi-C engine `call` pipeline on a synthetic genome with planted centromeres."""
 from __future__ import annotations
 
 import logging
@@ -57,12 +57,12 @@ def test_cycle_unstable_flag_only_on_the_unattached_chromosome(done):
 def test_bed_is_the_anchor(done):
     truth, prefix = done
     lines = open(f"{prefix}.centromeres.bed").read().splitlines()
-    assert lines[0].startswith("#cenhic") and all(len(l.split("\t")) == 9 for l in lines[1:])
+    assert lines[0].startswith("#cenfuse-hic") and all(len(l.split("\t")) == 9 for l in lines[1:])
 
 
 def test_rerun_uses_cache(done, caplog):
     truth, prefix = done
-    caplog.set_level("INFO", logger="cenhic")
+    caplog.set_level("INFO", logger="cenfuse-hic")
     main(["call", "--pairs", str(truth["pairs"]), "--fai", str(truth["fai"]), "-o", str(prefix), "-t", "4"])
     assert any("cache hit" in r.message for r in caplog.records)
 
@@ -94,7 +94,7 @@ def test_truncated_gz_exits_2(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         main(["call", "--pairs", str(bad), "--fai", str(truth["fai"]), "-o", str(tmp_path / "o" / "x")])
     assert e.value.code == 2
-    assert "cenhic: error:" in capsys.readouterr().err
+    assert "cenfuse-hic: error:" in capsys.readouterr().err
 
 
 def _pairs_read_too_early(*a, **k):
@@ -114,7 +114,7 @@ def test_missing_annotation_fails_before_reading_pairs(done, tmp_path, monkeypat
               opt, str(truth["sat"]), str(tmp_path / "missing.gff")])
     assert e.value.code == 2
     err = capsys.readouterr().err
-    assert "cenhic: error:" in err and "missing.gff" in err
+    assert "cenfuse-hic: error:" in err and "missing.gff" in err
 
 
 def test_bad_gff_coordinate_fails_before_reading_pairs(done, tmp_path, monkeypatch, capsys):
@@ -138,7 +138,7 @@ def test_fasta_as_fai_exits_2_naming_the_line(tmp_path, capsys):
         main(["call", "--pairs", str(p), "--fai", str(fa), "-o", str(tmp_path / "x")])
     assert e.value.code == 2
     err = capsys.readouterr().err
-    assert "cenhic: error:" in err and "g.fa: line 1" in err
+    assert "cenfuse-hic: error:" in err and "g.fa: line 1" in err
 
 
 def test_annotation_without_intervals_is_warned(done, tmp_path, monkeypatch, caplog):
@@ -146,7 +146,7 @@ def test_annotation_without_intervals_is_warned(done, tmp_path, monkeypatch, cap
     fa = tmp_path / "g.fa"
     fa.write_text(">chr1\nACGTACGT\n")
     monkeypatch.setattr(cli, "_base_matrix", _stop_after_startup)
-    caplog.set_level("INFO", logger="cenhic")
+    caplog.set_level("INFO", logger="cenfuse-hic")
     with pytest.raises(SystemExit):
         main(["call", "--pairs", str(truth["pairs"]), "--fai", str(truth["fai"]), "-o", str(tmp_path / "x"),
               "--repeats", str(fa)])
@@ -161,7 +161,7 @@ def test_repeats_with_cool_input_is_warned(done, tmp_path, monkeypatch, caplog):
     rep = tmp_path / "r.bed"
     rep.write_text("chr1\t10\t20\n")
     monkeypatch.setattr(cli, "_base_matrix", _stop_after_startup)
-    caplog.set_level("INFO", logger="cenhic")
+    caplog.set_level("INFO", logger="cenfuse-hic")
     with pytest.raises(SystemExit):
         main(["call", "--pairs", str(cool), "--fai", str(truth["fai"]), "-o", str(tmp_path / "x"),
               "--repeats", str(rep)])
@@ -183,7 +183,7 @@ def test_corrupt_cache_is_rebuilt(done, tmp_path, caplog):
     shutil.copytree(str(prefix) + ".cache", str(out) + ".cache")
     for f in Path(str(out) + ".cache").glob("*.npz"):
         f.write_bytes(b"not a zip")
-    caplog.set_level("INFO", logger="cenhic")
+    caplog.set_level("INFO", logger="cenfuse-hic")
     main(["call", "--pairs", str(truth["pairs"]), "--fai", str(truth["fai"]), "-o", str(out), "-t", "4"])
     msgs = [r.message for r in caplog.records]
     assert any("unreadable" in m and "rebuilding" in m for m in msgs)
@@ -227,7 +227,7 @@ def test_over_median_skips_empty_and_nonpositive_chromosomes():
 @pytest.fixture(scope="module")
 def plus(done, tmp_path_factory):
     """One run with two extra .fai sequences: a 1-Mb contig (too short to call) and a 30-Mb chrX with no pairs.
-    Log records are collected on the root logger (the cli replaces the cenhic logger's own handlers)."""
+    Log records are collected on the root logger (the cli replaces the cenfuse-hic logger's own handlers)."""
     truth, _ = done
     d = tmp_path_factory.mktemp("plus")
     fai = d / "plus.fai"
@@ -269,4 +269,4 @@ def test_fewer_than_three_chromosomes_with_contacts_fails(done, tmp_path, capsys
         main(["call", "--pairs", str(truth["pairs"]), "--fai", str(fai), "-o", str(tmp_path / "o" / "x"), "-t", "2"])
     assert e.value.code == 2
     err = capsys.readouterr().err
-    assert "cenhic: error:" in err and "contacts" in err
+    assert "cenfuse-hic: error:" in err and "contacts" in err

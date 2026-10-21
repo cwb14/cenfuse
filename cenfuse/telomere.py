@@ -4,7 +4,7 @@ The genome's telomere unit is the primitive 5-12-bp unit that most often repeats
 TERM_SCAN of the chromosome ends, counted on both strands as one canonical unit. Any telomerase RNA template variant
 (TTTAGGG in most plants, TTAGGG in vertebrates, TTAGG in insects) is found this way. Each end then gets its array:
 the array holding the most unit copies (either strand, short breaks tolerated) in the terminal TERM_SEARCH; its
-length, and the gap from the array to the sequence end. Units shorter than 30 bp are outside cenrep's satellite search, so the two
+length, and the gap from the array to the sequence end. Units shorter than 30 bp are outside the satellite engine's search, so the two
 never report the same array."""
 from __future__ import annotations
 

@@ -10,7 +10,7 @@ import numpy as np
 import pyabpoa
 
 from .params import CONS_UNITS, FASTAN_ARGS, LEN_TOL, RELATED_LEN_TOL, SEED_MAX_PERIOD
-from .util import CenrepError, log, run
+from .util import SatelliteError, log, run
 
 TOOLS = ["FAtoGDB", "FasTAN", "ONEview"]
 DUP_TOL = LEN_TOL   # a unit is a mean over the copies aligned, so the same array seen from two chunks can differ
@@ -37,7 +37,7 @@ def parse_ano(text: str) -> list:
             elif rows and t[0] == "P":
                 rows[-1][4] = [int(x) for x in t[2:2 + int(t[1])]]
         except (ValueError, IndexError):                 # a format change, not a bad record: stop
-            raise CenrepError(f"FasTAN output: unparsable .1ano line {line[:80]!r} (FasTAN/ONEview version?)") from None
+            raise SatelliteError(f"FasTAN output: unparsable .1ano line {line[:80]!r} (FasTAN/ONEview version?)") from None
     return [tuple(r) for r in rows]
 
 
@@ -63,7 +63,7 @@ def trims_last_unit(tmpdir) -> bool:
     unit = rs(150)
     ends = [e for _, e, u, _, _ in parse_ano(run_fastan(rs(2000) + unit * 10 + rs(2000), tmpdir)) if u == 150]
     if not ends:
-        raise CenrepError("FasTAN self-test found no array (10 copies of a 150-bp unit); check FasTAN, FAtoGDB and "
+        raise SatelliteError("FasTAN self-test found no array (10 copies of a 150-bp unit); check FasTAN, FAtoGDB and "
                           "ONEview (FASTGA)")
     return max(ends) < 3500 - 75
 

@@ -1,4 +1,4 @@
-"""Helpers shared by the sat tests (moved out of conftest.py by tools/vendor.py)."""
+"""Helpers shared by the sat tests."""
 import shutil
 import pytest
 from cenfuse.sat.params import Params

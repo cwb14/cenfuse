@@ -13,14 +13,14 @@ import numpy as np
 import pandas as pd
 import pysam
 
-log = logging.getLogger("cenmeth")
+log = logging.getLogger("cenfuse-meth")
 CONTEXTS = ("CHG", "CG", "CHH")
 UNCLASSIFIED = {"", ".", "na", "unknown", "mixture", "none"}
 EDTA_SKIP = {"repeat_region", "long_terminal_repeat", "target_site_duplication"}
 
 
 class InputError(Exception):
-    """Bad input: the CLI prints 'cenmeth: error: <message>' and exits 2."""
+    """Bad input: the CLI prints 'cenfuse-meth: error: <message>' and exits 2."""
 
 
 def read_fai(path) -> dict[str, int]:
@@ -190,7 +190,7 @@ def read_edta(path) -> pd.DataFrame:
 
 
 def read_satellites(path) -> pd.DataFrame:
-    """Tandem-repeat arrays -> DataFrame[chrom, start, end, cls]: class 'sat:<family>'. cenrep
+    """Tandem-repeat arrays -> DataFrame[chrom, start, end, cls]: class 'sat:<family>'. Satellite-engine
     <genome>_satellite_arrays.gff: satellite_DNA features, family= attribute. Other GFF3: every feature, family from
     family= or Name=. BED: family = name column."""
     d = read_intervals(path)
@@ -216,7 +216,7 @@ def read_genes(path) -> pd.DataFrame:
 
 
 def anchor_source(path) -> str:
-    """'hic' for a cenhic BED (first line '#cenhic'), 'cenrep' for a cenrep GFF3 with centromere features,
+    """'hic' for a Hi-C engine BED (first line '#cenfuse-hic'), 'satellite' for a GFF3 with centromere features,
     otherwise 'user' (e.g. CENH3 ChIP domains)."""
     try:
         opener = gzip.open if str(path).lower().endswith(".gz") else open
@@ -224,22 +224,22 @@ def anchor_source(path) -> str:
             first = f.readline()
     except (OSError, UnicodeDecodeError, gzip.BadGzipFile) as e:
         raise InputError(f"cannot read anchors {path}: {e}") from e
-    if first.startswith("#cenhic"):
+    if first.startswith("#cenfuse-hic"):
         return "hic"
     if _is_gff(path):
         d = read_intervals(path)
-        if ((d.source == "cenrep") & (d.type == "centromere")).any():
-            return "cenrep"
+        if (d.type == "centromere").any():
+            return "satellite"
     return "user"
 
 
 def read_anchors(path) -> tuple[pd.DataFrame, str]:
     """Known centromeres -> (DataFrame[chrom, start, end, mid, name], source). Midpoint = middle of the BED thick
-    span when it lies inside the interval (cenhic: the peak bin), else the interval's middle. cenrep GFF3: only
+    span when it lies inside the interval (Hi-C engine: the peak bin), else the interval's middle. GFF3 with centromere features: only
     'centromere' features."""
     src = anchor_source(path)
     d = read_intervals(path)
-    if src == "cenrep":
+    if src == "satellite":
         d = d[d.type == "centromere"]
     _need(d, path, "anchor intervals")
     ts, te = d.thick_start.to_numpy(float), d.thick_end.to_numpy(float)

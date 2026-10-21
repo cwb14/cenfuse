@@ -1,6 +1,6 @@
 import pytest
 
-from cenfuse.sat.util import (CenrepError, canonical_rotation, clipped_bp, merge_intervals, parse_fasta_text,
+from cenfuse.sat.util import (SatelliteError, canonical_rotation, clipped_bp, merge_intervals, parse_fasta_text,
                          revcomp, run, union_bp)
 
 
@@ -27,5 +27,5 @@ def test_revcomp_and_fasta_parse():
 
 
 def test_run_raises_on_failure():
-    with pytest.raises(CenrepError):
+    with pytest.raises(SatelliteError):
         run(["false"])

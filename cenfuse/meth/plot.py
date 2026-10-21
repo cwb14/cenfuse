@@ -18,7 +18,7 @@ from . import params  # noqa: E402
 
 BLUE, GREY, INK, BAND = "#0072B2", "#8C8C8C", "#1A1A1A", "#E3EEF7"
 PER_PAGE = 8
-log = logging.getLogger("cenmeth")
+log = logging.getLogger("cenfuse-meth")
 
 
 def overview(adj: dict, lengths: dict, cand, anchors: dict, footer: str, path) -> None:

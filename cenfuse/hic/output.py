@@ -1,4 +1,4 @@
-"""Writers: BED9 calls (also the anchor input of the companion tool cenmeth), per-chromosome TSV, bedGraph tracks,
+"""Writers: BED9 calls (also the anchor input of the methylation engine), per-chromosome TSV, bedGraph tracks,
 QC table."""
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _stat_text(v):
 
 def write_bed(rows, path, bin_size):
     with open(path, "w") as f:
-        f.write(f"#cenhic {__version__} bin_size={bin_size}\n")
+        f.write(f"#cenfuse-hic {__version__} bin_size={bin_size}\n")
         for r in rows:
             label = r["confidence"]
             if not isinstance(label, str) or label not in RGB:

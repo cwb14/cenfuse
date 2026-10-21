@@ -1,4 +1,4 @@
-"""The LTR-retrotransposon line: cenrep's clade test for every clade (not only the marker), so the loci table can
+"""The LTR-retrotransposon line: the satellite engine's clade test for every clade (not only the marker), so the loci table can
 place each concentrated clade's core, and the marker clade's density for the overview figure."""
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .sat.params import TE_BINS, TE_MIN_BIN
 def te_line(gff, chroms: dict) -> dict:
     """{'clades': [(clade, {chrom: core})] most concentrated first, 'marker': (clade, cores, decisive) | None,
     'density': {chrom: (bin_bp, counts)} of the marker clade, 'mids': {clade: {chrom: sorted element midpoints}}}.
-    Cores are cenrep's (0-based half-open)."""
+    Cores are the satellite engine's (0-based half-open)."""
     if gff is None:
         return dict(clades=[], marker=None, density={}, mids={})
     tes = te.load_te_gff(gff, chroms)

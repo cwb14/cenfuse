@@ -13,7 +13,7 @@ def test_anchor_table_merges_and_drops(caplog):
     a = pd.DataFrame(dict(chrom=["c1", "c1", "c2", "scaf"], start=[1_000_000, 1_400_000, 5_000_000, 0],
                           end=[1_200_000, 1_600_000, 6_000_000, 10], mid=[1_100_000, 1_500_000, 5_500_000, 5],
                           name=["p1", "p2", "c2_cen", "s"]))
-    with caplog.at_level(logging.WARNING, logger="cenmeth"):
+    with caplog.at_level(logging.WARNING, logger="cenfuse-meth"):
         t = calibrate.anchor_table(a, {"c1": 50_000_000, "c2": 50_000_000})
     assert set(t) == {"c1", "c2"}
     assert (t["c1"]["start"], t["c1"]["end"], t["c1"]["mid"]) == (1_000_000, 1_600_000, 1_300_000)
@@ -65,11 +65,11 @@ def test_perm_floor():
 
 def test_calibrate_warns_when_permutations_cannot_reach_the_fdr(monkeypatch, caplog):
     pooled, totals = _pools(np.random.default_rng(1))
-    with caplog.at_level(logging.WARNING, logger="cenmeth"):
+    with caplog.at_level(logging.WARNING, logger="cenfuse-meth"):
         calibrate.calibrate(pooled, totals, ["a", "b", "c"])
     assert "too many class x context tests" not in caplog.text
     monkeypatch.setattr(params, "N_PERM", 20)                   # 3 tests: 3 / 21 > FDR
-    with caplog.at_level(logging.WARNING, logger="cenmeth"):
+    with caplog.at_level(logging.WARNING, logger="cenfuse-meth"):
         calibrate.calibrate(pooled, totals, ["a", "b", "c"])
     assert "too many class x context tests" in caplog.text
 

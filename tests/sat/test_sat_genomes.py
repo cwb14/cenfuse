@@ -1,13 +1,13 @@
 import pytest
 
 from cenfuse.sat.genomes import count_in, discover_genomes, load_fai, load_genes
-from cenfuse.sat.util import CenrepError
+from cenfuse.sat.util import SatelliteError
 
 
 def test_load_fai_missing(tmp_path):
     fa = tmp_path / "x.fa"
     fa.write_text(">c\nACGT\n")
-    with pytest.raises(CenrepError, match="missing FASTA index"):
+    with pytest.raises(SatelliteError, match="missing FASTA index"):
         load_fai(fa)
 
 
@@ -17,7 +17,7 @@ def _fa(d, name, chroms):
 
 
 def test_discover_requires_a_genome(tmp_path):
-    with pytest.raises(CenrepError, match="no \\*.fa genomes"):
+    with pytest.raises(SatelliteError, match="no \\*.fa genomes"):
         discover_genomes(tmp_path)
 
 
@@ -71,7 +71,7 @@ def test_gene_gff_with_foreign_sequence_names_is_no_evidence(tmp_path):
 def test_gene_gff_bad_coordinates_fail_clearly(tmp_path):
     (tmp_path / "genes").mkdir()
     (tmp_path / "genes" / "Sp_A.gff3").write_text("chr1\tx\tgene\tone\t10\t.\t+\t.\tID=g1\n")
-    with pytest.raises(CenrepError, match="Sp_A.gff3:1"):
+    with pytest.raises(SatelliteError, match="Sp_A.gff3:1"):
         load_genes(tmp_path, "Sp_A", {"chr1": 5000})
 
 
@@ -110,14 +110,14 @@ def test_discover_reads_bgzipped_genomes(tmp_path):
 def test_discover_rejects_gz_without_bgzip_index(tmp_path):
     gz = _bgzip_fa(tmp_path, "Sp_A", ["c1"])
     (tmp_path / "Sp_A.fa.gz.gzi").unlink()
-    with pytest.raises(CenrepError, match="bgzip"):
+    with pytest.raises(SatelliteError, match="bgzip"):
         discover_genomes(tmp_path)
 
 
 def test_discover_rejects_one_genome_twice(tmp_path):
     _bgzip_fa(tmp_path, "Sp_A", ["c1"])
     _fa(tmp_path, "Sp_A", ["c1"])
-    with pytest.raises(CenrepError, match="Sp_A"):
+    with pytest.raises(SatelliteError, match="Sp_A"):
         discover_genomes(tmp_path)
 
 

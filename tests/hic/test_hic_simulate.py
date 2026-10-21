@@ -256,6 +256,6 @@ def test_simulate_needs_at_least_one_pair(tmp_path, n, capsys):
 
 def test_short_chromosomes_are_skipped(tmp_path, caplog):
     fa = tiny_genome(tmp_path)
-    with caplog.at_level("WARNING", logger="cenhic"):
+    with caplog.at_level("WARNING", logger="cenfuse-hic"):
         _, _, truth = simulate_pairs(fa, {"chr1": 2_000_000, "tiny": 500}, 50, np.array([[100, 100]]), tmp_path / "s")
     assert set(pd.read_csv(truth, sep="\t").chrom) == {"chr1"} and "skipping tiny" in caplog.text

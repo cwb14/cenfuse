@@ -10,7 +10,7 @@ import pyhmmer
 from . import __version__, annotate, centromere, classify, families, hor, output, plot, seeds, te
 from .genomes import discover_genomes, load_genes
 from .params import MAX_CHROMOSOMES, TE_DERIVED_FRAC, Params, format_borrow, parse_borrow, to_dict
-from .util import CenrepError, log, require_tools
+from .util import SatelliteError, log, require_tools
 
 STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "output", "plot"]
 # results version per stage: bump a stage when its code can change outputs; a checkpoint's fingerprint carries the
@@ -56,13 +56,13 @@ TOOLS = ["makeblastdb", "blastn", "mafft", "cd-hit-est", "minimap2", "cmsearch"]
 class Pipeline:
     def __init__(self, complex_dir, threads: int, seed_cache, p: Params, force: str = None, out_dir=None):
         if p.seed_engine not in seeds.ENGINES:
-            raise CenrepError(f"seed engine {p.seed_engine!r} is not one of: {', '.join(seeds.ENGINES)}")
+            raise SatelliteError(f"seed engine {p.seed_engine!r} is not one of: {', '.join(seeds.ENGINES)}")
         self.cdir = Path(complex_dir).resolve()
         self.name = self.cdir.name
         self.out = Path(out_dir).resolve() if out_dir else self.cdir / "centromere"
         self.work = self.out / "work"
         self.threads = threads
-        legacy = self.work / "trf_cache"                 # cenrep < 0.9: its TRF results stay usable
+        legacy = self.work / "trf_cache"                 # satellite engine < 0.9: its TRF results stay usable
         self.cache = Path(seed_cache).resolve() if seed_cache else legacy if legacy.is_dir() else self.work / "seed_cache"
         genomes = discover_genomes(self.cdir)
         self.borrow = self._check_borrow(parse_borrow(p.classify_from), {g.name for g in genomes})
@@ -79,7 +79,7 @@ class Pipeline:
         self.force = force
         stale = next((st for st in STAGES if self._done(st) and self._stored(st) != self.fingerprint(st)), None)
         if stale and (force is None or STAGES.index(force) > STAGES.index(stale)):
-            raise CenrepError(f"code version or parameters changed since stage '{stale}' was checkpointed in "
+            raise SatelliteError(f"code version or parameters changed since stage '{stale}' was checkpointed in "
                               f"{self.work}; rerun with --force {stale} (or an earlier stage)")
         if force:
             for st in STAGES[STAGES.index(force):]:
@@ -92,12 +92,12 @@ class Pipeline:
         for tgt, srcs in borrow.items():
             for n in [tgt] + srcs:
                 if n not in names:
-                    raise CenrepError(f"--classify-from: unknown genome {n!r} (genomes: {', '.join(sorted(names))})")
+                    raise SatelliteError(f"--classify-from: unknown genome {n!r} (genomes: {', '.join(sorted(names))})")
             if tgt in srcs:
-                raise CenrepError(f"--classify-from: {tgt} borrows from itself")
+                raise SatelliteError(f"--classify-from: {tgt} borrows from itself")
             for s in srcs:
                 if s in borrow:
-                    raise CenrepError(f"--classify-from: source {s} of {tgt} is itself borrowed")
+                    raise SatelliteError(f"--classify-from: source {s} of {tgt} is itself borrowed")
         return borrow
 
     def fingerprint(self, stage: str) -> dict:
@@ -156,9 +156,9 @@ class Pipeline:
     def run(self) -> None:
         require_tools(TOOLS + seeds.ENGINES[self.p.seed_engine].TOOLS)
         if not families.RRNA_CM.exists():
-            raise CenrepError(f"rRNA models missing: {families.RRNA_CM} (part of the cenrep package; reinstall it)")
+            raise SatelliteError(f"rRNA models missing: {families.RRNA_CM} (part of cenfuse; reinstall it)")
         t0 = time.time()
-        log.info(f"cenrep {__version__}: {self.name} [{', '.join(g.name for g in self.genomes)}], "
+        log.info(f"satellite engine {__version__}: {self.name} [{', '.join(g.name for g in self.genomes)}], "
                  f"{self.threads} threads")
         rerun = False                                   # once a stage runs, every later stage runs too
         for s in STAGES:

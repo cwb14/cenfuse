@@ -1,5 +1,5 @@
 """Unit tests: the decision table, confidence arithmetic, the gate statistic, loci merging, the chromosome set and
-reading cenrep outputs."""
+reading satellite-engine outputs."""
 import itertools
 
 import numpy as np
@@ -156,13 +156,13 @@ def test_view_lists_chromosomes_only(tmp_path):
     assert "s1" not in (view / "A.fa.fai").read_text() and (view / "tes").is_symlink()
 
 
-def test_cenrep_outputs_are_read_0_based(tmp_path):
+def test_satellite_outputs_are_read_0_based(tmp_path):
     (tmp_path / "G_centromere_summary.tsv").write_text(
         "chrom\tchrom_len\tcen_start\tcen_end\tevidence\tconfidence\tflags\tmain_family\tcen_sat_bp\tte_clade\t"
         "te_core_start\tte_core_end\nc1\t1000\t101\t200\tsatellite\thigh\t.\tf1\t90\tCRM\t151\t300\n"
         "c2\t900\t.\t.\tnone\tnone\t.\t.\t.\t.\t.\t.\n")
     (tmp_path / "G_satellite_arrays.gff").write_text(
-        "##gff-version 3\nc1\tcenrep\tsatellite_DNA\t101\t150\t.\t+\t.\tID=a;family=f1;role=centromeric;"
+        "##gff-version 3\nc1\tcenfuse\tsatellite_DNA\t101\t150\t.\t+\t.\tID=a;family=f1;role=centromeric;"
         "monomer_len=10;n_monomers=5;in_centromere=true\n")
     s = seqcalls.read(tmp_path, "G", {"c1": 1000, "c2": 900, "c3": 800})
     c1 = s.call("c1")

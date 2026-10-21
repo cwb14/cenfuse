@@ -1,7 +1,7 @@
 """Stage orchestration: satellite -> genotype -> hic -> karyotype -> provisional -> meth -> fuse -> plants -> loci ->
 output -> plot.
 
-The satellite engine keeps cenrep's own checkpoints (OUT/satellite/work). The genotype, hic, karyotype and meth
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The genotype, hic, karyotype and meth
 stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and fingerprints
 of every input they read (including the calls they are anchored on), so a changed input recomputes them and an
 unchanged rerun resumes. The later stages are cheap and always rerun.
@@ -27,7 +27,7 @@ from .meth import track as mtrack
 from .params import ANCHOR_LEVELS, HIC_MAX_THREADS, KARYO_WINDOW
 from .sat.genomes import load_gene_gff
 from .sat.params import Params
-from .sat.util import CenrepError
+from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
 STAGES = ["satellite", "genotype", "hic", "karyotype", "meth"]
@@ -123,7 +123,7 @@ class Run:
         self.sat_import = Path(satellite_dir).resolve() if satellite_dir else None
         self.seed_engine, self.seed_cache, self.classify_from = seed_engine, seed_cache, classify_from
         self.force = force
-        self.sat_params = sat_params or {}           # tests only: cenrep Params overrides (scaled-down constants)
+        self.sat_params = sat_params or {}           # tests only: satellite-engine Params overrides (scaled-down constants)
         self.genomes = inputs.discover(self.gdir)
         self._prep = {}
         if self.sat_import and not self.sat_import.is_dir():
@@ -152,10 +152,10 @@ class Run:
         (d / f"{name}.done").write_text(json.dumps(fp))
 
     def _meth_prep(self, g, sat_dir: Path):
-        """cenmeth's inputs for genome g, built once per run (the class bins are also cached on disk)."""
+        """The methylation engine's inputs for genome g, built once per run (the class bins are also cached on disk)."""
         if g.name not in self._prep:
             arrays = sat_dir / f"{g.name}_satellite_arrays.gff"
-            self._prep[g.name] = methfuse.prepare(g, arrays, self.work / "meth" / "cenmeth_cache", self.threads)
+            self._prep[g.name] = methfuse.prepare(g, arrays, self.work / "meth" / "meth_cache", self.threads)
         return self._prep[g.name]
 
     def _meth_inputs_fp(self, g, sat_dir: Path) -> dict:
@@ -169,7 +169,7 @@ class Run:
     # ------------------------------------------------------------------ stages
     def stage_satellite(self) -> Path:
         if self.sat_import:
-            log.info(f"satellite: reading cenrep outputs from {self.sat_import} (--satellite-dir)")
+            log.info(f"satellite: reading earlier satellite outputs from {self.sat_import} (--satellite-dir)")
             return self.sat_import
         from .sat.pipeline import STAGES as SAT_STAGES, Pipeline
         view = inputs.make_view(self.genomes, self.gdir, self.work / "genomes" / self.gdir.name)
@@ -178,7 +178,7 @@ class Run:
             Pipeline(view, self.threads, self.seed_cache, Params(seed_engine=self.seed_engine,
                                                                  classify_from=self.classify_from, **self.sat_params),
                      force=force, out_dir=self.out / "satellite").run()
-        except CenrepError as e:
+        except SatelliteError as e:
             raise CenfuseError(f"satellite engine: {e}") from None
         return self.out / "satellite"
 
@@ -208,16 +208,16 @@ class Run:
         calls = {r.chrom: (int(r.start), int(r.end), r.confidence) for r in seq.calls.itertuples(index=False)}
         gff = self.work / "hic" / f"{g.name}.sequence_calls.gff3"
         gff.parent.mkdir(parents=True, exist_ok=True)
-        with open(gff, "w") as f:                     # cenhic --satellites: centromere features for its sat_mid
+        with open(gff, "w") as f:                     # Hi-C engine --satellites: centromere features for its sat_mid
             f.write("##gff-version 3\n")
             for c, (s, e, _) in calls.items():
                 if s >= 0:
-                    f.write(f"{c}\tcenrep\tcentromere\t{s + 1}\t{e}\t.\t.\t.\tID=cen_{c}\n")
+                    f.write(f"{c}\tcenfuse\tcentromere\t{s + 1}\t{e}\t.\t.\t.\tID=cen_{c}\n")
         arrays = sat_dir / f"{g.name}_satellite_arrays.gff"
         fai = self.work / "genomes" / f"{g.name}.chromosomes.fai"
         fai.parent.mkdir(parents=True, exist_ok=True)
         txt = "".join(f"{c}\t{L}\t0\t0\t0\n" for c, L in g.chroms.items())
-        if not fai.exists() or fai.read_text() != txt:     # cenhic's matrix cache is keyed by the file's mtime
+        if not fai.exists() or fai.read_text() != txt:     # the Hi-C engine's matrix cache is keyed by the file's mtime
             fai.write_text(txt)
         fp = dict(version=__version__, code=code_key("hicfuse.py", packages=("hic",)),
                   pairs=file_fingerprint(lib.path), chroms=obj_fingerprint(g.chroms),
@@ -305,7 +305,7 @@ class Run:
             if marker and r.chrom in marker[1]:
                 core = marker[1][r.chrom]
                 te = dict(clade=marker[0], start=int(core["start"]), end=int(core["end"]), decisive=bool(marker[2]))
-            elif r.te_start >= 0:                              # imported cenrep calls made with tes/
+            elif r.te_start >= 0:                              # imported satellite calls made with tes/
                 te = dict(clade=r.te_clade, start=int(r.te_start), end=int(r.te_end),
                           decisive=r.te_clade.lower() == "crm")
             h = hrows.get(r.chrom)

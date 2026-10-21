@@ -2,8 +2,8 @@
 
 The integrated call is the sequence call unless a validated functional line moves it:
 - Hi-C may act on chromosome x only when its gate passes (hicfuse.gate), and only through a strong anchored peak
-  (all three cenhic tests, no hub/rDNA/telomeric flag). A peak supports a call within HIC_TOL_BINS, only when it is a
-  call at all (cenhic level not 'none').
+  (all three Hi-C engine tests, no hub/rDNA/telomeric flag). A peak supports a call within HIC_TOL_BINS, only when it is a
+  call at all (Hi-C level not 'none').
 - A strong peak that points to another locus (more than HIC_FAR_BINS from the sequence call, the method's resolution,
   and with a core that does not reach the call) replaces a low or medium sequence call, and places a call on a
   chromosome without one. Closer than that, Hi-C neither supports nor opposes the call (flag hic_near).
@@ -13,7 +13,7 @@ The integrated call is the sequence call unless a validated functional line move
   is `contested`.
 - Methylation never moves a call alone.
 
-Confidence uses cenrep's levels, changed one step at a time (cenrep's te_concordant convention):
+Confidence uses the satellite engine's levels, changed one step at a time (its te_concordant convention):
 - A kept sequence call goes up one level for agreeing validated Hi-C and up one for methylation support, at most
   MAX_RAISE in total. Contested: down one level, offset by methylation support.
 - A moved or functional-only call is medium, and high with a second line."""
@@ -69,7 +69,7 @@ def _bins(ev: Evidence, n: int) -> int:
 
 
 def _peak_agrees(ev: Evidence, iv) -> bool:
-    """A significant anchored peak (cenhic level not 'none') within HIC_TOL_BINS of iv."""
+    """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS of iv."""
     pk = hic_peak(ev)
     return bool(pk and iv and ev.hic.get("anch_level", "none") != "none"
                 and gap(*pk, *iv) <= _bins(ev, HIC_TOL_BINS))
@@ -84,7 +84,7 @@ def _peak_far(ev: Evidence, iv) -> bool:
 
 
 def _te_agrees(ev: Evidence, iv) -> bool:
-    """cenrep's rule (gap at most the wider interval's width): used for kept sequence calls, as cenrep does."""
+    """The satellite engine's rule (gap at most the wider interval's width): used for kept sequence calls, as that engine does."""
     return bool(ev.te and iv and agrees(iv[0], iv[1], dict(start=ev.te["start"], end=ev.te["end"])))
 
 
@@ -166,7 +166,7 @@ def decide(ev: Evidence) -> dict:
 
 
 def row(ev: Evidence, d: dict) -> dict:
-    """The output row of one chromosome (coordinates 1-based inclusive like cenrep's summary; '.' when absent)."""
+    """The output row of one chromosome (coordinates 1-based inclusive like the satellite engine's summary; '.' when absent)."""
     na = "."
     h, call, seq_iv = ev.hic or {}, d["call"], _iv(ev.seq)
     one = lambda x: int(x) + 1 if x is not None and int(x) >= 0 else na
@@ -208,7 +208,7 @@ def table(evs: list, decisions: list) -> pd.DataFrame:
 
 
 def sequence_conflict(t: pd.DataFrame) -> dict:
-    """Genome-level diagnostic. Hi-C's prior-free calls are confident (cenhic high/medium) on most chromosomes but agree
+    """Genome-level diagnostic. Hi-C's prior-free calls are confident (Hi-C high/medium) on most chromosomes but agree
     with the sequence calls on fewer than half, and the gate fails on most: the two lines disagree genome-wide, so at
     least one is wrong everywhere, and two lines cannot tell which. cenfuse then keeps the sequence calls. A third line
     decides: tes/ (CRM cores) or methylation. Seen in the benchmark both ways: barley (satellite line wrong, prior-free

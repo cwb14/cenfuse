@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from cenfuse.sat.params import Params
-from cenfuse.sat.util import CenrepError
+from cenfuse.sat.util import SatelliteError
 from sat_common import TEST_PARAMS, have
 from sat_gffcheck import check_gff
 from sat_synth import build_complex
@@ -95,19 +95,19 @@ def test_resume_and_param_change(synth_run, monkeypatch):
     cdir, _, root, same = synth_run
     Pipeline(cdir, 2, root / "cache", same).run()                          # all checkpoints: no-op
     changed = replace(same, cluster_gap=60_000)                            # a classify parameter
-    with pytest.raises(CenrepError, match="--force classify"):
+    with pytest.raises(SatelliteError, match="--force classify"):
         Pipeline(cdir, 2, root / "cache", changed)
-    with pytest.raises(CenrepError, match="--force classify"):
+    with pytest.raises(SatelliteError, match="--force classify"):
         Pipeline(cdir, 2, root / "cache", changed, force="plot")          # too late a stage
     monkeypatch.setitem(pl.STAGE_VERSION, "classify", "9.9.9")             # classify code changed
-    with pytest.raises(CenrepError, match="--force classify"):
+    with pytest.raises(SatelliteError, match="--force classify"):
         Pipeline(cdir, 2, root / "cache", same)
     monkeypatch.setitem(pl.STAGE_VERSION, "seeds", "9.9.9")                # seed code changed
-    with pytest.raises(CenrepError, match="--force seeds"):
+    with pytest.raises(SatelliteError, match="--force seeds"):
         Pipeline(cdir, 2, root / "cache", same)
     monkeypatch.undo()
     other = replace(same, seed_engine={"fastan": "trf", "trf": "fastan"}[same.seed_engine])
-    with pytest.raises(CenrepError, match="--force seeds"):               # checkpoints of the other engine are stale
+    with pytest.raises(SatelliteError, match="--force seeds"):               # checkpoints of the other engine are stale
         Pipeline(cdir, 2, root / "cache", other)
     Pipeline(cdir, 2, root / "cache", changed, force="classify")          # accepted (deletes classify+ checkpoints)
 

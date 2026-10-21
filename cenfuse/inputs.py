@@ -1,9 +1,9 @@
-"""GENOME_DIR discovery: one FASTA per genome (cenrep's rule) plus optional genes/, tes/, hic/ and meth/ inputs, and
+"""GENOME_DIR discovery: one FASTA per genome plus optional genes/, tes/, hic/ and meth/ inputs, and
 the chromosome set every evidence line uses.
 
-The chromosome set: an assembly also holds unplaced scaffolds, and every line needs whole chromosomes (cenrep's
-prevalence tests count chromosomes; cenhic and cenmeth need chromosome-scale sequences). cenfuse takes cenmeth's
-rule (the sequences above the first tenfold drop in sorted length once half the assembly is accounted for; all
+The chromosome set: an assembly also holds unplaced scaffolds, and every line needs whole chromosomes (the satellite
+engine's prevalence tests count chromosomes; Hi-C and methylation need chromosome-scale sequences). cenfuse takes the
+methylation engine's rule (the sequences above the first tenfold drop in sorted length once half the assembly is accounted for; all
 sequences when there is no such drop) and hands the same set to all three engines through a view of the genome
 directory: the FASTA is a symlink and its .fai lists the chromosomes only, so nothing is copied.
 
@@ -19,7 +19,7 @@ import pandas as pd
 
 from .meth.track import chromosome_count
 from .sat.genomes import _fasta_name, load_fai
-from .sat.util import CenrepError
+from .sat.util import SatelliteError
 from .util import CenfuseError, log
 
 HIC_EXT = (".pairs.gz", ".pairs", ".mcool", ".cool")
@@ -40,7 +40,7 @@ class GenomeInputs:
     genes: Path | None = None
     tes: Path | None = None
     hic: list = field(default_factory=list)     # HicLibrary per library
-    meth: Path | None = None        # cenmeth samples table
+    meth: Path | None = None        # methylation samples table
     exclude: Path | None = None     # methylation exclusions BED
     notes: list = field(default_factory=list)
 
@@ -94,7 +94,7 @@ def hic_libraries(folder: Path, name: str) -> list:
 
 
 def chromosome_set(fai: dict) -> dict:
-    """The n longest sequences, n = cenmeth's chromosome count (tenfold length gap), in .fai order."""
+    """The n longest sequences, n = the methylation engine's chromosome count (tenfold length gap), in .fai order."""
     n = chromosome_count(fai.values())
     keep = set(sorted(fai, key=lambda c: -fai[c])[:n])
     return {c: L for c, L in fai.items() if c in keep}
@@ -117,7 +117,7 @@ def discover(genome_dir) -> list[GenomeInputs]:
             raise CenfuseError(f"{f}: a compressed genome must be bgzip with .fai + .gzi (run: samtools faidx {f})")
         try:
             fai = load_fai(f)
-        except CenrepError as e:
+        except SatelliteError as e:
             raise CenfuseError(str(e)) from None
         g = GenomeInputs(name, f, fai, chromosome_set(fai))
         g.genes = _one(gdir / "genes", name, (".gff3", ".gff3.gz"))

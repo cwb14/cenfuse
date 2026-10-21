@@ -176,10 +176,10 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
         f.write("##gff-version 3\n")
         for c, L in g.chroms.items():
             f.write(f"##sequence-region {c} 1 {L}\n")
-        f.write(f"# cenrep {__version__} {date.today()} genome={g.name} "
+        f.write(f"# cenfuse satellite engine {__version__} {date.today()} genome={g.name} "
                 f"params={json.dumps(asdict(p), separators=(',', ':'))}\n")
         for c, s, e, t, sc, st, a_ in feats:
-            f.write(f"{c}\tcenrep\t{t}\t{s + 1}\t{e}\t{sc}\t{st}\t.\t{attrs(a_)}\n")
+            f.write(f"{c}\tcenfuse\t{t}\t{s + 1}\t{e}\t{sc}\t{st}\t.\t{attrs(a_)}\n")
 
     write_arrays(g, arrays, fams, d.get("fam_info"), nm, order, outdir)
 
@@ -212,7 +212,7 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
 
 
 def write_arrays(g, arrays: pd.DataFrame, fams: pd.DataFrame, fam_info, nm, order: dict, outdir) -> None:
-    """<genome>_satellite_arrays.gff: every array of every family cenrep keeps, on every sequence, with the family's
+    """<genome>_satellite_arrays.gff: every array of every family the satellite engine keeps, on every sequence, with the family's
     role in this genome (classify.assign_roles) and its rDNA tag. arrays: with column ov (bp inside the centromere
     call)."""
     role = dict(zip(fams.family, fams.role)) if "role" in fams else {}
@@ -223,7 +223,7 @@ def write_arrays(g, arrays: pd.DataFrame, fams: pd.DataFrame, fam_info, nm, orde
         f.write("##gff-version 3\n")
         for c, L in g.chroms.items():
             f.write(f"##sequence-region {c} 1 {L}\n")
-        f.write(f"# cenrep {__version__} {date.today()} genome={g.name}: every array of every satellite family; "
+        f.write(f"# cenfuse satellite engine {__version__} {date.today()} genome={g.name}: every array of every satellite family; "
                 f"role = what the family is in this genome (README, Outputs)\n")
         for r, n in zip(a.itertuples(index=False), k):
             rd = tag.get(r.family, ".")
@@ -233,7 +233,7 @@ def write_arrays(g, arrays: pd.DataFrame, fams: pd.DataFrame, fam_info, nm, orde
                       rdna=rd if rd != "." else None, monomer_len=r.monomer_len, n_monomers=r.n_monomers,
                       mean_identity=round(r.mean_identity, 3),
                       in_centromere="true" if r.ov >= 0.5 * (r.end - r.start) else "false")
-            f.write(f"{r.chrom}\tcenrep\tsatellite_DNA\t{r.start + 1}\t{r.end}\t.\t{r.strand}\t.\t{attrs(a_)}\n")
+            f.write(f"{r.chrom}\tcenfuse\tsatellite_DNA\t{r.start + 1}\t{r.end}\t.\t{r.strand}\t.\t{attrs(a_)}\n")
 
 
 def write_families(fam: pd.DataFrame, data: dict, names: dict, hmm_path, fa_path, outdir) -> None:

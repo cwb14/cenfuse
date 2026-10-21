@@ -123,7 +123,7 @@ def test_evalue_ref_len_scales_short_sequences(synth_complex, synth_families):
 
 
 def _drop_multimer_hits_reference(df, ratio=1.9, min_cov=0.5):
-    """The per-hit loop of cenrep <= 0.6.1, kept as the reference for the vectorised version."""
+    """The per-hit loop of satellite engine <= 0.6.1, kept as the reference for the vectorised version."""
     import numpy as np
     from cenfuse.sat.util import union_bp
     if df.empty:

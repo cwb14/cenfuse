@@ -102,10 +102,10 @@ def test_edta_classes(tmp_path):
     assert t.cls.tolist() == ["TE:LTR/Gypsy", "TE:DNA/Helitron"] and t.start.tolist() == [4, 199]
 
 
-def test_satellites_cenrep_gff_and_bed(tmp_path):
+def test_satellites_engine_gff_and_bed(tmp_path):
     g = tmp_path / "g_satellite_arrays.gff"
-    g.write_text("##gff-version 3\nc1\tcenrep\tsatellite_DNA\t1\t100\t.\t+\t.\tID=s1;family=fam1;rdna=true\n"
-                 "c1\tcenrep\tsatellite_monomer\t1\t50\t.\t+\t.\tID=m1;family=fam1\n")
+    g.write_text("##gff-version 3\nc1\tcenfuse\tsatellite_DNA\t1\t100\t.\t+\t.\tID=s1;family=fam1;rdna=true\n"
+                 "c1\tcenfuse\tsatellite_monomer\t1\t50\t.\t+\t.\tID=m1;family=fam1\n")
     assert io.read_satellites(g).cls.tolist() == ["sat:fam1"]
     b = tmp_path / "s.bed"
     b.write_text("track name=x\nc1\t0\t100\tCentO\nc1\t200\t300\t\n")
@@ -123,14 +123,14 @@ def test_genes_only_gene_features(tmp_path):
 
 def test_anchor_sources_and_midpoints(tmp_path):
     h = tmp_path / "a.centromeres.bed"
-    h.write_text("#cenhic 0.1.1 bin_size=500000\nc1\t1000\t5000\tc1_cen\t300\t.\t1000\t1500\t0,114,178\n")
+    h.write_text("#cenfuse-hic 0.1.1 bin_size=500000\nc1\t1000\t5000\tc1_cen\t300\t.\t1000\t1500\t0,114,178\n")
     d, src = io.read_anchors(h)
     assert src == "hic" and d.mid.tolist() == [1250]
     r = tmp_path / "x_centromeric_repeat.gff"
-    r.write_text("c1\tcenrep\tcentromere\t101\t300\t.\t.\t.\tID=cen_c1;confidence=high\n"
-                 "c1\tcenrep\tsatellite_DNA\t101\t300\t.\t+\t.\tID=s;family=f\n")
+    r.write_text("c1\tcenfuse\tcentromere\t101\t300\t.\t.\t.\tID=cen_c1;confidence=high\n"
+                 "c1\tcenfuse\tsatellite_DNA\t101\t300\t.\t+\t.\tID=s;family=f\n")
     d, src = io.read_anchors(r)
-    assert src == "cenrep" and len(d) == 1 and d.mid.tolist() == [200]
+    assert src == "satellite" and len(d) == 1 and d.mid.tolist() == [200]
     u = tmp_path / "chip.bed"
     u.write_text("c1\t0\t1000\n")
     d, src = io.read_anchors(u)
@@ -158,8 +158,8 @@ def test_anchors_missing_file_is_input_error(tmp_path):
         io.read_anchors(tmp_path / "absent.centromeres.bed")
 
 
-def test_anchors_gzipped_cenhic_matches_plain(tmp_path):
-    line = "#cenhic 0.1.1 bin_size=500000\nc1\t1000\t5000\tc1_cen\t300\t.\t1000\t1500\t0,114,178\n"
+def test_anchors_gzipped_hic_matches_plain(tmp_path):
+    line = "#cenfuse-hic 0.1.1 bin_size=500000\nc1\t1000\t5000\tc1_cen\t300\t.\t1000\t1500\t0,114,178\n"
     plain = tmp_path / "a.centromeres.bed"
     plain.write_text(line)
     gz = tmp_path / "a.centromeres.bed.gz"

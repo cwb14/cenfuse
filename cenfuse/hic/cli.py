@@ -1,4 +1,4 @@
-"""Command line: `cenhic call` (centromeres from Hi-C pairs) and `cenhic simulate` (mis-mapping null)."""
+"""Command line: `python -m cenfuse.hic call` (centromeres from Hi-C pairs) and `... simulate` (mis-mapping null)."""
 from __future__ import annotations
 
 import argparse
@@ -24,12 +24,12 @@ from .locate import locate, peak_core, rabl_test, start_positions, telomere_scor
 from .output import write_bed, write_bedgraph, write_qc, write_tsv
 from .score import block_means
 
-log = logging.getLogger("cenhic")
+log = logging.getLogger("cenfuse-hic")
 
 
 def _logging(verbose):
     h = logging.StreamHandler(sys.stderr)
-    h.setFormatter(logging.Formatter("[cenhic %(asctime)s] %(message)s", "%H:%M:%S"))
+    h.setFormatter(logging.Formatter("[cenfuse-hic %(asctime)s] %(message)s", "%H:%M:%S"))
     log.handlers[:] = [h]
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
     log.propagate = True
@@ -166,7 +166,7 @@ def run_call(args) -> dict:
         raise InputError(f"fewer than {params.MIN_CALLABLE} sequences >= {params.MIN_BINS * params.BIN_LADDER[0] / 1e6:g} Mb in {args.fai}")
     _warn_short([(c, L) for c, L in fai.items() if c not in seqs],
                 f"shorter than {params.MIN_BINS * params.BIN_LADDER[0] / 1e6:g} Mb")
-    log.info(f"cenhic {__version__} call: {len(seqs)} sequences considered")
+    log.info(f"Hi-C engine {__version__} call: {len(seqs)} sequences considered")
     M0, base, sizes, stats = _base_matrix(args, seqs)
 
     def get(size):
@@ -269,8 +269,8 @@ def run_call(args) -> dict:
     ratio, tratio = _over_median(loc.S, bins, members), _over_median(T, bins, members)
     write_bed(rows, f"{out}.centromeres.bed", size)
     write_tsv(rows, f"{out}.centromeres.tsv")
-    write_bedgraph(ratio, bins, members, f"{out}.score.bedgraph", "cenhic centromere-cluster score")
-    write_bedgraph(tratio, bins, members, f"{out}.telomere.bedgraph", "cenhic telomere-pole score")
+    write_bedgraph(ratio, bins, members, f"{out}.score.bedgraph", "cenfuse-hic centromere-cluster score")
+    write_bedgraph(tratio, bins, members, f"{out}.telomere.bedgraph", "cenfuse-hic telomere-pole score")
     sections = {"input": pd.DataFrame([stats]), "bin_size": bin_table,
                 "rabl": pd.DataFrame([{k: v for k, v in rabl.items() if k != "per_chrom"}]),
                 "rabl_per_chromosome": rabl["per_chrom"]}
@@ -280,8 +280,8 @@ def run_call(args) -> dict:
     plot.overview(ratio, bins, members, rows, sat, rabl, f"{out}.overview.pdf")
     n = {lv: sum(r["confidence"] == lv for r in rows) for lv in ("high", "medium", "low", "none")}
     log.info(f"done: {n}")
-    # [cenfuse local change; see VENDORED.md] the in-memory state, so cenfuse scores anchored partner windows on
-    # the same matrix, balancing and bins without rebuilding them
+    # the in-memory state, so cenfuse scores anchored partner windows on the same matrix, balancing and bins
+    # without rebuilding them
     state = dict(M=M, W=W, bins=bins, good=good, mean=mean, members=members, loc=loc, pcs=pcs, hub=hub, rdna=rdna,
                  sat=sat, size=size, T=T)
     return dict(rows=rows, rabl=rabl, bin_table=bin_table, stats=stats, state=state)
@@ -298,15 +298,15 @@ def _at_least_one(x):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="cenhic", description="Functional centromeres from Hi-C centromere clustering.")
-    ap.add_argument("--version", action="version", version=f"cenhic {__version__}")
+    ap = argparse.ArgumentParser(prog="python -m cenfuse.hic", description="Functional centromeres from Hi-C centromere clustering.")
+    ap.add_argument("--version", action="version", version=f"cenfuse-hic {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("call", help="call one centromere per chromosome from mapped Hi-C pairs")
     c.add_argument("--pairs", required=True, help="4DN .pairs[.gz], simple 6-column pairs, or .cool/.mcool")
     c.add_argument("--fai", required=True, help="genome .fai (sequence names and lengths)")
     c.add_argument("-o", required=True, help="output prefix")
     c.add_argument("--repeats", nargs="+", help="repeat annotation GFF3/BED (QC: read-class split; pairs input only)")
-    c.add_argument("--satellites", nargs="+", help="cenrep GFF or BED of satellite centromeres (comparison, rDNA flag)")
+    c.add_argument("--satellites", nargs="+", help="cenfuse satellite GFF or BED of satellite centromeres (comparison, rDNA flag)")
     c.add_argument("-t", type=_at_least_one, default=4,
                    help="threads for the bootstrap [4]; each holds a few copies of the contact matrix, so memory "
                         "grows with -t (P. annua, 500 kb, with --repeats: ~1.2 GB at -t 1, ~2.4 GB at -t 8)")
@@ -314,7 +314,7 @@ def main(argv=None):
     s = sub.add_parser("simulate", help="mis-mapping null: simulated cis-only pairs mapped like the library")
     s.add_argument("--fasta", required=True, help="genome FASTA (indexed); its minimap2 index needs ~4.3 GB RAM per Gb")
     s.add_argument("--pairs", required=True, help="the real pairs, not .cool (cis count for scaling)")
-    s.add_argument("-o", required=True, help="prefix of a previous `cenhic call` (reads <o>.centromeres.tsv)")
+    s.add_argument("-o", required=True, help="prefix of a previous `call` (reads <o>.centromeres.tsv)")
     s.add_argument("--fastq", help="one real FASTQ for the read-length distribution [150 bp]")
     s.add_argument("-n", type=_at_least_one, default=30_000_000, help="simulated pairs, >= 1 [30000000]")
     s.add_argument("-t", type=_at_least_one, default=12, help="minimap2 threads (index and mapping) [12]")
@@ -328,5 +328,5 @@ def main(argv=None):
             from .simulate import run_simulate
             run_simulate(a)
     except (InputError, OSError, EOFError, gzip.BadGzipFile) as e:
-        print(f"cenhic: error: {e}", file=sys.stderr)
+        print(f"cenfuse-hic: error: {e}", file=sys.stderr)
         sys.exit(2)

@@ -5,10 +5,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
-log = logging.getLogger("cenrep")
+log = logging.getLogger("cenfuse-sat")
 
 
-class CenrepError(RuntimeError):
+class SatelliteError(RuntimeError):
     """Fatal, user-facing error (bad input, missing tool, failed command)."""
 
 
@@ -23,14 +23,14 @@ def setup_logging(verbose: bool) -> None:
 def require_tools(names) -> None:
     missing = [n for n in names if shutil.which(n) is None]
     if missing:
-        raise CenrepError("required tools not on PATH: " + ", ".join(missing))
+        raise SatelliteError("required tools not on PATH: " + ", ".join(missing))
 
 
 def run(cmd, **kw) -> subprocess.CompletedProcess:
     cmd = [str(c) for c in cmd]
     p = subprocess.run(cmd, capture_output=True, text=True, **kw)
     if p.returncode != 0:
-        raise CenrepError(f"command failed (exit {p.returncode}): {' '.join(cmd)}\n{p.stderr[-2000:]}")
+        raise SatelliteError(f"command failed (exit {p.returncode}): {' '.join(cmd)}\n{p.stderr[-2000:]}")
     return p
 
 

@@ -1,5 +1,5 @@
-"""The sequence line: cenrep's outputs read back. They come from the satellite engine's run (OUT/satellite) or
-from earlier cenrep runs (--satellite-dir). Coordinates are converted to 0-based half-open."""
+"""The sequence line: the satellite engine's outputs read back. They come from this run (OUT/satellite) or
+from an earlier run (--satellite-dir). Coordinates are converted to 0-based half-open."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -50,7 +50,7 @@ def read_calls(path: Path, chroms: dict) -> pd.DataFrame:
     d = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
     need = {"chrom", "cen_start", "cen_end", "evidence", "confidence"}
     if not need <= set(d.columns):
-        raise CenfuseError(f"{path}: not a cenrep centromere summary (needs {', '.join(sorted(need))})")
+        raise CenfuseError(f"{path}: not a satellite-engine centromere summary (needs {', '.join(sorted(need))})")
     rows = []
     by = {r["chrom"]: r for r in d.to_dict("records")}
     for c, L in chroms.items():
@@ -95,7 +95,7 @@ def read(sat_dir, genome: str, chroms: dict) -> SeqLine:
     summ, arr = sat_dir / f"{genome}_centromere_summary.tsv", sat_dir / f"{genome}_satellite_arrays.gff"
     for p in (summ, arr):
         if not p.exists():
-            raise CenfuseError(f"missing cenrep output {p}")
+            raise CenfuseError(f"missing satellite-engine output {p}")
     fam_path = sat_dir / "satellite_families.tsv"
     fams = pd.read_csv(fam_path, sep="\t", dtype=str, keep_default_na=False) if fam_path.exists() else pd.DataFrame()
     if "genome" in fams:
@@ -104,7 +104,7 @@ def read(sat_dir, genome: str, chroms: dict) -> SeqLine:
 
 
 def satellite_clusters(arrays: pd.DataFrame) -> pd.DataFrame:
-    """Clusters of each family's arrays per chromosome (cenrep's cluster rule), at least LOCI_MIN_SAT_BP of
+    """Clusters of each family's arrays per chromosome (the satellite engine's cluster rule), at least LOCI_MIN_SAT_BP of
     satellite: chrom, start, end, bp, family, role, rdna."""
     out = []
     for (c, fam), d in arrays.groupby(["chrom", "family"], sort=False):

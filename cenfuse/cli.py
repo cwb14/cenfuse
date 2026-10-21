@@ -31,7 +31,7 @@ def main(argv=None) -> int:
     r.add_argument("-o", "--outdir", type=Path, help="output dir [GENOME_DIR/cenfuse]")
     r.add_argument("-t", "--threads", type=int, default=8, help="threads [8]")
     r.add_argument("--satellite-dir", type=Path, metavar="DIR",
-                   help="use existing cenrep outputs (<g>_centromere_summary.tsv, <g>_satellite_arrays.gff) "
+                   help="reuse the satellite outputs of an earlier run (<g>_centromere_summary.tsv, <g>_satellite_arrays.gff) "
                         "instead of running the satellite engine")
     r.add_argument("--seed-engine", choices=["fastan", "trf"], default="fastan",
                    help="tandem-repeat finder for satellite family seeds [fastan]")

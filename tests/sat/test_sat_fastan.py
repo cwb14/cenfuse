@@ -59,8 +59,8 @@ def test_parse_ano_reads_intervals_units_divergence_and_cuts():
 
 
 def test_unparsable_fastan_output_fails_clearly():
-    from cenfuse.sat.util import CenrepError
-    with pytest.raises(CenrepError, match="M 0 1999"):
+    from cenfuse.sat.util import SatelliteError
+    with pytest.raises(SatelliteError, match="M 0 1999"):
         fastan.parse_ano("M 0 1999\nL 3 150\n")
 
 
@@ -123,7 +123,7 @@ def test_units_beyond_the_seed_range_are_left_to_the_long_unit_detector(tmp_path
     seq = rand(rng, 3000) + "".join(indel_copy(rng, unit, 0.02) for _ in range(4)) + rand(rng, 3000)
     raw = fastan.parse_ano(fastan.run_fastan(seq, tmp_path))
     assert any(abs(u - 2500) <= 50 for _, _, u, _, _ in raw)                  # FasTAN reports it ...
-    assert all(r[3] <= 2000 for r in fastan.chunk_rows("c1", seq, 0, tmp_path, False))   # ... cenrep drops it
+    assert all(r[3] <= 2000 for r in fastan.chunk_rows("c1", seq, 0, tmp_path, False))   # ... the engine drops it
 
 
 @need_fastan

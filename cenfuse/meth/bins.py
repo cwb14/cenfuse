@@ -18,7 +18,7 @@ from . import params
 from .classes import ClassMap, classify
 from .io import read_bedmethyl
 
-log = logging.getLogger("cenmeth")
+log = logging.getLogger("cenfuse-meth")
 CACHE_VERSION = 1
 
 

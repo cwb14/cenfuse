@@ -1,11 +1,11 @@
-"""The methylation line (cenmeth's machinery, calibrated on the integrated calls).
+"""The methylation line (the methylation engine's machinery, calibrated on the integrated calls).
 
 Anchors are the provisional calls of the other chromosomes. The genome calibration (all anchors) gives the scan
-direction and cenmeth's own outputs. Then for each anchored chromosome x, a second calibration leaves x's anchor
+direction and the engine's own outputs. Then for each anchored chromosome x, a second calibration leaves x's anchor
 out; its signature, sig_x, is the only one ever used to judge places on x. So x's own call never shapes the test of
 x. Methylation support for an interval: the most extreme window of the pooled adjusted CHG track inside it,
 scored against sig_x; `centromere_like` at a score >= METH_SCORE. Methylation never moves a call alone; a `dip` is
-not evidence against (cenmeth).
+not evidence against (methylation engine).
 
 Plants (docs/plants.md): the support of the reference call pools only the deciding samples (the reference plant's,
 or samples of unknown origin). Every sample is also scored at every site of its chromosome (the reference lines'
@@ -34,7 +34,7 @@ SITE_COLS = ["chrom", "site", "start", "end", "mid", "origins", "sample", "label
 @dataclass
 class MethPrep:
     samples: list
-    chroms: dict              # analyzed chromosomes (cenfuse's set, long enough for cenmeth)
+    chroms: dict              # analyzed chromosomes (cenfuse's set, long enough for the methylation engine)
     cmap: object
     filt: dict
     dstats: list
@@ -47,14 +47,14 @@ class MethPrep:
 
 
 def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
-    """cenmeth's inputs, classes and depth-filtered class bins for genome g (GenomeInputs). None (with a warning)
+    """The methylation engine's inputs, classes and depth-filtered class bins for genome g (GenomeInputs). None (with a warning)
     when the genome cannot be analyzed: methylation is optional evidence, so it never stops the run."""
     try:
         fai = io.read_fai(f"{g.fasta}.fai")                 # the whole assembly: genome size G for D
         names, G, D = track.chromosome_set(fai)
         chroms = {c: fai[c] for c in names if c in g.chroms}
         if not chroms:
-            log.warning(f"methylation {g.name}: no chromosome long enough for cenmeth (>= {mp.MIN_LEN_D} D); skipped")
+            log.warning(f"methylation {g.name}: no chromosome long enough for the methylation engine (>= {mp.MIN_LEN_D} D); skipped")
             return None
         if D < 2 * mp.BIN:
             log.warning(f"methylation {g.name}: expected centromere size D = {D / 1e3:.0f} kb is under two "
@@ -91,8 +91,8 @@ def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
 
 
 def read_tes(path) -> pd.DataFrame:
-    """cenmeth's LTRquest classes (clade, else superfamily_unclassified; nesting depth) from tes/, with the TE line's
-    type rule: any feature type containing 'LTR_retrotransposon' (cenrep), so EDTA + TEsorter files work as well."""
+    """The methylation engine's LTRquest classes (clade, else superfamily_unclassified; nesting depth) from tes/, with the TE line's
+    type rule: any feature type containing 'LTR_retrotransposon' (as the satellite engine), so EDTA + TEsorter files work as well."""
     d = io.read_intervals(path)
     d = io._need(d[d.type.str.contains("LTR_retrotransposon", na=False)], path, "LTR_retrotransposon features")
     clade, sf = io.attr(d["attrs"], "clade"), io.attr(d["attrs"], "superfamily")
@@ -137,7 +137,7 @@ def _calibrate(prep: MethPrep, samples: list, anc: dict, abin: dict, names, K: i
     cal = calibrate.calibrate(s1.pooled, s1.totals, names)
     direction, dsrc = calibrate.learned_direction(cal)
     sig = calibrate.signature(cal)
-    mlog = logging.getLogger("cenmeth")
+    mlog = logging.getLogger("cenfuse-meth")
     level = mlog.level
     mlog.setLevel(logging.ERROR)                          # its FDR warning would repeat once per chromosome
     try:
@@ -223,7 +223,7 @@ def run(prep: MethPrep, anchors: dict, items: dict, prefix, width_min: int = 0, 
     to judge (sequence call, Hi-C peak, TE core, provisional call). Every place is judged in a window of one width
     centered on it, W = max(2 D, width_min) (the Hi-C bin), so a wide interval gets no more chances than a narrow
     one. decide: the samples whose pooled data support the reference call (None: all). sites: {chrom: [(origin,
-    start, end)]} more places at which every sample is scored (plants). Writes cenmeth's outputs at prefix.* and
+    start, end)]} more places at which every sample is scored (plants). Writes the methylation engine's outputs at prefix.* and
     returns dict(support, candidates, direction, signature, loco, adj, n_anchors, sites)."""
     W = int(max(2 * prep.D, width_min))
     names, K = prep.cmap.names, len(prep.cmap.names)
@@ -296,7 +296,7 @@ def run(prep: MethPrep, anchors: dict, items: dict, prefix, width_min: int = 0, 
 
 def _write(prep, prefix, cand, sc, anc, direction, dsrc, sig, cal, loco, names) -> None:
     sig_txt = ",".join(f"{r.context}:{r.cls}:{r.direction}" for r in sig.itertuples()) or "none"
-    header = (f"#cenmeth (cenfuse) D={round(prep.D)} direction={direction}({dsrc}) anchors=cenfuse "
+    header = (f"#cenfuse-meth D={round(prep.D)} direction={direction}({dsrc}) anchors=cenfuse "
               f"signature={sig_txt}")
     output.write_bed(cand, header, f"{prefix}.candidates.bed")
     output.write_tsv(cand, f"{prefix}.candidates.tsv")

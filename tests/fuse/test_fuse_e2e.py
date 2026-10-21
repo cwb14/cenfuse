@@ -1,5 +1,5 @@
 """End to end on the synthetic genome of fuse_synth.py (every planted case, the planted plants), the permuted-Hi-C
-negative control, a resume, and one full run with the satellite engine on cenrep's synthetic complex."""
+negative control, a resume, and one full run with the satellite engine on its synthetic test genomes."""
 import shutil
 import sys
 from pathlib import Path
@@ -154,7 +154,7 @@ def test_full_pipeline_with_the_satellite_engine(tmp_path):
         f.write(">scaffold_9\n" + "ACGT" * 500 + "\n")
     import pysam
     pysam.faidx(str(fa))
-    (cdir / "hic").mkdir()                                  # chromosomes far too short for cenhic: the line is skipped
+    (cdir / "hic").mkdir()                                  # chromosomes far too short for Hi-C: the line is skipped
     import gzip
     with gzip.open(cdir / "hic" / "Pa_A.pairs.gz", "wt") as f:
         f.write("Pa_A01\t100\t+\tPa_A02\t200\t-\n" * 50)

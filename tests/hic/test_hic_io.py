@@ -74,8 +74,8 @@ def test_wrong_width_line_counted_and_no_warning_leaks(tmp_path):
 
 def test_read_intervals_bed_and_gff(tmp_path):
     b = write(tmp_path / "a.bed", "c1\t10\t20\tsat1\nc1\t30\t40\n")
-    g = write(tmp_path / "a.gff3", "##gff-version 3\nc1\tcenrep\tcentromere\t101\t200\t.\t.\t.\tID=cen_c1\n"
-                                   "c1\tcenrep\tsatellite_DNA\t11\t20\t.\t+\t.\tID=a;family=F;rdna=45S_spacer\n")
+    g = write(tmp_path / "a.gff3", "##gff-version 3\nc1\tcenfuse\tcentromere\t101\t200\t.\t.\t.\tID=cen_c1\n"
+                                   "c1\tcenfuse\tsatellite_DNA\t11\t20\t.\t+\t.\tID=a;family=F;rdna=45S_spacer\n")
     tb, tg = read_intervals(b), read_intervals(g)
     # bracket access: DataFrame.attrs is pandas' own metadata dict, not the "attrs" column
     assert list(tb.start) == [10, 30] and tb["attrs"][0]["Name"] == "sat1"

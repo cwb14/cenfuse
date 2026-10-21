@@ -240,7 +240,7 @@ def cool_resolutions(path) -> list:
 
 
 def read_cool(path, resolution: int, chroms: dict):
-    """Counts of a .cool / .mcool resolution on cenhic bins of the same size over `chroms` (in that order).
+    """Counts of a .cool / .mcool resolution on Hi-C engine bins of the same size over `chroms` (in that order).
     Pixels involving sequences absent from `chroms`, or bins beyond a chromosome's .fai length, are dropped."""
     import scipy.sparse as sp
 

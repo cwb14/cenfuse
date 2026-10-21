@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .util import CenrepError, log
+from .util import SatelliteError, log
 
 
 @dataclass
@@ -18,16 +18,16 @@ class Genome:
 def load_fai(fasta) -> dict:
     fai = Path(str(fasta) + ".fai")
     if not fai.exists():
-        raise CenrepError(f"missing FASTA index {fai} (run: samtools faidx {fasta})")
+        raise SatelliteError(f"missing FASTA index {fai} (run: samtools faidx {fasta})")
     out = {}
     with open(fai) as f:
         for line in f:
             p = line.rstrip("\n").split("\t")
             if len(p) < 2 or not p[1].isdigit():
-                raise CenrepError(f"corrupt .fai line in {fai}: {line.strip()!r}")
+                raise SatelliteError(f"corrupt .fai line in {fai}: {line.strip()!r}")
             out[p[0]] = int(p[1])
     if not out:
-        raise CenrepError(f"empty FASTA index {fai}")
+        raise SatelliteError(f"empty FASTA index {fai}")
     return out
 
 
@@ -48,14 +48,14 @@ def discover_genomes(complex_dir) -> list:
     fas = sorted((f for f in complex_dir.iterdir() if f.is_file() and _fasta_name(f)), key=lambda f: f.name) \
         if complex_dir.is_dir() else []
     if not fas:
-        raise CenrepError(f"{complex_dir}: no *.fa genomes (*.fa/*.fasta/*.fna, plain or bgzip .gz)")
+        raise SatelliteError(f"{complex_dir}: no *.fa genomes (*.fa/*.fasta/*.fna, plain or bgzip .gz)")
     seen = {}
     for f in fas:
         name = _fasta_name(f)
         if name in seen:
-            raise CenrepError(f"{complex_dir}: genome {name} is given twice ({seen[name].name}, {f.name})")
+            raise SatelliteError(f"{complex_dir}: genome {name} is given twice ({seen[name].name}, {f.name})")
         if f.name.endswith(".gz") and not Path(str(f) + ".gzi").exists():
-            raise CenrepError(f"{f}: a compressed genome must be bgzip with .fai + .gzi indexes "
+            raise SatelliteError(f"{f}: a compressed genome must be bgzip with .fai + .gzi indexes "
                               f"(missing {f.name}.gzi; run: samtools faidx {f})")
         seen[name] = f
     return [Genome(n, f, load_fai(f)) for n, f in seen.items()]
@@ -93,7 +93,7 @@ def load_gene_gff(gff, chroms=None) -> tuple:
             try:
                 mids.setdefault(p[0], []).append((int(p[3]) - 1 + int(p[4])) // 2)
             except ValueError:
-                raise CenrepError(f"{gff}:{n}: bad gene coordinates {p[3]!r}..{p[4]!r}") from None
+                raise SatelliteError(f"{gff}:{n}: bad gene coordinates {p[3]!r}..{p[4]!r}") from None
     return {c: np.sort(np.array(v, dtype=np.int64)) for c, v in mids.items()}, foreign
 
 

@@ -21,7 +21,7 @@ Non-goals:
 
 ## Inputs
 
-- `meth/<g>.tsv`: the cenmeth samples table. Its `sample` column names the plant.
+- `meth/<g>.tsv`: the methylation engine's samples table. Its `sample` column names the plant.
 - `hic/<g>.tsv` (new, optional): columns `sample` and `file` (pairs, cool or mcool; relative paths allowed). Rules:
   - One library per row, and `sample` names the plant.
   - A library and a methylation sample with the same name are the same plant.
@@ -52,7 +52,7 @@ Non-goals:
      told apart.
 3. **Karyotype (every input with coverage).**
    - *Coverage* is measured per window of max(1 Mb, the Hi-C bin). For methylation it is the summed valid calls
-     (cenmeth class bins, before the depth filter); for Hi-C, contacts per bin.
+     (the methylation engine's class bins, before the depth filter); for Hi-C, contacts per bin.
    - *Missing segment.* At least 3 windows where the input has below 0.1 of its own median (a tenfold drop) while
      another input of the same data type has at least 0.5 of its median. Read length and mapping filters differ
      between ONT and Hi-C, so only same-type coverage shows that the DNA is mappable.
@@ -61,7 +61,8 @@ Non-goals:
      - windows over 10% N, or over half satellite array (mapping, not DNA, sets their coverage);
      - chromosome ends;
      - windows no same-type input covers;
-     - pile-ups above twice the input's median (collapsed repeats draw reads from elsewhere; cenmeth's DEPTH_HI).
+     - pile-ups above twice the input's median (collapsed repeats draw reads from elsewhere; the methylation
+       engine's DEPTH_HI).
 
      A window where the input has coverage ends a run.
    - *Meaning.* A missing segment shows that the input's plant lacks DNA the reference has, so it is not the
@@ -106,10 +107,10 @@ origins. A site is *at the call* when its window overlaps the integrated call: c
 6.4 Mb against W = 3.3 Mb). A plant's call site, s0, is the at-call site where it looks most centromeric.
 
 **Methylation, per plant j and site s:**
-- *Label and score:* cenmeth's support at s with sig_x, in a window of width W centered on s: `centromere_like`,
-  `dip` (data, but not centromere-like), `no_signature_data` or `no_data`. The window's most extreme adjusted-CHG bin
-  is chosen among the bins where the signature has data, so a low-depth plant is not labeled `no_signature_data`
-  when its extreme falls on a bin without enough calls.
+- *Label and score:* the methylation engine's support at s with sig_x, in a window of width W centered on s:
+  `centromere_like`, `dip` (data, but not centromere-like), `no_signature_data` or `no_data`. The window's most
+  extreme adjusted-CHG bin is chosen among the bins where the signature has data, so a low-depth plant is not labeled
+  `no_signature_data` when its extreme falls on a bin without enough calls.
 - *Between plants*, when at least 3 plants have data at s:
   - The statistic d_j(s) is j's signature score minus the median of the other plants' scores at the same site.
     The score is what defines `centromere_like`, and comparing plants on the same sequence cancels composition and
@@ -241,7 +242,7 @@ median (a collapsed repeat). It also flagged I3 and P3 across 203-211 Mb, where 
 the Hi-C library has reads. Two more rules, again independent of the answers:
 - **Same-type coverage only.** Short Hi-C reads (no mapping-quality filter in that pairs file) and long ONT reads
   (MAPQ >= 20) map differently.
-- **Pile-ups cannot be judged** (cenmeth's own depth rule).
+- **Pile-ups cannot be judged** (the methylation engine's own depth rule).
 
 The same-type rule was prompted by a check meant to be held out (no segment confined to a low-coverage patch shared
 by all samples), so that check no longer tests it. Checks of the next rerun on cases not used for any change:
@@ -274,6 +275,7 @@ Two concerns remain untested:
 - **The genotype noise model** (both-strand losses independent, at one rate across sites) has not been tested on two
   samples of one plant. A split of one sample's reads, or one plant sequenced with two chemistries, would test it.
   Chemistry-specific errors could make the reference plant's own reads look like another plant's.
-- **Coverage at low depth.** Methylation coverage counts only cytosines with at least 3 calls (cenmeth's floor), so
-  it is not proportional to depth. At ~2.5x, a threefold depth drop can fall below the tenfold "absent" level. The
-  *P. annua* events sit at <= 0.03 of the median, far below it, and half depth (R1's monosomic Pa5B) stays above.
+- **Coverage at low depth.** Methylation coverage counts only cytosines with at least 3 calls (the methylation engine's
+  floor), so it is not proportional to depth. At ~2.5x, a threefold depth drop can fall below the tenfold "absent"
+  level. The *P. annua* events sit at <= 0.03 of the median, far below it, and half depth (R1's monosomic Pa5B) stays
+  above.

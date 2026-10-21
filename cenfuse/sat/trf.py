@@ -6,7 +6,7 @@ from .params import TRF_ARGS
 from .util import log, run
 
 TOOLS = ["trf"]
-KEY = [TRF_ARGS]    # cache key (with the chunking) as in cenrep < 0.9, so TRF caches computed earlier stay valid
+KEY = [TRF_ARGS]    # cache key (with the chunking) as in satellite engine < 0.9, so TRF caches computed earlier stay valid
 DUP_TOL = 0         # the same array seen from two chunks keeps its TRF period (within 1 bp)
 
 

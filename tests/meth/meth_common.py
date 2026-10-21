@@ -1,4 +1,4 @@
-"""Helpers shared by the meth tests (moved out of conftest.py by tools/vendor.py)."""
+"""Helpers shared by the meth tests."""
 import sys
 from pathlib import Path
 import pytest

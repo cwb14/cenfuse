@@ -66,8 +66,8 @@ def dedupe(rows: list, tol: float = 0) -> list:
 
 def genome_key(g) -> str:
     """FASTA md5; plus the chromosome set when the genome uses a subset of the FASTA's sequences (cenfuse hands
-    cenrep a view whose .fai lists chromosomes only), so a subset and the whole file never share a cache entry.
-    [cenfuse local change; see VENDORED.md]"""
+    the satellite engine a view whose .fai lists chromosomes only), so a subset and the whole file never share a
+    cache entry."""
     md5 = md5_file(g.fasta)
     own = Path(os.path.realpath(g.fasta) + ".fai")
     if own.exists():
@@ -99,7 +99,7 @@ def _alive(pid: int) -> bool:
 
 
 def _owner(lock: Path) -> tuple:
-    """(host, pid) of a lock; a lock written by cenrep < 0.5 holds only the pid (single-host use)."""
+    """(host, pid) of a lock; a lock written by satellite engine < 0.5 holds only the pid (single-host use)."""
     x = lock.read_text().split()
     return (socket.gethostname(), int(x[0])) if len(x) == 1 else (x[0], int(x[1]))
 

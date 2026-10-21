@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 log = logging.getLogger("cenfuse")
-ENGINE_LOGGERS = ("cenfuse", "cenrep", "cenhic", "cenmeth")
+ENGINE_LOGGERS = ("cenfuse", "cenfuse-sat", "cenfuse-hic", "cenfuse-meth")
 
 
 class CenfuseError(Exception):

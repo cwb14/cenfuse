@@ -2,7 +2,7 @@
 <genome>.overview.png: the first figure page at 300 dpi).
 
 A, every chromosome to one bp scale, one row each:
-- the anchored Hi-C score (blue) and cenhic's prior-free score (gray);
+- the anchored Hi-C score (blue) and the prior-free Hi-C score (gray);
 - the methylation track (pooled composition-adjusted CHG);
 - every satellite array, colored by its family's role;
 - the TE marker clade's density;
@@ -581,7 +581,7 @@ def legends(f) -> tuple[str, str]:
         short.append("D, Hi-C contact with the other chromosomes' centromeres peaks at the integrated calls "
                      "(orange: calls placed away from the satellite).")
     lines_used = ", ".join(g.lines)
-    long = [f"Terms. Sequence call: cenrep's satellite (or retrotransposon) centromere. Anchored Hi-C score: mean "
+    long = [f"Terms. Sequence call: the satellite (or retrotransposon) centromere. Anchored Hi-C score: mean "
             f"observed/expected contact of each bin with windows at the other chromosomes' sequence calls (the "
             f"chromosome's own call is never used), over the chromosome median. Integrated call: the sequence call, "
             f"unless Hi-C that agrees with the sequence calls of the other chromosomes (gate: majority, "
@@ -594,7 +594,7 @@ def legends(f) -> tuple[str, str]:
     if hic is not None:
         h = hic["table"]
         a += (f" Blue: anchored Hi-C score at {hic['bin_size'] / 1e3:g}-kb bins (0 to {f['scale']['hic']:.1f} x "
-              f"the chromosome median over the track height, clipped above); gray: cenhic's prior-free score. The gate passed on "
+              f"the chromosome median over the track height, clipped above); gray: the prior-free Hi-C score. The gate passed on "
               f"{int(h.gate_pass.sum())} of {len(h)} chromosomes; the anchored peak lies on the sequence call on "
               f"{int(h.anch_agrees_seq.sum())} of {int(h.seq_start.ge(0).sum())}, the prior-free peak on "
               f"{int(h.denovo_agrees_seq.sum())}.")

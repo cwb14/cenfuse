@@ -14,9 +14,9 @@ def _cand():
 
 def test_bed9_is_valid(tmp_path):
     p = tmp_path / "x.candidates.bed"
-    output.write_bed(_cand(), "#cenmeth test", p)
+    output.write_bed(_cand(), "#cenfuse-meth test", p)
     lines = p.read_text().splitlines()
-    assert lines[0] == "#cenmeth test"
+    assert lines[0] == "#cenfuse-meth test"
     for ln in lines[1:]:
         f = ln.split("\t")
         assert len(f) == 9

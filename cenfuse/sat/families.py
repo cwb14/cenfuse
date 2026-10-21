@@ -11,7 +11,7 @@ from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextMSA, TextSequence
 from .annotate import run_significant
 from .params import (BLAST_BATCH, FAMILY_IDENT, FULL_MONOMER_COV, FULL_PERIOD_TOL, LEN_TOL, MSA_MAX_GAP,
                      NHMMER_REPORT_E, OVERHANG_MIN_BP, RDNA_FLANK_EVALUE, RDNA_TAG_EVALUE, RELATED_LEN_TOL)
-from .util import (CenrepError, canonical_rotation, log, merge_intervals, parse_fasta_text, revcomp, run, union_bp,
+from .util import (SatelliteError, canonical_rotation, log, merge_intervals, parse_fasta_text, revcomp, run, union_bp,
                    write_fasta)
 
 ABC = Alphabet.dna()
@@ -192,7 +192,7 @@ def rdna_tags(cons: dict, workdir: Path, threads: int, cm=RRNA_CM, evalue: float
     if not cons:
         return tags
     if not Path(cm).exists():
-        raise CenrepError(f"rRNA models missing: {cm} (part of the cenrep package; reinstall it)")
+        raise SatelliteError(f"rRNA models missing: {cm} (part of cenfuse; reinstall it)")
     workdir.mkdir(parents=True, exist_ok=True)
     q, tbl = workdir / "cons_dimers.fa", workdir / "rrna.tbl"
     write_fasta(q, ((f, s + s) for f, s in cons.items()))
@@ -225,7 +225,7 @@ def rdna_neighbourhood(fasta, chroms: dict, arrays: pd.DataFrame, fams: list, wo
     if not fams:
         return out
     if not Path(cm).exists():
-        raise CenrepError(f"rRNA models missing: {cm} (part of the cenrep package; reinstall it)")
+        raise SatelliteError(f"rRNA models missing: {cm} (part of cenfuse; reinstall it)")
     workdir.mkdir(parents=True, exist_ok=True)
     q, tbl = workdir / "flanks.fa", workdir / "flanks.tbl"
     tested = {}

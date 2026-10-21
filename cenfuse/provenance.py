@@ -218,7 +218,7 @@ def check_assembly(samples, fasta, windows) -> list:
 
 
 def genotypes(samples, fasta, chroms: dict, windows: list, threads: int) -> list:
-    """Genotype per methylation sample (samples: cenmeth Sample objects with a CHG file)."""
+    """Genotype per methylation sample (samples: methylation-engine Sample objects with a CHG file)."""
     index = {c: i for i, c in enumerate(chroms)}
     jobs = [(s.name, s.files["CHG"], str(fasta), windows, index) for s in samples]
     if len(jobs) > 1 and threads > 1:
@@ -347,7 +347,7 @@ def missing_segments(profiles: dict, skip: dict, w: int) -> dict:
     (read length and mapping filters differ between types, so only same-type coverage shows that the DNA is
     mappable). Windows that cannot be judged neither count nor break a run: skipped windows, windows no same-type
     input covers, and pile-ups where the input has more than DEPTH_HI x its median (collapsed repeats draw reads
-    from elsewhere; cenmeth's depth rule). A window where the input has coverage ends the run. profiles: {(kind,
+    from elsewhere; the methylation engine's depth rule). A window where the input has coverage ends the run. profiles: {(kind,
     name): {chrom: coverage per window}}."""
     med = medians(profiles, skip)
     out = {n: [] for n in profiles}

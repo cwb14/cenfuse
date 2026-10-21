@@ -1,30 +1,30 @@
 """cenfuse's own constants: one place, one reason each (design: docs/design.md). The engines keep theirs
 (cenfuse.sat.params, cenfuse.hic.params, cenfuse.meth.params); none is a command-line option."""
 
-HIC_TOL_BINS = 1          # a Hi-C peak agrees with an interval within one bin: cenhic's placement error
-HIC_FAR_BINS = 4          # ... and points to another locus only beyond cenhic's partner half-window (HALF_WIN, the
+HIC_TOL_BINS = 1          # a Hi-C peak agrees with an interval within one bin: the Hi-C engine's placement error
+HIC_FAR_BINS = 4          # ... and points to another locus only beyond the Hi-C engine's partner half-window (HALF_WIN, the
                           # resolution the method claims): in between, Hi-C neither supports nor opposes the call
 GATE_P = 0.01             # Hi-C gate: Poisson-binomial tail of agreements with the other chromosomes' sequence calls
-                          # (conventional level; cenhic P_HIGH; the benchmark's pre-registered C2 rule)
-GATE_MIN_REF = 3          # fewer reference chromosomes give no majority test (a call has < 2 partners, cenhic)
+                          # (conventional level; Hi-C engine P_HIGH; the benchmark's pre-registered C2 rule)
+GATE_MIN_REF = 3          # fewer reference chromosomes give no majority test (a call has < 2 partners, Hi-C engine)
 ANCHOR_LEVELS = ("high", "medium")   # calls good enough to anchor Hi-C partner windows and methylation calibration
                           # (wrong anchors blur both); low calls are used only when fewer than GATE_MIN_REF qualify
-STRONG_HIC_LEVEL = "high"            # an anchored Hi-C peak that may move a call passes all three cenhic tests
+STRONG_HIC_LEVEL = "high"            # an anchored Hi-C peak that may move a call passes all three Hi-C engine tests
                                      # (bootstrap in core >= 0.95, leave-one-partner-out stable, null P <= 0.01)
 NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NORs (they contact everything), or in
                           # an end window (8 bins): chromosome-end clusters are the main non-centromeric trans attractor
-                          # (cenhic benchmarks: rice 12/12 and giraffe 15/15 prior-free peaks at ends; 33 mammal misses).
+                          # (Hi-C engine benchmarks: rice 12/12 and giraffe 15/15 prior-free peaks at ends; 33 mammal misses).
                           # They may support a call, never oppose or move one. Added 2026-10-16 after the rice run
                           # (docs/design.md, Changes after the first runs)
 HIC_MAX_THREADS = 8       # Hi-C bootstrap threads: each holds ~3 copies of the contact matrix (memory, not speed)
-METH_SCORE = 0.5          # centromere_like = signature score >= 0.5 (cenmeth SIG_FRACTION: nearer the anchors than
+METH_SCORE = 0.5          # centromere_like = signature score >= 0.5 (methylation engine SIG_FRACTION: nearer the anchors than
                           # the background)
-CONF_LEVELS = ("low", "medium", "high")   # cenrep's confidence levels, in order
+CONF_LEVELS = ("low", "medium", "high")   # the satellite engine's confidence levels, in order
 MAX_RAISE = 2             # supporting lines raise a kept sequence call at most two levels (low -> high)
-SAT_SUPPORT_BP = 5_000    # the satellite line supports a call holding >= 5 kb of centromeric-role arrays: cenrep's
+SAT_SUPPORT_BP = 5_000    # the satellite line supports a call holding >= 5 kb of centromeric-role arrays: the satellite engine's
                           # weak_satellite floor (fallback_min_bp = S_MIN / 4)
-LOCI_MIN_SAT_BP = 20_000  # satellite clusters entered as loci: cenrep's S_MIN (centromere-sized cluster prior)
-LOCI_CLUSTER_GAP = 500_000  # arrays of one family closer than this are one cluster: cenrep's cluster_gap
+LOCI_MIN_SAT_BP = 20_000  # satellite clusters entered as loci: the satellite engine's S_MIN (centromere-sized cluster prior)
+LOCI_CLUSTER_GAP = 500_000  # arrays of one family closer than this are one cluster: the satellite engine's cluster_gap
 
 # Provenance and plants (docs/plants.md)
 GENO_FLANK = 300          # bp each side of a tested CHG site: ONT reads are kb long, so rows on both sides mean reads

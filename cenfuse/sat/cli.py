@@ -1,20 +1,20 @@
-"""Command line: cenrep run GENOME_DIR [-o OUTDIR] [-t THREADS] [--seed-engine {fastan,trf}] [--seed-cache DIR]
+"""Command line: python -m cenfuse.sat run GENOME_DIR [-o OUTDIR] [-t THREADS] [--seed-engine {fastan,trf}] [--seed-cache DIR]
 [--classify-from T=S] [--force STAGE] [-v]. Every threshold is an internal constant (params.py); none is an option."""
 import argparse
 from pathlib import Path
 
 from . import __version__
 from .params import Params
-from .util import CenrepError, log, setup_logging
+from .util import SatelliteError, log, setup_logging
 
 
 def main(argv=None) -> int:
     from .pipeline import STAGES, Pipeline
     from .seeds import ENGINES
-    ap = argparse.ArgumentParser(prog="cenrep", description=(
+    ap = argparse.ArgumentParser(prog="python -m cenfuse.sat", description=(
         "Centromeric satellite, HOR and tandem-repeat annotation. Finds satellite families de novo, shared across "
         "all genomes in GENOME_DIR, and calls one centromere per chromosome with its evidence and confidence."))
-    ap.add_argument("--version", action="version", version=f"cenrep {__version__}")
+    ap.add_argument("--version", action="version", version=f"cenfuse-sat {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run all stages; resumes from checkpoints in OUTDIR/work/",
                        description="Run all stages; a rerun resumes from checkpoints in OUTDIR/work/.")
@@ -42,7 +42,7 @@ def main(argv=None) -> int:
     try:
         Pipeline(gdir, a.threads, a.seed_cache, Params(seed_engine=a.seed_engine, classify_from=a.classify_from),
                  force=a.force, out_dir=a.outdir).run()
-    except CenrepError as e:
+    except SatelliteError as e:
         log.error(str(e))
         return 1
     return 0

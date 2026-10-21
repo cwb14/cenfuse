@@ -21,7 +21,7 @@ def test_bed9_only_called_rows(tmp_path):
     p = tmp_path / "x.bed"
     write_bed(rows(), p, 100)
     lines = p.read_text().splitlines()
-    assert lines[0].startswith("#cenhic") and "bin_size=100" in lines[0]
+    assert lines[0].startswith("#cenfuse-hic") and "bin_size=100" in lines[0]
     f = lines[1].split("\t")
     assert len(lines) == 2 and f[:6] == ["a", "200", "500", "a_cen", "420", "."] and f[6:8] == ["300", "400"]
     assert len(f) == 9

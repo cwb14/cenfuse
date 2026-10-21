@@ -1,5 +1,5 @@
 """Tiny synthetic genome for the tests: six 60-Mb chromosomes plus two short unplaced scaffolds, one CHG site per
-kb, three samples (S1 also has CG), LTRquest-style GFF3, cenrep-style arrays GFF3, genes GFF3, anchors and
+kb, three samples (S1 also has CG), LTRquest-style GFF3, satellite-engine-style arrays GFF3, genes GFF3, anchors and
 exclusions. Planted:
 - chr1-chr5: a centromere (satellite arrays + a CRM-rich pericentromere) whose CHG dip is carried by CRM cytosines
   inside the domain (CRM 0.45 -> 0.20); the satellite stays CHG-high (0.68).
@@ -56,7 +56,7 @@ def annotation(rng):
 
 
 def site_classes(ann, chrom, pos):
-    """Truth class per site, cenmeth's priority: satellite > nested CRM (depth 1) > depth-0 TE > gene > other."""
+    """Truth class per site, the methylation engine's priority: satellite > nested CRM (depth 1) > depth-0 TE > gene > other."""
     a = ann[ann.chrom == chrom]
     out = np.array(["other"] * len(pos), dtype=object)
     for cls, depth in (("gene", 0), ("Tekay", 0), ("CRM", 0), ("CRM", 1), ("satA", 0)):
@@ -94,7 +94,7 @@ def write_arrays(path, ann):
     with open(path, "w") as f:
         f.write("##gff-version 3\n")
         for i, r in enumerate(ann[ann.cls == "satA"].itertuples()):
-            f.write(f"{r.chrom}\tcenrep\tsatellite_DNA\t{r.start + 1}\t{r.end}\t.\t+\t.\tID=sat{i};family=satA;"
+            f.write(f"{r.chrom}\tcenfuse\tsatellite_DNA\t{r.start + 1}\t{r.end}\t.\t+\t.\tID=sat{i};family=satA;"
                     f"role=centromeric;monomer_len=150;n_monomers=133;mean_identity=0.95;in_centromere=true\n")
 
 
@@ -151,7 +151,7 @@ def make(d, seed: int = 1, depth: float = 40.0, crm_domain: float = P_CRM_DOMAIN
             cg = files.get((smp, "CG"))
             f.write(f"{smp}\t{files[(smp, 'CHG')].name}\t{cg.name if cg else ''}\n")
     with open(d / "anchors.bed", "w") as f:
-        f.write("#cenhic 0.1.1 bin_size=500000\n")
+        f.write("#cenfuse-hic 0.1.1 bin_size=500000\n")
         for c, x in CEN.items():
             x = int(x)
             f.write(f"{c}\t{x - 750000}\t{x + 750000}\t{c}_cen\t500\t.\t{x - 250000}\t{x + 250000}\t0,114,178\n")

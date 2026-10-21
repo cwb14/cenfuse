@@ -79,10 +79,10 @@ def make_genome(outdir, lengths=LENGTHS, cens=CENS, n_trans=300_000, n_cis=300_0
         f.write("##gff-version 3\n")
         for k, nm in enumerate(names):
             s = sat_bin[k] * SIZE
-            f.write(f"{nm}\tcenrep\tcentromere\t{s + 1}\t{s + SIZE}\t.\t.\t.\tID=cen_{nm}\n")
+            f.write(f"{nm}\tcenfuse\tcentromere\t{s + 1}\t{s + SIZE}\t.\t.\t.\tID=cen_{nm}\n")
         if rdna_on is not None:
             s = cens[rdna_on] * SIZE
-            f.write(f"{names[rdna_on]}\tcenrep\tsatellite_DNA\t{s + 1}\t{s + 50_000}\t.\t+\t.\t"
+            f.write(f"{names[rdna_on]}\tcenfuse\tsatellite_DNA\t{s + 1}\t{s + 50_000}\t.\t+\t.\t"
                     f"ID=sat_rdna;family=R1;rdna=45S_spacer\n")
     return dict(names=names, cens=list(cens), size=SIZE, unattached=[names[k] for k in unattached],
                 hub=hub_glob, sat_bin=sat_bin, rdna_chrom=names[rdna_on] if rdna_on is not None else None,
