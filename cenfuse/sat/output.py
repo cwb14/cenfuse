@@ -13,7 +13,8 @@ from .util import clipped_bp, overlap, parse_fasta_text, union_bp, write_fasta
 SUMMARY_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "cen_len", "evidence", "confidence", "flags",
                 "main_family", "main_family_bp", "cen_sat_bp", "sat_fraction", "n_arrays", "largest_array_bp",
                 "n_monomers", "mean_identity", "hor_monomers", "hor_fraction", "top_tandem_hor", "n_gaps",
-                "gap_bp", "n_genes", "gene_ratio", "other_tandem_bp", "te_clade", "te_core_start", "te_core_end"]
+                "gap_bp", "n_genes", "gene_ratio", "other_tandem_bp", "te_clade", "te_core_start", "te_core_end",
+                "alt_start", "alt_end"]
 FAMTAB_COLS = ["family", "fam_id", "superfamily", "consensus_len", "hmm_mode", "rdna", "genome", "class", "role", "strength",
                "defines", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
                "median_main_bp", "eligible", "dominant", "in_ltr", "ltr_clade", "reason"]
@@ -204,7 +205,9 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
                          n_genes=rg["n_genes"], gene_ratio=rg["gene_ratio"], other_tandem_bp=union_bp(other_iv),
                          te_clade=rg.get("te_clade", "."),
                          te_core_start=int(rg["te_core_start"]) + 1 if rg.get("te_core_start", ".") != "." else ".",
-                         te_core_end=rg.get("te_core_end", ".")))
+                         te_core_end=rg.get("te_core_end", "."),
+                         alt_start=int(rg["alt_start"]) + 1 if rg.get("alt_start", ".") not in (".", "") else ".",
+                         alt_end=rg.get("alt_end", ".") or "."))
     pd.DataFrame(rows, columns=SUMMARY_COLS).to_csv(outdir / f"{g.name}_centromere_summary.tsv", sep="\t", index=False)
     hu = d["hor_units"].copy()
     hu["family"] = hu.family.map(nm)

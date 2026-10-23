@@ -393,3 +393,68 @@ The two p-arm peaks are NOR territory. The satellite engine does not detect 43-k
   are confident (Hi-C engine level high/medium) on a majority of chromosomes, agree with the sequence calls on fewer
   than half, and the gate fails on most. It is logged as a warning and recorded in `cenfuse_summary.tsv`.
 - No call changes. Two lines cannot decide which is wrong; a third line (`tes/` CRM cores or methylation) can.
+
+## Changes after the T2T mammal benchmark (2026-10-23)
+
+The benchmark (14 T2T mammals, CENP-A truth for 157 chromosomes in 9 genomes; run record outside the repository)
+exposed the weak points below. Each change is stated with its principle and the case that prompted it. Every
+change was replayed on the plant benchmarks and on a 185-genome plant and fish satellite batch before it was kept;
+the replay results are in docs/benchmark.md.
+
+**What a satellite is (classify).** A family seeded by one tandem copy of an interspersed element (LINE, SINE or LTR
+fragment) is found genome-wide by nhmmer and chained into "arrays" of partial hits. In five FASTA-only mammal runs
+such a family (461-1,861-bp unit, 215-850 Mb, on every chromosome) became the centromeric family; only the gene
+veto removed it. Three gene-free measures now judge every family:
+- `tandem_frac`: share of its array bp inside de novo tandem repeats (the seed table, any period);
+- `whole_frac`: share of its hit bp in whole-unit hits (>= FULL_MONOMER_COV of the model);
+- `locus_fold`: its main cluster's density over its mean density on the chromosome (median over chromosomes).
+
+A family with tandem_frac < 0.5, whole_frac < 0.5 (majority rules) and locus_fold < 2 (LOCUS_FOLD, a heuristic, as
+the Hi-C engine's HUB_FOLD) is a dispersed repeat, never centromeric. Mammal interspersed families: tandem 5-14%,
+whole <= 1%, fold 1.1-1.3. Every CENP-A-validated centromeric family: tandem >= 45%, whole >= 90%. The fold test
+keeps retrotransposon-derived arrays that cluster in centromeres (Coffea, Glycine, Rosa: not tandem, fold >= 2.5),
+which the first version of the rule removed on 160 batch chromosomes.
+
+**Dominance per satellite kind (classify).** The families stage splits a satellite into subfamilies at 90%
+identity (6 alpha subfamilies in bonobo). Dominance counted the largest cluster per family, so a 43-bp pericentric
+satellite out-counted alpha and took 12/25 bonobo calls, 4 of them 1-5 Mb from CENP-A (3 high). The largest cluster
+per chromosome is now judged per kind (families related by `same_sequence`, arrays pooled). Effect beyond
+bonobo: F. chiloensis D, where no family was dominant, now calls the CENH3-validated 147-bp Type I satellite on 6
+more chromosomes.
+
+**Acrocentric karyotypes (classify).** A family at one end of most chromosomes was subtelomeric. In goat (all
+autosomes acrocentric) that made satellite I subtelomeric and left 20/31 chromosomes without a call. Subtelomeric
+repeats occupy chromosome ends independently; a centromere occurs once per chromosome. A family that would be
+subtelomeric is the acrocentric centromere when it is strong, sits at an end of most chromosomes, and at both ends
+of so few that the ends cannot be independent (binomial lower tail on the both-ends count, expected n q^2 from the
+per-end occupancy q; P <= 0.01, ACRO_ALPHA), and no strong interior family competes. Power: with n chromosomes all
+one-ended, P = (1 - q^2)^n, so about 16 chromosomes are needed; smaller karyotypes keep the old rule. Calls on such
+a family are flagged `acrocentric` (and `near_end`, so at most medium).
+
+**Classify's choice makes the call (centromeres).** The call took the largest cluster of any centromeric family,
+even where classify had chosen another family for that chromosome (siamang: an 80-bp satellite chosen on 2
+chromosomes took 11 calls; CHM13 chr21: an inactive alpha array 2 Mb from the active one). The call is now the
+pooled-family cluster that holds the chosen families' main cluster (layered satellites still share one call); a
+decisive CRM core outranks the choice in favour of the largest cluster (S. verrucosum chr07).
+
+**Competing clusters (centromeres, fuse).** A second cluster at least half the main one costs two levels instead of
+one (on CENP-A or CENH3 truth, 2 of 10 such calls were right: mammals 2/5, potato and barley 0/5), and its coordinates
+are reported (`seq_alt_start/end`). Validated Hi-C that agrees with the second cluster and not the first chooses it
+(`hic_chose_alt`): Hi-C chooses between two sequence candidates; it does not place the call.
+
+**Hi-C in mappable-bin geometry (hicfuse, fuse).** With MAPQ >= 30, the CENP-A domain lay in a block of unmappable
+bins on 139/157 chromosomes; partner windows (call midpoint +/- 4 bins) fell entirely inside such blocks (0/22 in
+each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at the block edges, 1-5 Mb from CENP-A.
+- Partner window: the 9 mappable bins nearest the call, at most 4 mappable bins outside it (unchanged when the call
+  is mappable).
+- Every distance involving a Hi-C interval counts mappable bins only (`visible_gap`), and the gate's chance uses the
+  same geometry, so the gate stays calibrated: a peak at an array's edge is adjacent to a call inside it.
+
+**Gate `untested`.** With fewer than GATE_MIN_REF reference chromosomes the gate is reported `untested`, not `fail`.
+
+**Hi-C-only calls from clean medium peaks (fuse).** With no sequence call, a gate pass and a clean anchored peak of
+Hi-C level medium, the call is `functional_only`, confidence low, flag `hic_medium_peak` (horse chr11, the
+satellite-free centromere: the medium peak lay inside the CENP-A domain and was discarded).
+
+**NOR peaks (hicfuse).** A peak that could oppose or place a call is searched for 18S rRNA genes (peak bin +/- 1
+bin, Rfam SSU, cmsearch --hmmonly); a hit flags it rDNA, so it never opposes or places a call.

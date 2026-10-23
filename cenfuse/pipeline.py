@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import __version__, fuse, hicfuse, inputs, loci, methfuse, output, plants, provenance, seqcalls, telomere, \
-    teline
+from . import __version__, fuse, hicfuse, inputs, loci, methfuse, output, plants, provenance, rdna, seqcalls, \
+    telomere, teline
 from .meth import io as mio
 from .meth import params as mp
 from .meth import track as mtrack
@@ -30,7 +30,7 @@ from .sat.params import Params
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "genotype", "hic", "karyotype", "meth"]
+STAGES = ["satellite", "rdna", "genotype", "hic", "karyotype", "meth"]
 CEN_ROLES = ("centromeric", "cen_associated")
 _PKG = Path(__file__).parent
 
@@ -44,10 +44,10 @@ def code_key(*modules, packages=()) -> str:
     return obj_fingerprint([f.read_text() for f in files])
 
 
-def feature_classes(seq: seqcalls.SeqLine, tel: dict, telo: dict) -> dict:
+def feature_classes(seq: seqcalls.SeqLine, tel: dict, telo: dict, nors=()) -> dict:
     """Feature classes whose 3D self-association the Hi-C line tests: the sequence centromeres (positive control in
-    Rabl nuclei), the chromosome ends, telomere arrays, interstitial / subtelomeric / rDNA satellite blocks pooled and
-    per family, and each concentrated LTR clade's cores."""
+    Rabl nuclei), the chromosome ends, telomere arrays, 45S arrays (NORs: the nucleolus), interstitial /
+    subtelomeric / rDNA satellite blocks pooled and per family, and each concentrated LTR clade's cores."""
     out = {"centromeres (sequence calls)": dict(kind="centromere", label="sequence calls",
                                                 iv=[(r.chrom, r.start, r.end) for r in seq.calls.itertuples(index=False)
                                                     if r.start >= 0]),
@@ -55,6 +55,8 @@ def feature_classes(seq: seqcalls.SeqLine, tel: dict, telo: dict) -> dict:
     if telo.get("ends"):
         out["telomere arrays"] = dict(kind="telomere", label=telo["unit"],
                                       iv=[(c, s, e) for c, _, s, e, *_ in telo["ends"]])
+    if nors:
+        out["45S rDNA arrays (NORs)"] = dict(kind="nor", label="18S motif", iv=[(c, s, e) for c, s, e, *_ in nors])
     cl = seqcalls.satellite_clusters(seq.arrays)
     pooled = {"interstitial blocks (all families)": cl.role == "interstitial",
               "subtelomeric blocks (all families)": cl.role == "subtelomeric",
@@ -126,6 +128,7 @@ class Run:
         self.sat_params = sat_params or {}           # tests only: satellite-engine Params overrides (scaled-down constants)
         self.genomes = inputs.discover(self.gdir)
         self._prep = {}
+        self._nors = {}
         if self.sat_import and not self.sat_import.is_dir():
             raise CenfuseError(f"--satellite-dir {self.sat_import}: not a directory")
 
@@ -182,6 +185,17 @@ class Run:
             raise CenfuseError(f"satellite engine: {e}") from None
         return self.out / "satellite"
 
+    def stage_rdna(self, g) -> list:
+        """45S arrays (NORs) from the universal 18S motif (rdna.py), checkpointed by the assembly index and the code."""
+        fp = dict(version=__version__, code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+                  chroms=obj_fingerprint(g.chroms))
+        hit = self._cached("rdna", g.name, fp)
+        if hit is None:
+            hit = rdna.detect(g.fasta, g.chroms)
+            self._store("rdna", g.name, fp, hit)
+        self._nors[g.name] = hit
+        return hit
+
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
         """Fixed differences of every methylation sample and the private-difference tests (provenance)."""
         files = sorted(str(f) for s in samples for f in s.files.values())
@@ -221,7 +235,8 @@ class Run:
             fai.write_text(txt)
         fp = dict(version=__version__, code=code_key("hicfuse.py", packages=("hic",)),
                   pairs=file_fingerprint(lib.path), chroms=obj_fingerprint(g.chroms),
-                  calls=obj_fingerprint(calls), arrays=file_fingerprint(arrays), classes=obj_fingerprint(classes))
+                  calls=obj_fingerprint(calls), arrays=file_fingerprint(arrays), classes=obj_fingerprint(classes),
+                  nors=obj_fingerprint(self._nors.get(g.name, [])))
         hit = self._cached("hic", name, fp)
         if hit is not None:
             log.info(f"hic: {name} checkpoint found")
@@ -229,7 +244,7 @@ class Run:
         t0 = time.time()
         (self.out / "hic").mkdir(parents=True, exist_ok=True)
         res = hicfuse.run(lib.path, fai, self.out / "hic" / name, [gff, arrays], calls,
-                          min(self.threads, HIC_MAX_THREADS), classes)
+                          min(self.threads, HIC_MAX_THREADS), classes, nors=self._nors.get(g.name, []))
         self._store("hic", name, fp, res)
         log.info(f"hic: {name} done ({time.time() - t0:.0f} s)")
         return res
@@ -314,7 +329,9 @@ class Run:
             meth = None if meth_items is None else meth_items.get(r.chrom, {})
             out.append(fuse.Evidence(r.chrom, int(r.chrom_len), dict(start=int(r.start), end=int(r.end),
                                                                     evidence=r.evidence, confidence=r.confidence,
-                                                                    flags=r.flags, main_family=r.main_family),
+                                                                    flags=r.flags, main_family=r.main_family,
+                                                                    alt_start=int(r.alt_start),
+                                                                    alt_end=int(r.alt_end)),
                                      te, h, meth, sat_bp(r.chrom)))
         return out
 
@@ -338,7 +355,7 @@ class Run:
             for x in geno["warnings"]:
                 log.warning(f"{g.name}: {x}")
         known = {n: v["verdict"] for n, v in geno.get("verdicts", {}).items()}
-        classes = feature_classes(seq, tel, telo)
+        classes = feature_classes(seq, tel, telo, self._nors.get(g.name, []))
         hics = {}
         for lib in g.hic:
             try:
@@ -381,6 +398,7 @@ class Run:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
             tel = teline.te_line(g.tes, g.chroms)
             telo = telomere.detect(g.fasta, g.chroms)
+            nors = self.stage_rdna(g)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]
             dec_lib = deciding_library(hics, verdicts)
@@ -464,13 +482,13 @@ class Run:
                                       f"cenfuse {g.name} anchored Hi-C score (x chromosome median)")
             genes = load_gene_gff(g.genes, g.chroms)[0] if g.genes else None
             lt, feats = loci.table(g.name, g.chroms, fused, seq, seqcalls.satellite_clusters(seq.arrays), tel, hic_l,
-                                   meth, genes, g.fasta, telo)
+                                   meth, genes, g.fasta, telo, nors)
             output.write_loci(lt, feats, g.name, g.chroms, self.out)
             fc = hic["classes"] if hic is not None else None
             if fc is not None:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
-            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab))
+            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors))
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
                              plants=ptab, psites=psites, verdicts=verdicts, libraries=others))
             log.info(f"{g.name}: {len(t[t.start != '.'])}/{len(t)} chromosomes called; relations "

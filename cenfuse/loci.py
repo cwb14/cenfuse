@@ -47,9 +47,12 @@ def _runs(mask: np.ndarray):
 
 
 def members(chrom: str, L: int, fused: dict, clusters: pd.DataFrame, tel: dict, hic: dict | None,
-            meth: dict | None, telo: dict | None = None) -> list:
+            meth: dict | None, telo: dict | None = None, nors=()) -> list:
     """[(start, end, type, line, label, extra)] candidate features on one chromosome."""
     out = []
+    for c, s, e, n, unit in nors or ():
+        if c == chrom:
+            out.append((s, e, "rdna_array", "satellite", f"45S x{n}", dict(units=n, unit_bp=unit)))
     for c, side, s, e, bp, gap_end in (telo or {}).get("ends", []):
         if c == chrom:
             out.append((s, e, "telomere_array", "telomere", telo["unit"], dict(side=side, bp=bp, gap_to_end=gap_end)))
@@ -118,7 +121,7 @@ def kind(group: list) -> str:
         return "sequence_centromere"
     if "telomere_array" in types:
         return "telomere"
-    if rdna or "rDNA" in roles:
+    if rdna or "rDNA" in roles or "rdna_array" in types:
         return "rDNA"
     if "subtelomeric" in roles:
         return "subtelomeric_block"
@@ -159,7 +162,9 @@ def locus_values(chrom, s, e, group, seq, tel, hic, meth, genes, chrom_len, fa) 
     v["sat_bp_other"] = sum(b for r, b in roles.items() if r not in ("centromeric", "cen_associated",
                                                                        "interstitial", "subtelomeric", "dispersed"))
     v["rdna"] = ",".join(sorted({m[5]["rdna"] for m in group if m[2] == "satellite_cluster"
-                                 and m[5].get("rdna", ".") not in (".", "")})) or "."
+                                 and m[5].get("rdna", ".") not in (".", "")}
+                                | {f"45S_array:{m[5]['units']}x{m[5]['unit_bp']}" for m in group
+                                   if m[2] == "rdna_array"})) or "."
     v["te_clades"] = ",".join(sorted({m[4] for m in group if m[2] == "te_core"})) or "."
     v["telomere_bp"] = sum(m[5]["bp"] for m in group if m[2] == "telomere_array")
     dens = tel.get("density", {}).get(chrom)
@@ -206,13 +211,14 @@ def locus_values(chrom, s, e, group, seq, tel, hic, meth, genes, chrom_len, fa) 
     return v
 
 
-def table(genome: str, chroms: dict, fused: dict, seq, clusters, tel, hic, meth, genes, fasta, telo=None) -> tuple:
+def table(genome: str, chroms: dict, fused: dict, seq, clusters, tel, hic, meth, genes, fasta, telo=None,
+          nors=()) -> tuple:
     """(loci DataFrame, members list) for one genome. fused: {chrom: dict(call, seq, relation, seq_evidence)}."""
     rows, feats = [], []
     tol = HIC_TOL_BINS * hic["bins"].size if hic is not None else 0
     with pysam.FastaFile(str(fasta)) as fa:
         for c, L in chroms.items():
-            mem = members(c, L, fused.get(c, {}), clusters, tel, hic, meth, telo)
+            mem = members(c, L, fused.get(c, {}), clusters, tel, hic, meth, telo, nors)
             call = fused.get(c, {}).get("call")
             for i, grp in enumerate(merge(mem, tol), 1):
                 s, e = min(m[0] for m in grp), max(m[1] for m in grp)

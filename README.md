@@ -199,7 +199,21 @@ are used.
 | `none` | no call |
 
 `confidence` is `low`, `medium` or `high`. Each independent line that agrees raises a kept call one level (at
-most two); a contest lowers it one.
+most two); a contest lowers it one. **Read `low` as "uncertain":** the call is the best candidate, but the lines
+cannot exclude another place. When two satellite clusters compete, the call is `low` and the other one is in
+`seq_alt_start`/`seq_alt_end`; validated Hi-C may choose between them (flag `hic_chose_alt`).
+
+Flags worth knowing:
+
+| flag | meaning |
+|---|---|
+| `competing_cluster` | a second centromeric-satellite cluster at least half the size of the called one (`seq_alt_*`) |
+| `acrocentric` | the call is on a family that ends most chromosomes at one end only (an acrocentric karyotype) |
+| `hic_chose_alt` | validated Hi-C agreed with the competing cluster, not the larger one |
+| `hic_medium_peak` | no sequence call; a clean medium-level anchored Hi-C peak placed a low-confidence call |
+| `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | the satellite engine's reasons for a lower level |
+
+The Hi-C gate (`hic_gate`) is `pass`, `fail` or `untested` (fewer than 3 chromosomes with a reference-grade call).
 
 ## Options
 
@@ -257,7 +271,14 @@ potato, barley, horse and CHM13; the satellome for the other apes and giraffe; e
   methylation as a third line.
 - One wrong Hi-C peak, in a genome where Hi-C mostly works, passes the test. The second-line rule protects only
   high-confidence calls.
-- Resolution is one Hi-C bin (250 kb-2 Mb).
+- Hi-C resolution is one *mappable* bin. In complete assemblies the centromeric array itself is unmappable (T2T
+  mammals: the CENP-A domain lay in unmappable blocks of 2.5-19 Mb median), so Hi-C locates the array, not the
+  kinetochore inside it. cenfuse counts Hi-C distances in mappable bins, so a peak at the array's edge supports a
+  call inside the array.
+- Without genes or TEs, a satellite is told from an interspersed repeat by tandem structure alone: a family must
+  lie mostly in tandem repeats, or be hit as whole units, or be concentrated at one locus per chromosome.
+- The acrocentric test needs about 16 or more chromosomes; smaller all-acrocentric karyotypes still have their
+  terminal satellites called subtelomeric.
 - Methylation needs ONT CHG calls and `tes/`. Plants below ~4x often lack data at centromeres, and per-plant
   methylation verdicts are weak evidence.
 - Hi-C given as pairs or cool cannot be genotyped, so its plant of origin is usually `unknown`.

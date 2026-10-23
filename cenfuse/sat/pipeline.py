@@ -30,8 +30,10 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # 0.6.0 = classify: dominant column; centromeres: retrotransposon evidence (tes/), honesty cap without it.
 # 0.7.0 = centromeres: with decisive (CRM) evidence a satellite call away from the core is replaced by the core.
 # 0.4.0 (seeds) = stage trf renamed seeds; FasTAN engine (default) beside TRF.
-STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.9.5",
-                 "centromeres": "0.9.2", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
+# 0.10.0 = classify: dispersed repeats (tandem test), dominance per satellite kind, acrocentric test;
+#          centromeres: competing clusters reported (alt_start/alt_end) and low (T2T mammal benchmark).
+STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.0",
+                 "centromeres": "0.10.0", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
@@ -215,7 +217,12 @@ class Pipeline:
                         vote[f] = (k + (s >= self.p.max_subtel_frac * b), n + 1)
         metrics, rds, elsewhere = {}, {}, {}
         for g in self.genomes:
-            metrics[g.name] = classify.family_metrics(self.arrays(g), g.chroms, self.genes(g), self.p, info, vote)
+            mono = pd.read_csv(self._p("annotate", f"{g.name}.monomers.tsv.gz"), sep="\t",
+                               usecols=["family", "start", "end", "hmm_from", "hmm_to", "model_len"])
+            tandem = classify.tandem_support(self.arrays(g), mono, self.seed_table(g), self.p)
+            del mono
+            metrics[g.name] = classify.family_metrics(self.arrays(g), g.chroms, self.genes(g), self.p, info, vote,
+                                                      tandem)
             if g.name not in self.borrow:
                 fams = metrics[g.name][0]
                 elig = list(fams.family[fams.eligible.astype(bool)])
@@ -239,7 +246,8 @@ class Pipeline:
                 if tagged:
                     log.info(f"classify: {g.name}: rDNA spacer repeats (not centromeric): {', '.join(tagged)}")
                 tev = self.te_evidence(g)
-                fams, per_chrom, rejected = classify.choose_with_te(fams, mains, g.chroms, self.p, info, tev)
+                fams, per_chrom, rejected = classify.choose_with_te(fams, mains, g.chroms, self.p, info, tev,
+                                                                    self.arrays(g))
                 if rejected:
                     log.info(f"classify: {g.name}: away from the {tev[0]} retrotransposon centromere (not "
                              f"centromeric): {', '.join(f'{f} ({k}/{n})' for f, (k, n) in rejected.items())}")
@@ -289,10 +297,19 @@ class Pipeline:
             dominant = fams["dominant"].astype(str).eq("True").any() if "dominant" in fams else True
             capped = tev is None and not borrowed and bool(primary) and not dominant
 
+            acro = frozenset(fams.family[fams["acrocentric"].astype(str).eq("True")]) if "acrocentric" in fams \
+                else frozenset()
+            chosen = {}                                      # classify's per-chromosome choice (defines)
+            for r in fams[fams.cls == "centromeric"].itertuples(index=False):
+                for c in str(r.defines).split(","):
+                    if c not in ("", "."):
+                        chosen.setdefault(c, set()).add(r.family)
+
             def call_with(prim):
                 return centromere.call_regions(g, arrays, prim, self.genes(g), self.seed_table(g),
                                                self.work / "centromeres" / f"tmp_{g.name}", self.threads, self.p,
-                                               borrowed=borrowed, te=tev, capped=capped)
+                                               borrowed=borrowed, te=tev, capped=capped, acro=acro,
+                                               per_chrom=chosen)
             rows, lu = call_with(primary)
             te_fams = set(fams.family[pd.to_numeric(fams.get("in_ltr"), errors="coerce") >= TE_DERIVED_FRAC]) \
                 if "in_ltr" in fams else set()

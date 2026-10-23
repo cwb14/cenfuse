@@ -1,15 +1,21 @@
 """The Hi-C line.
 
 1. The Hi-C engine's prior-free call, unchanged (outputs under OUT/hic/).
-2. The anchored test, on the same balanced matrix. Partner windows sit at the other chromosomes' sequence calls
-   (midpoint bin +/- the Hi-C engine's HALF_WIN). Each chromosome's score is the mean O/E with those windows; its own call is
+2. The anchored test, on the same balanced matrix. Partner windows sit at the other chromosomes' sequence calls: the
+   2 HALF_WIN + 1 mappable bins nearest the call (the midpoint bin +/- the Hi-C engine's HALF_WIN when the call is
+   mappable; the array's mappable flanks when it is not). Each chromosome's score is the mean O/E with those windows; its own call is
    never a partner, so the test is leave-one-chromosome-out by construction. Which trans cluster dominates the
    genome then no longer matters: the score asks whether a place contacts the other chromosomes' (sequence-defined)
    centromeres. Every anchored peak gets the Hi-C engine's own tests: Poisson bootstrap with the windows fixed,
    leave-one-partner-out, and the position-aware null.
 3. The gate, per chromosome x: on the other chromosomes with a reference-grade sequence call, does the anchored peak
    land on that call more often than chance (Poisson-binomial tail <= GATE_P, and on a majority)? Only then is
-   Hi-C allowed to change x's call."""
+   Hi-C allowed to change x's call.
+
+Distances are counted in mappable bins (`visible_gap`). Hi-C sees nothing inside a megabase array of near-identical
+repeat units: no read maps uniquely there, so its bins are masked. In T2T mammals the CENP-A domain lay inside such
+an unmappable block on 139/157 chromosomes and the anchored peak sat at the block's edge, 1-5 Mb away (benchmark
+v2). A peak separated from a call only by unmappable bins is adjacent to it as far as Hi-C can tell."""
 from __future__ import annotations
 
 from argparse import Namespace
@@ -21,18 +27,20 @@ import pandas as pd
 
 from .hic import cli as hic_cli
 from .hic import params as hp
-from .hic.confidence import _score_fixed, level, poisson_resample
+from .hic.balance import balanced, ice
+from .hic.confidence import level, poisson_resample
 from .hic.io import InputError
 from .hic.locate import peak_core
 from .hic.qc import call_flags
-from .hic.score import cluster_score, partner_oe, window_bins
-from .params import ANCHOR_LEVELS, GATE_MIN_REF, GATE_P, HIC_TOL_BINS, NOT_STRONG_FLAGS, STRONG_HIC_LEVEL
+from .hic.score import block_means, cluster_score, partner_oe, window_bins
+from .params import ANCHOR_LEVELS, GATE_MIN_REF, GATE_P, HIC_FAR_BINS, HIC_TOL_BINS, NOT_STRONG_FLAGS, \
+    STRONG_HIC_LEVEL
 from .util import CenfuseError, gap, log, poisson_binomial_sf
 
 HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confidence", "partner",
             "anch_peak_start", "anch_peak_end", "anch_core_start", "anch_core_end", "anch_ratio", "anch_boot_in_core",
             "anch_lopo_stable", "anch_null_p", "anch_level", "anch_flags", "anch_strong", "anch_agrees_seq", "chance",
-            "gate_k", "gate_n", "gate_p", "gate_pass",
+            "gate_k", "gate_n", "gate_p", "gate_pass", "masked",
             "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end", "denovo_confidence",
             "denovo_flags", "denovo_agrees_seq", "denovo_agrees_anch"]
 
@@ -47,13 +55,22 @@ def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
         raise CenfuseError(f"Hi-C {pairs}: {e}") from None
 
 
-def bootstrap_all(M, bins, members, est, threads: int, n: int = hp.N_BOOT, seed: int = hp.SEED) -> dict:
-    """The Hi-C engine's bootstrap (Poisson resamples, re-balanced, partner windows fixed at est), but the peak of every
+def _score_windows(M, bins, members, win: dict):
+    """The Hi-C engine's _score_fixed with explicit partner windows (each resample re-balanced; bins it masks drop
+    out of the windows)."""
+    bias, good, _, _ = ice(M)
+    W = balanced(M, bias, good)
+    mean = block_means(W, bins, good, members)
+    return cluster_score(partner_oe(W, bins, good, mean, {y: w[good[w]] for y, w in win.items()}), bins, good, members)
+
+
+def bootstrap_all(M, bins, members, win: dict, threads: int, n: int = hp.N_BOOT, seed: int = hp.SEED) -> dict:
+    """The Hi-C engine's bootstrap (Poisson resamples, re-balanced, partner windows fixed), but the peak of every
     callable chromosome, not only of those holding a window."""
     ks = [int(k) for k in np.where(members)[0]]
 
     def one(ss):
-        S = _score_fixed(poisson_resample(M, np.random.default_rng(ss)), bins, members, est)
+        S = _score_windows(poisson_resample(M, np.random.default_rng(ss)), bins, members, win)
         return {k: int(np.nanargmax(S[bins.sl(k)])) if np.isfinite(S[bins.sl(k)]).any() else -1 for k in ks}
 
     with ThreadPoolExecutor(max(threads, 1)) as ex:
@@ -105,36 +122,93 @@ def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NUL
     return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else float("nan") for x in peaks}
 
 
-def _partners(bins, members, seq: dict) -> dict:
-    """{chromosome index: midpoint bin of its sequence call} for calls at ANCHOR_LEVELS (all calls when fewer than
-    GATE_MIN_REF qualify)."""
+def _bin_range(bins, k: int, s: int, e: int) -> tuple:
+    nb = int(bins.nb[k])
+    return min(nb - 1, s // bins.size), min(nb - 1, max(s, e - 1) // bins.size)
+
+
+def visible_dist(bins, good, k: int, s: int, e: int) -> np.ndarray:
+    """Per bin of chromosome k: the number of mappable bins strictly between it and [s, e) (0 inside)."""
+    nb, off = int(bins.nb[k]), int(bins.off[k])
+    lo, hi = _bin_range(bins, k, s, e)
+    cg = np.concatenate([[0], np.cumsum(good[off:off + nb])])       # cg[j] = mappable bins in [0, j)
+    j = np.arange(nb)
+    d = np.zeros(nb, dtype=np.int64)
+    d[j < lo] = cg[lo] - cg[j[j < lo] + 1]
+    d[j > hi] = cg[j[j > hi]] - cg[hi + 1]
+    return d
+
+
+def visible_window(bins, good, k: int, s: int, e: int, half: int = hp.HALF_WIN) -> np.ndarray:
+    """Global bins of the partner window of call [s, e) on chromosome k: the 2 half + 1 mappable bins nearest the
+    call (mappable-bin distance, then distance to the midpoint), at most `half` mappable bins outside it. A mappable
+    call gives the Hi-C engine's midpoint +/- half window; a call inside an unmappable array gives the array's
+    mappable flanks, the nearest places Hi-C can see."""
+    off = int(bins.off[k])
+    d = visible_dist(bins, good, k, s, e)
+    mid = min(int(bins.nb[k]) - 1, ((s + e) // 2) // bins.size)
+    j = np.flatnonzero(good[off:off + int(bins.nb[k])] & (d <= half))
+    order = np.lexsort((np.abs(j - mid), d[j]))
+    return np.sort(off + j[order[:2 * half + 1]])
+
+
+def masked_runs(bins, good, k: int) -> tuple:
+    """Unmappable stretches of chromosome k as ((start, end), ...) in bp."""
+    off, nb = int(bins.off[k]), int(bins.nb[k])
+    bad = ~good[off:off + nb]
+    out, j = [], 0
+    while j < nb:
+        if bad[j]:
+            i = j
+            while j < nb and bad[j]:
+                j += 1
+            out.append((int(bins.start[off + i]), int(bins.end[off + j - 1])))
+        else:
+            j += 1
+    return tuple(out)
+
+
+def visible_gap(a0: int, a1: int, b0: int, b1: int, masked) -> int:
+    """bp between two intervals that Hi-C can see: the gap minus the unmappable stretches inside it."""
+    g = gap(a0, a1, b0, b1)
+    if g == 0 or not masked:
+        return g
+    lo, hi = min(a1, b1), max(a0, b0)
+    return max(0, g - sum(max(0, min(e, hi) - max(s, lo)) for s, e in masked))
+
+
+def _partners(bins, members, good, seq: dict) -> tuple:
+    """({chromosome index: midpoint bin of its sequence call}, {chromosome index: partner window bins}) for calls at
+    ANCHOR_LEVELS (all calls when fewer than GATE_MIN_REF qualify). Windows without a mappable bin are dropped."""
     idx = {n: i for i, n in enumerate(bins.names)}
 
     def pick(levels):
-        out = {}
+        est, win = {}, {}
         for c, (s, e, conf) in seq.items():
             k = idx.get(c)
             if k is not None and members[k] and s >= 0 and conf in levels:
-                out[k] = min(int(bins.nb[k]) - 1, ((s + e) // 2) // bins.size)
-        return out
-    est = pick(ANCHOR_LEVELS)
-    return est if len(est) >= GATE_MIN_REF else pick(("high", "medium", "low"))
+                w = visible_window(bins, good, k, s, e)
+                if len(w):
+                    est[k] = min(int(bins.nb[k]) - 1, ((s + e) // 2) // bins.size)
+                    win[k] = w
+        return est, win
+    est, win = pick(ANCHOR_LEVELS)
+    return (est, win) if len(est) >= GATE_MIN_REF else pick(("high", "medium", "low"))
 
 
-def _agrees_bin(bins, k: int, j: int, s: int, e: int) -> bool:
-    g = int(bins.off[k] + j)
-    return gap(int(bins.start[g]), int(bins.end[g]), s, e) <= HIC_TOL_BINS * bins.size
+def _agrees_bin(bins, good, k: int, j: int, s: int, e: int) -> bool:
+    """The peak bin j lies within HIC_TOL_BINS mappable bins of [s, e)."""
+    return bool(visible_dist(bins, good, k, s, e)[j] <= HIC_TOL_BINS)
 
 
-def _chance(S, bins, k: int, s: int, e: int) -> float:
-    """Share of chromosome k's scored bins whose peak would agree with [s, e) (a uniformly placed peak)."""
+def _chance(S, bins, good, k: int, s: int, e: int) -> float:
+    """Share of chromosome k's scored bins whose peak would agree with [s, e) (a uniformly placed peak), in the same
+    mappable-bin geometry as the agreement."""
     sl = bins.sl(k)
     ok = np.isfinite(S[sl])
     if not ok.any():
         return float("nan")
-    st, en = bins.start[sl], bins.end[sl]
-    tol = HIC_TOL_BINS * bins.size
-    near = np.maximum(0, np.maximum(st, s) - np.minimum(en, e)) <= tol
+    near = visible_dist(bins, good, k, s, e) <= HIC_TOL_BINS
     return float((near & ok).sum() / ok.sum())
 
 
@@ -163,18 +237,18 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
     """state: the Hi-C engine's in-memory state; seq: {chrom: (start, end, confidence)} of the sequence calls (start -1 =
     none). Returns (per-chromosome table without the de novo columns, {'S': anchored score, 'est': partners})."""
     M, W, bins, good, mean, members = (state[k] for k in ("M", "W", "bins", "good", "mean", "members"))
-    est = _partners(bins, members, seq)
+    est, win = _partners(bins, members, good, seq)
     if len(est) < 2:
         log.warning("Hi-C: fewer than 2 chromosomes with a sequence call to anchor partner windows; anchored test "
                     "skipped")
-    oe = partner_oe(W, bins, good, mean, window_bins(bins, good, est)) if len(est) >= 2 else {}
+    oe = partner_oe(W, bins, good, mean, win) if len(est) >= 2 else {}
     S = cluster_score(oe, bins, good, members) if oe else np.full(bins.N, np.nan)
     pcs = {}
     for k in (int(x) for x in np.where(members)[0]):
         pc = peak_core(S, bins, k)
         if pc is not None and np.isfinite(pc["ratio"]):
             pcs[k] = pc
-    boot = bootstrap_all(M, bins, members, est, threads) if pcs else {}
+    boot = bootstrap_all(M, bins, members, win, threads) if pcs else {}
     lopo = lopo_all(oe, bins, good, members) if pcs else {}
     pnull = null_all(W, bins, good, mean, members, est, {k: v["peak"] for k, v in pcs.items()},
                      {k: v["ratio"] for k, v in pcs.items()}) if pcs else {}
@@ -185,7 +259,7 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
                  seq_confidence=conf, partner=k in est, anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1,
                  anch_core_end=-1, anch_ratio=np.nan, anch_boot_in_core=np.nan, anch_lopo_stable=False,
                  anch_null_p=np.nan, anch_level="none", anch_flags="", anch_strong=False, anch_agrees_seq=False,
-                 chance=np.nan)
+                 chance=np.nan, masked=masked_runs(bins, good, k))
         if k in pcs:
             pc, g = pcs[k], lambda j, k=k: int(bins.off[k] + j)
             b = boot.get(k, np.array([], int))
@@ -200,10 +274,11 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
                      anch_null_p=pnull.get(k, np.nan), anch_level=lev, anch_flags=",".join(flags),
                      anch_strong=bool(lev == STRONG_HIC_LEVEL and not set(flags) & set(NOT_STRONG_FLAGS)))
             if s >= 0:
-                r.update(anch_agrees_seq=_agrees_bin(bins, k, pc["peak"], s, e), chance=_chance(S, bins, k, s, e))
+                r.update(anch_agrees_seq=_agrees_bin(bins, good, k, pc["peak"], s, e),
+                         chance=_chance(S, bins, good, k, s, e))
         rows.append(r)
     t = gate(pd.DataFrame(rows))
-    return t, dict(S=S, est=est)
+    return t, dict(S=S, est=est, win=win)
 
 
 def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
@@ -231,13 +306,58 @@ def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
     return t[HIC_COLS]
 
 
-def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: dict | None = None) -> dict:
+def add_nors(rdna: dict, nors) -> dict:
+    """The Hi-C engine's rDNA intervals {chrom: (starts, ends)} (rDNA-tagged satellite arrays) plus the 45S arrays."""
+    out = {c: (np.asarray(a), np.asarray(b)) for c, (a, b) in (rdna or {}).items()}
+    for c, st, en, *_ in nors or ():
+        a, b = out.get(c, (np.zeros(0, np.int64), np.zeros(0, np.int64)))
+        out[c] = (np.append(a, st), np.append(b, en))
+    return out
+
+
+def nor_peaks(t: pd.DataFrame, nors) -> pd.DataFrame:
+    """Anchored peaks that could oppose or place a call (strong, or clean medium; on a chromosome without a sequence
+    call or more than HIC_FAR_BINS mappable bins from it) within HIC_TOL_BINS mappable bins of a 45S array (rdna.py)
+    get the rDNA flag and are not strong. NORs contact one another across chromosomes (the nucleolus), so they mimic
+    a centromere cluster; their arrays are unmappable, so the peak sits beside them (CHM13 chr15, chr22: p-arm peaks
+    contested correct calls). Peaks whose core overlaps a NOR are flagged by the Hi-C engine itself (add_nors)."""
+    by = {}
+    for c, st, en, *_ in nors or ():
+        by.setdefault(c, []).append((st, en))
+    if not by or not len(t):
+        return t
+    t = t.copy()
+    hit = []
+    for i, r in t.iterrows():
+        if r.anch_peak_start < 0 or r.chrom not in by or "rDNA" in str(r.anch_flags).split(","):
+            continue
+        fl = set(str(r.anch_flags).split(",")) - {""}
+        if not (r.anch_strong or (r.anch_level == "medium" and not fl & set(NOT_STRONG_FLAGS))):
+            continue
+        if r.seq_start >= 0 and visible_gap(r.anch_peak_start, r.anch_peak_end, r.seq_start, r.seq_end, r.masked) \
+                <= HIC_FAR_BINS * r.bin_size:
+            continue
+        if any(visible_gap(r.anch_peak_start, r.anch_peak_end, a, b, r.masked) <= HIC_TOL_BINS * r.bin_size
+               for a, b in by[r.chrom]):
+            t.at[i, "anch_flags"] = ",".join([f for f in str(r.anch_flags).split(",") if f] + ["rDNA"])
+            t.at[i, "anch_strong"] = False
+            hit.append(r.chrom)
+    if hit:
+        log.info(f"Hi-C: anchored peaks beside 45S arrays on {', '.join(hit)}: flagged rDNA (NOR), never oppose or "
+                 f"place a call")
+    return t
+
+
+def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: dict | None = None,
+        nors=None) -> dict:
     """Both Hi-C analyses for one genome, and the 3D association of each feature class. Returns dict(table,
     S (anchored score), denovo_S, bins, members, hub, rabl, stats, bin_size, telomere_S, classes, coverage (contacts
-    per bin, for the karyotype test of provenance))."""
+    per bin, for the karyotype test of provenance)). nors: the genome's 45S arrays (rdna.detect), flagged rDNA."""
     res = run_denovo(pairs, fai, prefix, satellites, threads)
     st = res["state"]
+    st["rdna"] = add_nors(st["rdna"], nors)
     t, extra = anchored(st, seq, threads)
+    t = nor_peaks(t, nors)
     t = add_denovo(t, res["rows"], st["bins"])
     fc = feature_contacts(st, classes) if classes else pd.DataFrame(columns=FC_COLS)
     if len(fc):

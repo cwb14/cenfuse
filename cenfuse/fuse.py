@@ -12,6 +12,15 @@ The integrated call is the sequence call unless a validated functional line move
   peak with a measured non-centromere-like `dip` at the call (no data is not evidence). Without one the call stays and
   is `contested`.
 - Methylation never moves a call alone.
+- Competing clusters (the satellite engine's second cluster, at least half the main one): validated Hi-C that agrees
+  with the second cluster and not the main one chooses it (flag hic_chose_alt). Hi-C chooses between two sequence
+  candidates; it does not place the call.
+- No sequence call, gate passed, a clean (no hub/rDNA/telomeric) anchored peak at Hi-C level medium: a low-confidence
+  functional_only call (flag hic_medium_peak). Horse chr11, the satellite-free centromere, was found this way and
+  discarded by the rule that asked for level high.
+
+Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
+unmappable arrays, so a peak at an array's edge is adjacent to a call inside it.
 
 Confidence uses the satellite engine's levels, changed one step at a time (its te_concordant convention):
 - A kept sequence call goes up one level for agreeing validated Hi-C and up one for methylation support, at most
@@ -25,13 +34,14 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
+from .hicfuse import visible_gap
+from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, NOT_STRONG_FLAGS, SAT_SUPPORT_BP
 from .sat.te import agrees
 from .util import gap, level_shift
 
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
               "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
-              "main_family", "te_clade", "te_start", "te_end", "hic_gate", "hic_gate_k", "hic_gate_n", "hic_gate_p",
+              "seq_alt_start", "seq_alt_end", "main_family", "te_clade", "te_start", "te_end", "hic_gate", "hic_gate_k", "hic_gate_n", "hic_gate_p",
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "meth_seq", "meth_seq_score", "meth_hic", "meth_hic_score",
@@ -43,7 +53,8 @@ class Evidence:
     """Everything known about one chromosome (0-based half-open intervals; -1 = absent)."""
     chrom: str
     chrom_len: int
-    seq: dict                 # start, end, evidence, confidence, flags, main_family
+    seq: dict                 # start, end, evidence, confidence, flags, main_family; alt_start/alt_end (competing
+                              # cluster, -1 = none)
     te: dict | None           # clade, start, end, decisive (the marker clade's core)
     hic: dict | None          # one row of the hicfuse table, or None (no Hi-C, or not a callable chromosome)
     meth: dict | None = None  # item -> {'label', 'score'} pooled over samples (methfuse.support), or None
@@ -68,19 +79,24 @@ def _bins(ev: Evidence, n: int) -> int:
     return n * int(ev.hic["bin_size"])
 
 
+def _vgap(ev: Evidence, a, b) -> int:
+    """bp between intervals a and b that Hi-C can see (unmappable stretches of this chromosome removed)."""
+    return visible_gap(*a, *b, (ev.hic or {}).get("masked") or ())
+
+
 def _peak_agrees(ev: Evidence, iv) -> bool:
-    """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS of iv."""
+    """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS mappable bins of iv."""
     pk = hic_peak(ev)
     return bool(pk and iv and ev.hic.get("anch_level", "none") != "none"
-                and gap(*pk, *iv) <= _bins(ev, HIC_TOL_BINS))
+                and _vgap(ev, pk, iv) <= _bins(ev, HIC_TOL_BINS))
 
 
 def _peak_far(ev: Evidence, iv) -> bool:
-    """The peak points to another locus: farther from iv than the method's resolution (HIC_FAR_BINS), and its core
-    does not reach iv."""
+    """The peak points to another locus: farther from iv than the method's resolution (HIC_FAR_BINS mappable bins),
+    and its core does not reach iv."""
     pk, core = hic_peak(ev), hic_core(ev)
-    return bool(pk and iv and gap(*pk, *iv) > _bins(ev, HIC_FAR_BINS)
-                and (core is None or gap(*core, *iv) > _bins(ev, HIC_TOL_BINS)))
+    return bool(pk and iv and _vgap(ev, pk, iv) > _bins(ev, HIC_FAR_BINS)
+                and (core is None or _vgap(ev, core, iv) > _bins(ev, HIC_TOL_BINS)))
 
 
 def _te_agrees(ev: Evidence, iv) -> bool:
@@ -89,8 +105,14 @@ def _te_agrees(ev: Evidence, iv) -> bool:
 
 
 def _te_near(ev: Evidence, iv, n: int) -> bool:
-    """The TE core within n Hi-C bins of iv (one fixed tolerance for both places a move compares)."""
-    return bool(ev.te and iv and gap(ev.te["start"], ev.te["end"], *iv) <= _bins(ev, n))
+    """The TE core within n mappable Hi-C bins of iv (one fixed tolerance for both places a move compares)."""
+    return bool(ev.te and iv and _vgap(ev, (ev.te["start"], ev.te["end"]), iv) <= _bins(ev, n))
+
+
+def _clean_medium(h) -> bool:
+    """An anchored peak at Hi-C level medium without a hub, rDNA or telomeric flag."""
+    return bool(h and h.get("anch_level") == "medium"
+                and not set(str(h.get("anch_flags") or "").split(",")) & set(NOT_STRONG_FLAGS))
 
 
 def _meth(ev: Evidence, item: str) -> dict:
@@ -101,11 +123,16 @@ def decide(ev: Evidence) -> dict:
     """One chromosome's integrated call (see module doc). With ev.meth None it is the provisional call."""
     seq_iv = _iv(ev.seq)
     sconf = ev.seq["confidence"] if seq_iv else "none"
+    alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
     h = ev.hic
     valid = bool(h and h.get("gate_pass"))
     core, peak = hic_core(ev), hic_peak(ev)
     strong = bool(valid and h.get("anch_strong") and core)
     agree = bool(valid and seq_iv and _peak_agrees(ev, seq_iv))
+    flags, relation, source = [], "sequence_only", "sequence"
+    if valid and alt_iv and not agree and _peak_agrees(ev, alt_iv):     # Hi-C picks the competing cluster
+        seq_iv, agree = alt_iv, True
+        flags.append("hic_chose_alt")
     far = bool(seq_iv and _peak_far(ev, seq_iv))
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
     second = []
@@ -115,9 +142,11 @@ def decide(ev: Evidence) -> dict:
             second.append("te")
         if m_hic["label"] == "centromere_like" and (seq_iv is None or m_seq["label"] == "dip"):
             second.append("meth")
-    flags, relation, source = [], "sequence_only", "sequence"
     if seq_iv is None and strong:
         call, relation, source = core, "functional_only", "hic"
+    elif seq_iv is None and valid and core and _clean_medium(h):
+        call, relation, source = core, "functional_only", "hic"
+        flags.append("hic_medium_peak")
     elif seq_iv is None:
         call, relation = None, "none"
     elif agree:
@@ -159,6 +188,8 @@ def decide(ev: Evidence) -> dict:
             conf = level_shift(sconf, min(MAX_RAISE, raise_by))
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
+    elif "hic_medium_peak" in flags:
+        conf = "low"
     else:
         conf = "high" if second else "medium"
     return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,
@@ -174,7 +205,8 @@ def row(ev: Evidence, d: dict) -> dict:
     m = {k: _meth(ev, k) for k in ("sequence_call", "hic_peak")}
     m["call"] = d["meth_call"]
     off = na
-    if call and seq_iv and call != seq_iv:
+    alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
+    if call and seq_iv and call != seq_iv and not (alt_iv and call == alt_iv):
         off = gap(*call, *seq_iv)
     return dict(
         chrom=ev.chrom, chrom_len=ev.chrom_len, start=one(call[0]) if call else na, end=end(call[1]) if call else na,
@@ -183,9 +215,10 @@ def row(ev: Evidence, d: dict) -> dict:
         flags=",".join(d["flags"]) or na, offset_bp=off,
         seq_start=one(seq_iv[0]) if seq_iv else na, seq_end=end(seq_iv[1]) if seq_iv else na,
         seq_evidence=ev.seq["evidence"], seq_confidence=ev.seq["confidence"], seq_flags=ev.seq["flags"],
+        seq_alt_start=one(alt_iv[0]) if alt_iv else na, seq_alt_end=end(alt_iv[1]) if alt_iv else na,
         main_family=ev.seq["main_family"], te_clade=ev.te["clade"] if ev.te else na,
         te_start=one(ev.te["start"]) if ev.te else na, te_end=end(ev.te["end"]) if ev.te else na,
-        hic_gate=("pass" if h.get("gate_pass") else "fail") if h else na,
+        hic_gate=gate_status(h) if h else na,
         hic_gate_k=h.get("gate_k", na) if h else na, hic_gate_n=h.get("gate_n", na) if h else na,
         hic_gate_p=h.get("gate_p", na) if h else na,
         hic_anch_peak_start=one(h.get("anch_peak_start", -1)) if h else na,
@@ -201,6 +234,14 @@ def row(ev: Evidence, d: dict) -> dict:
         meth_seq=m["sequence_call"]["label"] or na, meth_seq_score=m["sequence_call"]["score"],
         meth_hic=m["hic_peak"]["label"] or na, meth_hic_score=m["hic_peak"]["score"],
         meth_call=m["call"]["label"] or na, meth_call_score=m["call"]["score"])
+
+
+def gate_status(h: dict) -> str:
+    """pass / fail / untested (fewer than GATE_MIN_REF reference chromosomes: no majority test was possible)."""
+    if h.get("gate_pass"):
+        return "pass"
+    n = h.get("gate_n")
+    return "untested" if n is None or (isinstance(n, (int, float, np.integer)) and int(n) < GATE_MIN_REF) else "fail"
 
 
 def table(evs: list, decisions: list) -> pd.DataFrame:

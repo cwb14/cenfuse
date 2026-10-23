@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from . import __version__
+from .params import GATE_MIN_REF
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
 
@@ -83,7 +84,8 @@ def write_bedgraph(S, bins, members, path, title: str) -> None:
 
 
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
-                telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None) -> dict:
+                telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
+                nors=()) -> dict:
     """One genome: what each line found, whether it was validated, calls by relation and confidence, the inputs'
     provenance and the plants' verdicts."""
     called = t[t.start != "."]
@@ -96,11 +98,13 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              none=rel.get("none", 0), seq_called=int((t.seq_start != ".").sum()),
              te_marker=tel["marker"][0] if tel.get("marker") else ".",
              te_decisive=bool(tel["marker"][2]) if tel.get("marker") else ".",
-             telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])))
+             telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
+             rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".")
     if hic is not None:
         h = hic["table"]
         d.update(hic_bin=hic["bin_size"], hic_rabl=hic["rabl"]["passed"],
-                 hic_gate_pass=int(h.gate_pass.sum()), hic_chromosomes=len(h),
+                 hic_gate_pass=int(h.gate_pass.sum()),
+                 hic_gate_untested=int((~h.gate_pass & (h.gate_n < GATE_MIN_REF)).sum()), hic_chromosomes=len(h),
                  hic_anch_on_seq=int(h.anch_agrees_seq.sum()), hic_denovo_on_seq=int(h.denovo_agrees_seq.sum()),
                  hic_denovo_on_anch=int(h.denovo_agrees_anch.sum()), hic_seq_called=int(h.seq_start.ge(0).sum()),
                  hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".")

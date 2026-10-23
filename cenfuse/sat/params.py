@@ -55,6 +55,17 @@ TE_ALPHA = 1e-3                # core significance: binomial tail x (L / core le
 TE_CENTROMERIC_CLADE = "CRM"   # CR chromoviruses (CRM maize, CRR rice, CRB Brassica, CRS sugarcane) are
                                # centromere-specific in plants; other clades are often pericentromeric
 
+# ---- what a satellite is, and where acrocentric centromeres sit (docs/design.md, Changes after the mammal benchmark)
+TANDEM_FRAC = 0.5              # a satellite is tandem: a family with neither the majority of its array bp inside de
+                               # novo tandem repeats (seeds) nor the majority of its hit bp in whole units is a
+                               # dispersed (interspersed) repeat annotated as chains of partial hits (majority rule)
+LOCUS_FOLD = 2.0               # heuristic (as the Hi-C engine's HUB_FOLD): a non-tandem family whose main cluster is
+                               # less than twice as dense as the family's average along the chromosome is spread along
+                               # it, not concentrated at a locus. T2T mammal interspersed families: 1.1-1.3; plant
+                               # TE-derived centromeric arrays (Coffea, Glycine CRM-derived): 2.5-3.4; satellites >= 15
+ACRO_ALPHA = 0.01              # acrocentric test: so few chromosomes carry a terminal block at both ends that ends
+                               # cannot be independent (binomial lower tail; conventional level)
+
 
 @dataclass
 class Params:

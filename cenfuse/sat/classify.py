@@ -7,12 +7,12 @@ import pandas as pd
 
 from .genomes import count_in
 from .te import agrees
-from .params import RELATED_LEN_TOL
-from .util import clipped_bp, log, union_bp
+from .params import ACRO_ALPHA, FULL_MONOMER_COV, LOCUS_FOLD, RELATED_LEN_TOL, TANDEM_FRAC
+from .util import clipped_bp, log, merge_intervals, union_bp
 
 CLS_COLS = ["family", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
             "median_main_bp", "eligible", "cls", "strength", "defines", "dominant", "reason", "subtelomeric",
-            "rdna_tag", "role", "in_ltr", "ltr_clade"]
+            "rdna_tag", "role", "in_ltr", "ltr_clade", "tandem_frac", "whole_frac", "locus_fold", "acrocentric"]
 # what a family is in one genome, first match wins (assign_roles); the tool's purpose is the centromere, the rest is
 # what its tests found along the way
 ROLES = ["rDNA", "centromeric", "cen_associated", "subtelomeric", "interstitial", "dispersed", "minor"]
@@ -111,7 +111,8 @@ def terminal_share(arrays: pd.DataFrame, chroms: dict, genes, p) -> dict:
     return out
 
 
-def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, subtel_vote: dict = None):
+def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, subtel_vote: dict = None,
+                   tandem: dict = None):
     """fam_info: {fam: {superfamily, length, rdna}} from the families stage (optional). A family with most of its bp in
     subtelomeres (terminal_bp) is subtelomeric. subtel_vote: {fam: (genomes where it is subtelomeric, genomes that
     carry it)} over the complex. Position evidence has three grades. Interior (most bp away from both ends: neither
@@ -125,14 +126,26 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
     of this genome's chromosomes is subtelomeric here whatever the vote: a truncated assembly end is one chromosome's
     (Populus: 1 end each), a subtelomeric family sits at the ends of most (M. sookensis G 687 bp on 10/14 while
     Cent728 holds the centres; Brassica CL25-like ~350 bp, Triticeae pSc119.2-like 118-120 bp, Nicotiana HRS60-like
-    180 bp)."""
+    180 bp).
+
+    Two tests added after the T2T mammal benchmark (docs/design.md):
+    - tandem: {family: (tandem_frac, whole_frac)} from tandem_support. A family with neither most of its array bp
+      inside de novo tandem repeats nor most of its hit bp in whole units, and not concentrated at a locus either
+      (locus_fold: its main cluster's density over its mean density on the chromosome, median over chromosomes,
+      below LOCUS_FOLD), is a dispersed repeat, never centromeric. Retrotransposon-derived arrays that cluster in
+      centromeres (Coffea, Glycine, Rosa) are not tandem either, but they are concentrated (fold >= 2.5).
+    - acrocentric: a family that would be subtelomeric is the centromere of an acrocentric karyotype when it is
+      strong, sits at an end of most chromosomes, and at both ends of so few that the two ends cannot be independent
+      (ACRO_ALPHA), and no strong interior family competes. Subtelomeric repeats occupy ends independently of each
+      other; a centromere occurs once per chromosome (goat satellite I: one end of 29/31 chromosomes, both ends of
+      0)."""
     total = sum(chroms.values())
     n_genes = sum(len(v) for v in genes.values()) if genes else 0
     density = n_genes / total if n_genes else None
     rows, mains = [], {}
     for fam, g in arrays.groupby("family"):
-        bp = subtel = near = end_chroms = gcount = gspan = 0
-        shares, main_bps = [], []
+        bp = subtel = near = end_chroms = both_chroms = gcount = gspan = 0
+        shares, main_bps, folds = [], [], []
         for c, d in g.groupby("chrom"):
             iv = list(zip(d.start, d.end))
             bpc = union_bp(iv)
@@ -142,11 +155,13 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
             sides = near_end_sides(iv, chroms[c], p, gc)
             near += min(bpc, sum(sides))
             end_chroms += max(sides) >= p.chrom_min_bp            # a terminal block at either end
+            both_chroms += min(sides) >= p.chrom_min_bp           # ... and at both ends
             m = make_clusters(iv, p.cluster_gap)[0]
             mains[(fam, c)] = m
             if bpc >= p.chrom_min_bp:
                 shares.append(m.bp / bpc)
                 main_bps.append(m.bp)
+                folds.append((m.bp / bpc) / (max(1, m.end - m.start) / chroms[c]))
                 if density:
                     gcount += count_in(genes.get(c), m.start, m.end)
                     gspan += m.end - m.start
@@ -171,32 +186,155 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
             subtelomeric = at_ends and (2 * vote[0] >= vote[1] or most_ends)
         else:
             subtelomeric = terminal or (at_ends and most_ends)
+        subtel_why = None
         if subtelomeric:
             why = (f"subtelomeric in {vote[0]}/{vote[1]} genomes" if vote and 2 * vote[0] >= vote[1] else
                    f"terminal blocks on {end_chroms}/{len(chroms)} sequences" if most_ends else f">={p.max_subtel_frac}")
-            fails.append(f"subtel_frac={subtel_frac:.2f}" + ("" if terminal else f", near ends {near_frac:.2f}")
-                         + f", {why}")
+            subtel_why = (f"subtel_frac={subtel_frac:.2f}" + ("" if terminal else f", near ends {near_frac:.2f}")
+                          + f", {why}")
         if not math.isnan(gene_ratio) and gene_ratio >= p.max_gene_ratio:
             fails.append(f"gene_ratio={gene_ratio:.2f}>={p.max_gene_ratio}")
+        tf, wf = (tandem or {}).get(fam, (float("nan"), float("nan")))
+        fold = float(np.median(folds)) if folds else float("nan")
+        if tf < TANDEM_FRAC and wf < TANDEM_FRAC and fold < LOCUS_FOLD:    # NaN (no seeds/monomers) compares False
+            fails.append(f"dispersed repeat: {tf:.0%} of bp in tandem repeats, {wf:.0%} whole-unit hits "
+                         f"(< {TANDEM_FRAC:.0%} each), main cluster {fold:.1f}x its mean density (< {LOCUS_FOLD:g}x)")
         rows.append(dict(family=fam, bp=bp, n_arrays=len(g), prevalence=prevalence, concentration=conc,
                          subtel_frac=subtel_frac, gene_ratio=gene_ratio,
                          median_main_bp=float(np.median(main_bps)) if main_bps else 0.0,
-                         eligible=not fails, cls="other", strength=".", defines=".", dominant=False,
-                         reason="; ".join(fails) if fails else "eligible", subtelomeric=bool(subtelomeric),
-                         rdna_tag=rdna, role=".", in_ltr=float("nan"), ltr_clade="."))
+                         eligible=False, cls="other", strength=".", defines=".", dominant=False, reason=".",
+                         subtelomeric=bool(subtelomeric), rdna_tag=rdna, role=".", in_ltr=float("nan"), ltr_clade=".",
+                         tandem_frac=tf, whole_frac=wf, locus_fold=fold, acrocentric=False,
+                         _fails=fails, _subtel=subtel_why, _ends=(end_chroms, both_chroms, most_ends)))
+    strong = lambda r: r["prevalence"] >= p.strong_prevalence and r["median_main_bp"] >= p.strong_cluster_bp
+    interior = any(strong(r) and not r["_fails"] and not r["_subtel"] for r in rows)
+    n = len(chroms)
+    for r in rows:
+        e, b, most = r["_ends"]
+        if r["_subtel"] and not r["_fails"] and not interior and strong(r) and most:
+            q = (e + b) / (2 * n)                               # per-end occupancy (one-ended + 2 x both-ended ends)
+            pv = binom_cdf(b, n, q * q)                         # both ends occupied by chance, if ends independent
+            if pv <= ACRO_ALPHA:
+                r.update(subtelomeric=False, acrocentric=True, _subtel=None,
+                         _acro=f"acrocentric: terminal at one end of {e - b}/{n} sequences, both ends of {b} "
+                               f"(independent ends: {n * q * q:.1f} expected, P={pv:.1e}); no strong interior family")
+        fails = r.pop("_fails") + ([r["_subtel"]] if r["_subtel"] else [])
+        r["eligible"] = not fails
+        r["reason"] = "; ".join(fails) if fails else "eligible" + (f"; {r['_acro']}" if r.get("_acro") else "")
+        for k in ("_subtel", "_ends", "_acro"):
+            r.pop(k, None)
     return pd.DataFrame(rows, columns=CLS_COLS), mains
 
 
-def choose_centromeric(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info=None):
+def binom_cdf(k: int, n: int, q: float) -> float:
+    """P(X <= k), X ~ Binomial(n, q)."""
+    if q <= 0:
+        return 1.0
+    if q >= 1:
+        return 1.0 if k >= n else 0.0
+    lq, l1q = math.log(q), math.log1p(-q)
+    return min(1.0, sum(math.exp(math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * lq
+                                 + (n - i) * l1q) for i in range(0, min(k, n) + 1)))
+
+
+def _merged(iv):
+    """Disjoint sorted intervals: (starts, ends, bp before each)."""
+    m = np.array(merge_intervals(iv), dtype=np.int64).reshape(-1, 2)
+    return m[:, 0], m[:, 1], np.concatenate([[0], np.cumsum(m[:, 1] - m[:, 0])[:-1]])
+
+
+def _covered(S, E, before, s, e):
+    """bp of [s, e) (arrays) inside the disjoint intervals (S, E, before)."""
+    def upto(x):                                          # covered bp in [0, x)
+        i = np.searchsorted(S, x, side="right") - 1
+        out = np.zeros(len(x), np.int64)
+        ok = i >= 0
+        out[ok] = before[i[ok]] + np.minimum(x[ok], E[i[ok]]) - S[i[ok]]
+        return out
+    return upto(e) - upto(s)
+
+
+def tandem_support(arrays: pd.DataFrame, monomers: pd.DataFrame, seeds: pd.DataFrame, p) -> dict:
+    """{family: (tandem_frac, whole_frac)}. tandem_frac: share of the family's array bp inside de novo tandem repeats
+    (seed intervals of any period: satellites built of short subunits, such as HSat2/3, are found at their subunit
+    period). whole_frac: share of its monomer-hit bp in hits that cover
+    >= FULL_MONOMER_COV of the model. A satellite is tandem: a tandem-repeat finder finds its arrays, and its hits are
+    whole units head to tail. One tandem copy of an interspersed element (LINE, SINE or LTR fragment) can seed a
+    family that nhmmer then finds genome-wide, chained into 'arrays' of partial hits: the T2T chimpanzee 1,523-bp
+    family (719 Mb on every chromosome) has 7% of its bp in tandem repeats and 0.3% whole hits; every CENP-A-validated
+    centromeric family of the mammal benchmark has >= 45% and >= 90%."""
+    out = {}
+    if arrays.empty:
+        return out
+    sm = {c: _merged(list(zip(d.start, d.end))) for c, d in seeds.groupby("chrom")} if len(seeds) else {}
+    tot, cov = {}, {}
+    for (fam, c), d in arrays.groupby(["family", "chrom"]):
+        S, E, _ = _merged(list(zip(d.start, d.end)))
+        tot[fam] = tot.get(fam, 0) + int((E - S).sum())
+        if c in sm:
+            cov[fam] = cov.get(fam, 0) + int(_covered(*sm[c], S, E).sum())
+    whole = {}
+    if monomers is not None and len(monomers):
+        bp = (monomers.end - monomers.start).to_numpy()
+        full = (monomers.hmm_to - monomers.hmm_from + 1).to_numpy() >= FULL_MONOMER_COV * monomers.model_len.to_numpy()
+        g = pd.DataFrame(dict(family=monomers.family.to_numpy(), bp=bp, wbp=np.where(full, bp, 0)))
+        s = g.groupby("family")[["bp", "wbp"]].sum()
+        whole = {f: (r.wbp / r.bp if r.bp else 0.0) for f, r in s.iterrows()}
+    for fam, b in tot.items():
+        out[fam] = (cov.get(fam, 0) / b if b else 0.0, whole.get(fam, float("nan")))
+    return out
+
+
+def kinds(families, fam_info) -> list:
+    """Satellite kinds: connected components of `same_sequence` (subfamilies of one satellite, e.g. the 6 alpha
+    subfamilies of a primate genome, or CentO 155/165). Sorted lists, in first-seen order."""
+    out = []
+    for f in families:
+        hit = [k for k in out if any(same_sequence(f, x, fam_info) for x in k)]
+        out = [k for k in out if k not in hit] + [sorted({f, *(x for k in hit for x in k)})]
+    return out
+
+
+def largest_kinds(arrays: pd.DataFrame, elig: set, chroms: dict, p, fam_info) -> list:
+    """Per chromosome, the satellite kind with the largest main cluster (arrays of all its eligible families pooled;
+    >= chrom_min_bp), as a list of family sets."""
+    a = arrays[arrays.family.isin(elig)]
+    kind_of = {f: i for i, k in enumerate(kinds(sorted(elig), fam_info)) for f in k}
+    members = {}
+    for f, i in kind_of.items():
+        members.setdefault(i, set()).add(f)
+    out = []
+    for c, d in a.groupby("chrom"):
+        if c not in chroms:
+            continue
+        best = None
+        for i, x in d.groupby(d.family.map(kind_of)):
+            m = make_clusters(list(zip(x.start, x.end)), p.cluster_gap)[0]
+            if m.bp >= p.chrom_min_bp and (best is None or (m.bp, -i) > (best[0], -best[1])):
+                best = (m.bp, i)
+        if best:
+            out.append(members[best[1]])
+    return out
+
+
+def choose_centromeric(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info=None, arrays=None):
+    """arrays (with fam_info): the largest cluster per chromosome is judged per satellite kind (largest_kinds), so a
+    satellite the families stage split into subfamilies is not outcounted by one pericentric family (T2T bonobo:
+    alpha in 6 subfamilies lost dominance to a 43-bp satellite, which then took 12/25 calls 1-5 Mb from CENP-A).
+    Without arrays: per family, as before."""
     elig = set(fams.loc[fams.eligible.astype(bool), "family"])
     by_chrom = {c: sorted(((mains[(f, c)].bp, f) for f in elig
                            if (f, c) in mains and mains[(f, c)].bp >= p.chrom_min_bp), reverse=True) for c in chroms}
     # genome-wide dominant family: strong AND its kind is the largest cluster on >= strong_prevalence of
     # chromosomes; presence alone let a widespread pericentromeric satellite (B. napus A06, 228 bp) take precedence
-    largest = [cands[0][1] for cands in by_chrom.values() if cands]
+    if arrays is not None and fam_info is not None:
+        largest = largest_kinds(arrays, elig, chroms, p, fam_info)
+    else:
+        largest = [{cands[0][1]} for cands in by_chrom.values() if cands]
     dominant = {r.family for r in fams.itertuples(index=False) if r.family in elig
                 and r.prevalence >= p.strong_prevalence and r.median_main_bp >= p.strong_cluster_bp
-                and sum(related(w, r.family, fam_info) for w in largest) >= p.strong_prevalence * len(chroms)}
+                and sum(any(related(w, r.family, fam_info) for w in k) for k in largest)
+                >= p.strong_prevalence * len(chroms)}
     per_chrom = {}
     for c, cands in by_chrom.items():
         if not cands:
@@ -357,14 +495,14 @@ def te_rejected(fams: pd.DataFrame, mains: dict, cores, fam_info=None) -> dict:
     return out
 
 
-def choose_with_te(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info, te):
+def choose_with_te(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info, te, arrays=None):
     """choose_centromeric, then drop families away from the retrotransposon centromere and choose again, until no
     centromeric family disagrees: a family that was outcompeted by a rejected one (e.g. the CentT550-like satellite
     beside interstitial blocks in Aegilops) gets its chance. te: (clade, {chrom: significant core}, decisive) or
     None; only decisive evidence (CRM, te.marker) rejects. Returns (fams, per_chrom, {rejected family: (disagreeing, tested)})."""
     rejected = {}
     while True:
-        out, per_chrom = choose_centromeric(fams, mains, chroms, p, fam_info)
+        out, per_chrom = choose_centromeric(fams, mains, chroms, p, fam_info, arrays)
         rej = te_rejected(out, mains, [te[1]], fam_info) if te and te[2] else {}
         if not rej:
             return out, per_chrom, rejected
