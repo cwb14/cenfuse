@@ -2,8 +2,8 @@
 
 1. The Hi-C engine's prior-free call, unchanged (outputs under OUT/hic/).
 2. The anchored test, on the same balanced matrix. Partner windows sit at the other chromosomes' sequence calls: the
-   2 HALF_WIN + 1 mappable bins nearest the call (the midpoint bin +/- the Hi-C engine's HALF_WIN when the call is
-   mappable; the array's mappable flanks when it is not). Each chromosome's score is the mean O/E with those windows; its own call is
+   midpoint bin +/- the Hi-C engine's HALF_WIN, or the array's mappable flanks when that window holds no mappable
+   bin. Each chromosome's score is the mean O/E with those windows; its own call is
    never a partner, so the test is leave-one-chromosome-out by construction. Which trans cluster dominates the
    genome then no longer matters: the score asks whether a place contacts the other chromosomes' (sequence-defined)
    centromeres. Every anchored peak gets the Hi-C engine's own tests: Poisson bootstrap with the windows fixed,
@@ -140,14 +140,18 @@ def visible_dist(bins, good, k: int, s: int, e: int) -> np.ndarray:
 
 
 def visible_window(bins, good, k: int, s: int, e: int, half: int = hp.HALF_WIN) -> np.ndarray:
-    """Global bins of the partner window of call [s, e) on chromosome k: the 2 half + 1 mappable bins nearest the
-    call (mappable-bin distance, then distance to the midpoint), at most `half` mappable bins outside it. A mappable
-    call gives the Hi-C engine's midpoint +/- half window; a call inside an unmappable array gives the array's
-    mappable flanks, the nearest places Hi-C can see."""
-    off = int(bins.off[k])
+    """Global bins of the partner window of call [s, e) on chromosome k: the Hi-C engine's window (the mappable bins
+    of the midpoint +/- half) when it holds any; otherwise, the call sitting inside an unmappable array, the 2 half + 1
+    mappable bins nearest the call (mappable-bin distance, then distance to the midpoint), at most `half` mappable
+    bins outside it: the array's flanks, the nearest places Hi-C can see (T2T macaques: 0/22 windows held a
+    mappable bin)."""
+    off, nb = int(bins.off[k]), int(bins.nb[k])
+    mid = min(nb - 1, ((s + e) // 2) // bins.size)
+    w = off + np.arange(max(mid - half, 0), min(mid + half, nb - 1) + 1)
+    if good[w].any():
+        return w[good[w]]
     d = visible_dist(bins, good, k, s, e)
-    mid = min(int(bins.nb[k]) - 1, ((s + e) // 2) // bins.size)
-    j = np.flatnonzero(good[off:off + int(bins.nb[k])] & (d <= half))
+    j = np.flatnonzero(good[off:off + nb] & (d <= half))
     order = np.lexsort((np.abs(j - mid), d[j]))
     return np.sort(off + j[order[:2 * half + 1]])
 
