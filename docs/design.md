@@ -445,8 +445,10 @@ are reported (`seq_alt_start/end`). Validated Hi-C that agrees with the second c
 **Hi-C in mappable-bin geometry (hicfuse, fuse).** With MAPQ >= 30, the CENP-A domain lay in a block of unmappable
 bins on 139/157 chromosomes; partner windows (call midpoint +/- 4 bins) fell entirely inside such blocks (0/22 in
 each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at the block edges, 1-5 Mb from CENP-A.
-- Partner window: the 9 mappable bins nearest the call, at most 4 mappable bins outside it (unchanged when the call
-  is mappable).
+- Partner window: the 9 mappable bins nearest the call, at most 4 mappable bins outside it: the Hi-C engine's
+  midpoint +/- 4 window when the call is mappable, the array's flanks when it is not. Replacing only the empty
+  windows (and keeping partially mappable ones as they were) was tried: anchored peaks on the right locus fell from
+  97 to 86 of 139 in the six imported mammals, while it restored one rice anchored peak (integrated calls equal).
 - Every distance involving a Hi-C interval counts mappable bins only (`visible_gap`), and the gate's chance uses the
   same geometry, so the gate stays calibrated: a peak at an array's edge is adjacent to a call inside it.
 
