@@ -90,3 +90,24 @@ def test_gate_status_untested_without_references():
     assert fuse.gate_status(dict(gate_pass=False, gate_n=10)) == "fail"
     assert fuse.gate_status(dict(gate_pass=False, gate_n=0)) == "untested"
     assert fuse.gate_status(dict(gate_pass=False, gate_n=2)) == "untested"
+
+
+def test_lopo_fast_path_equals_the_engine_rule():
+    """lopo_all restricts the leave-one-partner-out score to the chromosome scored; same peaks as cluster_score."""
+    from cenfuse.hic.score import cluster_score
+    rng = np.random.default_rng(3)
+    bins = Bins({f"c{i}": 40 * BIN for i in range(6)}, BIN)
+    good = rng.random(bins.N) > 0.1
+    members = np.ones(6, bool)
+    oe = {y: np.where(rng.random(bins.N) > 0.2, rng.random(bins.N), np.nan) for y in range(6)}
+    for y in oe:
+        oe[y][bins.sl(y)] = np.nan
+    fast = hicfuse.lopo_all(oe, bins, good, members)
+    for x in range(6):
+        ref = []
+        for y in oe:
+            if y == x:
+                continue
+            v = cluster_score(oe, bins, good, members, exclude={x: {y}})[bins.sl(x)]
+            ref.append(int(np.nanargmax(v)) if np.isfinite(v).any() else -1)
+        assert list(fast[x]) == ref

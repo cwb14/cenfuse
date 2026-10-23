@@ -341,3 +341,42 @@ Held-out checks (not criteria):
 
 **Time.** The first run took 7.7 min at 16 threads (methylation bins from scratch: 357 s); reruns from checkpoints
 take under a minute.
+
+## Re-run after the T2T mammal benchmark fixes (2026-10-23)
+
+Code: the changes in docs/design.md, "Changes after the T2T mammal benchmark". Every run above was repeated with the
+same inputs and the original satellite checkpoints (seeds, families, annotation reused; classify onward recomputed).
+The criteria above were not changed.
+
+| criterion | original | after the fixes |
+|---|---|---|
+| H1 no harm (rice, potato; horse) | PASS: 12/12, 2/11, 3/4 | PASS: identical calls (rice 12/12, potato 2/11, horse 3/4; barley 0/7) |
+| H2 changes right >= wrong | PASS (no changes) | PASS (no changes) |
+| M1 no harm (6 imported mammals) | PASS 6/6 | PASS 6/6 (integrated calls identical) |
+| M2 anchored beats prior-free Hi-C | FAIL: 73 vs 73 of 138 (P 1) | **PASS: 97 vs 73 of 139 (discordant 26 vs 2, P 3e-6)** |
+| P1-P3 Poa | PASS | PASS (Pa1A 163.0-169.4 Mb; 20/20 others unchanged; gate 14/14, 7/7) |
+| P4 methylation at non-Pa1A calls | PASS 12/13 | 0/13: methylation does not decide (every sample is from another plant; the provenance rule of 2026-10-19 gives 0/13 on the code before these fixes too) |
+| N1 permuted Hi-C | PASS | PASS (gate 0/14, no change) |
+| Pa1A move (demonstration) | 167.0-170.0 Mb, offset 20.2 Mb, moved_with_te | 167.5-170.0 Mb, offset 20.7 Mb, moved_with_te, high |
+| plants and provenance R1-R5 | R1, R3, R4, R5a-c PASS; R2 FAIL as written | identical |
+
+Hi-C, per genome (anchored peak right; gate passes):
+
+| genome | original | after |
+|---|---|---|
+| rice | 8/12; 12/12 | 7/12; 12/12 (one peak moved to an end bin; the call is unchanged) |
+| gorilla | 7/24; 0/25 | 19/25; 25/25 |
+| B. orangutan | 8/24; 0/25 | 17/25; 25/25 |
+| S. orangutan | 7/25; 0/25 | 16/25; 25/25 |
+| chm13 | 17/23; 24/24 | 18/23; 24/24 (the p-arm NOR peaks of chr15 and chr22 no longer contest) |
+| siamang, chimpanzee | 22/26, 19/25 | 23/26, 19/25 |
+| giraffe | 0/15; 0/15 | 4/15; 0/15 |
+
+The gate still passes only where anchored Hi-C is right on most chromosomes (58-88%), and fails in giraffe and on
+permuted Hi-C. In the three genomes where it now passes, Hi-C changed no call.
+
+Satellite batch (38 plant and fish complexes, 185 genomes; classify + centromeres replayed on the batch's own
+checkpoints): 44 of 2,140 calls moved and 51 changed confidence only. Held-out complexes: Saccharum, Glycine, Musa
+unchanged; Magallana dominance unchanged (4 low calls moved). CENH3 yardsticks: Ae. geniculata 10/14 and S.
+verrucosum 3/12 overlapping (7/11 within 1 Mb), unchanged. F. chiloensis D: 6 more chromosomes on the CENH3-validated
+147-bp Type I satellite (no dominant family before).

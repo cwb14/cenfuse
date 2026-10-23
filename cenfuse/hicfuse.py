@@ -79,14 +79,26 @@ def bootstrap_all(M, bins, members, win: dict, threads: int, n: int = hp.N_BOOT,
 
 
 def lopo_all(oe, bins, good, members) -> dict:
-    """Peak of every callable chromosome with each partner window left out in turn (the Hi-C engine's leave_one_out)."""
+    """Peak of every callable chromosome with each partner window left out in turn (the Hi-C engine's leave_one_out).
+    The same arithmetic as cluster_score(exclude={x: {y}}) restricted to x's own bins: scoring every chromosome for
+    every (x, y) pair is cubic in the partners, and a 25-partner genome took an hour."""
     out = {}
     for x in (int(k) for k in np.where(members)[0]):
+        sl = bins.sl(x)
+        g = good[sl]
+        ys = [y for y in oe if y != x]
         peaks = []
-        for y in oe:
-            if y == x:
+        for y in ys:
+            rest = [z for z in ys if z != y]
+            if not rest:
+                peaks.append(-1)
                 continue
-            v = cluster_score(oe, bins, good, members, exclude={x: {y}})[bins.sl(x)]
+            A = np.vstack([oe[z][sl] for z in rest])
+            ok = ~np.isnan(A)
+            n = ok.sum(axis=0)
+            v = np.full(A.shape[1], np.nan)
+            np.divide(np.where(ok, A, 0.0).sum(axis=0), n, out=v, where=n > 0)
+            v[~g] = np.nan
             peaks.append(int(np.nanargmax(v)) if np.isfinite(v).any() else -1)
         out[x] = np.array(peaks, dtype=int)
     return out
