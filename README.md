@@ -39,7 +39,7 @@ Because they fail independently, they can check each other:
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 432 tests, about 2 min
+pytest -q -n 8          # optional: 452 tests, about 2 min
 ```
 
 ## Quick start
@@ -249,7 +249,15 @@ reference call (`shared`) or elsewhere (`shifted`)? Details: `docs/plants.md`.
 
 ## Does it work?
 
-Benchmarked on 13 genomes, with criteria fixed before any run (`docs/benchmark.md`). Truth: CENH3/CENP-A for rice,
+**T2T mammals** (14 genomes, CENP-A truth on 157 chromosomes in 9 of them; criteria fixed before any run):
+- FASTA only: 148/157 on the CENP-A domain, 5 confident misses (genome-wide interspersed repeats and acrocentric
+  karyotypes are handled without annotation).
+- With genes and Hi-C: 149/157, 4 confident misses (pig against other-animal ChIP, one orangutan centromere 14 Mb
+  from any satellite).
+- Hi-C passes its test in 7 of 14 genomes and never on randomized Hi-C. It finds the array, not the kinetochore:
+  calls are 0.8-5.6 Mb wide.
+
+**Plants** (13 genomes; `docs/benchmark.md`): Truth: CENH3/CENP-A for rice,
 potato, barley, horse and CHM13; the satellome for the other apes and giraffe; earlier analyses for *Poa*.
 
 - **Never worse than satellites alone.** In every genome, the final calls are right at least as often as the
