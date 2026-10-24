@@ -480,3 +480,43 @@ lies within HIC_TOL_BINS mappable bins of a NOR is flagged rDNA and is not stron
 are flagged by the Hi-C engine (add_nors). NORs contact one another across chromosomes (the nucleolus), so they
 mimic a centromere cluster. An HMM search (Rfam SSU, cmsearch --hmmonly) was tried first and stalled for minutes on
 low-complexity sequence.
+
+## Arm fold: a third line from the same Hi-C (2026-10-24)
+
+**Why.** The Hi-C line is validated against the sequence calls (the anchored gate). Where the sequence line is wrong
+genome-wide, Hi-C cannot pass that test even when it is right, and the two lines cannot tell which is wrong
+(`sequence_conflict`; barley: satellite calls at the chromosome ends, prior-free Hi-C at the CENH3 domains). The
+contact map holds a second, independent readout of the centromere: in a Rabl nucleus both arms run from the
+centromere pole to the telomere pole, so the cis map folds at the centromere (an anti-diagonal ridge). Trans
+clustering and cis folding are measured from different contacts, so where they place the centromere at one locus
+on most chromosomes, beyond chance, each validates the other without the sequence line.
+
+**Measured first (benchmark data, no code change; bench/fold_test.py, fold_gate.py).** Fold point at the CENH3
+domain: rice 11/12 (500-kb bins), barley 4/7 (within 8 Mb; the fold core holds the truth on 6/7). At chance in
+potato and in all 9 T2T mammals with CENP-A truth (1/155; mammalian nuclei show no Rabl fold), and in every
+randomized control. The fold localizes at the arm scale (core 5-10% of the chromosome), so it can contradict a call
+at the wrong end of a chromosome but cannot place one inside an array.
+
+**Rules (fold.py, fuse.py).**
+- Fold score of a center: mean observed/expected over the anti-diagonal pairs through it (pairs spanning at least
+  2 HALF_WIN + 1 bins, both mappable; a center inside an unmappable array is read from its flanks).
+- Centers with a centromeric index below 12.5% are not scanned (Levan et al. 1964: telocentric, no second arm to
+  fold). Without the bound, centers near the ends, scored from a few short-range pairs, won the maximum on noise
+  (barley at 250 kb-1 Mb bins, fold points 200-370 Mb from CENH3). A lower confidence bound on the mean was tried
+  instead and pulled the maximum toward the chromosome middle (barley 2/7).
+- Fold point = top center; core = half-maximum run (the Hi-C engine's core rule).
+- Fold test: the de novo Hi-C peak inside the fold core on a majority of tested chromosomes, Poisson-binomial
+  P <= GATE_P, chance per chromosome (core + peak) / scanned length (the Hi-C gate's rules).
+- Only where the anchored gate has not validated Hi-C on a chromosome and the fold test passed: the de novo peak
+  inside the fold core and the sequence call beyond HIC_FAR_BINS mappable bins of both -> the call moves to the de
+  novo core, medium (`fold_pair`; `moved_with_fold` for a high call, the fold being the second line at the peak and
+  not at the call). Otherwise each 3D line that opposes the kept call lowers it one level (`contested`,
+  `fold_offset`, `hic_denovo_offset`). The fold never raises a call.
+
+**Where it passes.** Fold test on every Hi-C run: barley 6/7 (P 2e-5) and Poa annua 8/14 (P 1e-3; anchored gate
+already passes, so no change); fails in all 14 mammals, all 28 randomized mammal controls, rice (its de novo peaks
+miss), potato, horse EquCab3, gorilla, P. infirma and the Poa control. It also stays silent in the reverse conflict
+(S. orangutan, giraffe: sequence right, prior-free Hi-C wrong; fold on de novo 0/25, 0/16).
+
+**Result (docs/benchmark.md).** Barley 0/7 -> 6/7 on CENH3 (6 calls moved, all right; the seventh, high and wrong,
+now low). Every other call of the mammal and plant benchmarks is unchanged.

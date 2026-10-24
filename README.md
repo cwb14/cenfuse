@@ -32,6 +32,10 @@ Because they fail independently, they can check each other:
   centromeres of the *other* chromosomes, as their sequence calls place them. Hi-C may move a call only if, on the
   other chromosomes, it agrees with the sequence calls more often than chance (P <= 0.01).
 - **Methylation is calibrated on the other chromosomes' calls** and never moves a call by itself.
+- **The arm fold settles a dispute between Hi-C and the satellites.** In nuclei where chromosome arms fold back at
+  the centromere (the Rabl layout of grasses), each chromosome's own contact map shows the fold. Where the fold and
+  Hi-C's centromere cluster agree with each other genome-wide but not with the satellite calls (barley), the two
+  move or lower the satellite calls they both contradict.
 
 ## Install
 
@@ -39,7 +43,7 @@ Because they fail independently, they can check each other:
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 452 tests, about 2 min
+pytest -q -n 8          # optional: 460 tests, about 2 min
 ```
 
 ## Quick start
@@ -211,9 +215,13 @@ Flags worth knowing:
 | `acrocentric` | the call is on a family that ends most chromosomes at one end only (an acrocentric karyotype) |
 | `hic_chose_alt` | validated Hi-C agreed with the competing cluster, not the larger one |
 | `hic_medium_peak` | no sequence call; a clean medium-level anchored Hi-C peak placed a low-confidence call |
+| `fold_pair` | the arm fold and the prior-free Hi-C peak agree here, away from the sequence call: the call moved there |
+| `fold_offset`, `hic_denovo_offset` | the fold / the prior-free Hi-C peak points elsewhere: the kept call is one level lower for each |
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | the satellite engine's reasons for a lower level |
 
 The Hi-C gate (`hic_gate`) is `pass`, `fail` or `untested` (fewer than 3 chromosomes with a reference-grade call).
+The fold test (`fold_gate`; fold core in `fold_core_start`/`fold_core_end`) is `pass` when the fold cores hold the
+prior-free Hi-C peaks on most chromosomes beyond chance; it acts only where the Hi-C gate did not pass.
 
 ## Options
 
@@ -262,21 +270,28 @@ potato, barley, horse and CHM13; the satellome for the other apes and giraffe; e
 
 - **Never worse than satellites alone.** In every genome, the final calls are right at least as often as the
   satellite calls: rice 12/12, CHM13 23/24, chimpanzee 25/25, gorilla 25/25, siamang 22/26, horse 3/4, potato
-  2/11, barley 0/7.
+  2/11, barley 6/7 (satellites 0/7).
+- **The arm fold fixed barley.** The satellite calls sat at the chromosome ends (3 of 7 high). The arm fold and
+  Hi-C's centromere cluster agreed with each other on 6/7 chromosomes (P 2e-5) and moved 6 calls onto the CENH3
+  domains (all right); the seventh dropped to low. The fold test failed in every mammal, randomized control, rice and
+  potato run, where no call changed.
 - **Hi-C is used only where it earns it.** Its test passed in the genomes where anchored Hi-C was right on 67-85%
   of chromosomes (CHM13, chimpanzee, siamang, rice, *Poa*). It failed where anchored Hi-C was right on 0-33%
   (orangutans, gorilla, giraffe, potato, barley), and on permuted Hi-C. Hi-C never changed a call in a genome where
   it was misleading.
 - **A real offset found.** *Poa annua* chromosome Pa1A: starting from satellite-only calls, Hi-C plus the CRM cores
   moved the call 20.2 Mb, from the satellite array to the functional centromere.
-- **Known misses.** Potato and barley without `tes/` (the satellite line is wrong there); horse chr11 (no
+- **Known misses.** Potato without `tes/` (the satellite line is wrong there, and its Hi-C shows no fold); barley
+  LR890100.1 (low); horse chr11 (no
   satellite, missed by every line); CHM13 chr14 and chr22 (Hi-C peaks on the rDNA arm contest correct calls).
 
 ## Limitations
 
-- Hi-C is checked against the satellite/TE calls. If those are wrong genome-wide (barley without `tes/`), Hi-C
-  cannot fix them, even when it is right. `cenfuse_summary.tsv` then flags `hic_sequence_conflict`; add `tes/` or
-  methylation as a third line.
+- Hi-C is checked against the satellite/TE calls. If those are wrong genome-wide, Hi-C can fix them only through
+  the arm fold, which needs a Rabl nucleus: it worked in barley and is absent in potato and every T2T mammal.
+  Otherwise `cenfuse_summary.tsv` flags `hic_sequence_conflict`; add `tes/` or methylation as a third line.
+- The fold is coarse (its core spans 5-10% of a chromosome): it can contradict a call at the wrong end of a
+  chromosome, not place a centromere within an array.
 - One wrong Hi-C peak, in a genome where Hi-C mostly works, passes the test. The second-line rule protects only
   high-confidence calls.
 - Hi-C resolution is one *mappable* bin. In complete assemblies the centromeric array itself is unmappable (T2T

@@ -381,3 +381,19 @@ checkpoints): 44 of 2,140 calls moved and 51 changed confidence only. Held-out c
 unchanged; Magallana dominance unchanged (4 low calls moved). CENH3 yardsticks: Ae. geniculata 10/14 and S.
 verrucosum 3/12 overlapping (7/11 within 1 Mb), unchanged. F. chiloensis D: 6 more chromosomes on the CENH3-validated
 147-bp Type I satellite (no dominant family before).
+
+## Re-run with the arm-fold rule (2026-10-24)
+
+Code d501887 (docs/design.md, "Arm fold"). Every Hi-C run was repeated from its checkpoints: the 56 mammal Hi-C
+arms (SH, FULL, NEG, NEG2 of 14 T2T mammals) and every plant-benchmark run. Only the fold stage and fusion changed.
+
+| | before | after |
+|---|---|---|
+| fold test passes | (not run) | barley 6/7 (P 2e-5); Poa annua 8/14 (P 1e-3, anchored gate already passes: no change) |
+| fold test fails | | all 56 mammal Hi-C arms (randomized controls included), rice, potato, horse, gorilla, P. infirma, Poa control |
+| barley integrated (CENH3) | 0/7, 3 of them high | **6/7 (P 4.9e-8)**: 6 calls moved (6 right, 0 wrong); LR890100.1 high -> low (still wrong) |
+| every other plant-benchmark call | | identical (rice 12/12, potato 2/11, horse 3/4, gorilla, 6 imported mammals, Poa: 21 chromosomes) |
+| T2T mammal scores | | identical (all 26,672 scored rows of per_chromosome.tsv) |
+
+H2 (changes right >= wrong) now has changes: 6 right, 0 wrong. The satellite batch is a sequence-only replay; the
+fold rule needs Hi-C, so it is unaffected.
