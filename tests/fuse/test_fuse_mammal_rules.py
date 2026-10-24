@@ -35,6 +35,13 @@ def test_partner_window_is_the_mappable_flank_of_an_unmappable_call():
     allgood = np.ones(bins.N, bool)                                      # a mappable call: midpoint +/- 4
     w2 = hicfuse.visible_window(bins, allgood, 0, 45 * BIN, 50 * BIN)
     assert list(w2) == list(range(43, 52))
+    five = np.ones(bins.N, bool)
+    five[43:47] = False                                                  # 5 of 9 mappable: the engine's window
+    assert list(hicfuse.visible_window(bins, five, 0, 45 * BIN, 50 * BIN)) == [47, 48, 49, 50, 51]
+    four = np.ones(bins.N, bool)
+    four[43:48] = False                                                  # 4 of 9: padded to the 9 nearest
+    w4 = hicfuse.visible_window(bins, four, 0, 45 * BIN, 50 * BIN)
+    assert len(w4) == 9 and four[w4].all()
 
 
 def test_visible_gap_and_chance_use_the_same_geometry():

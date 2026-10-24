@@ -439,16 +439,20 @@ decisive CRM core outranks the choice in favour of the largest cluster (S. verru
 
 **Competing clusters (centromeres, fuse).** A second cluster at least half the main one costs two levels instead of
 one (on CENP-A or CENH3 truth, 2 of 10 such calls were right: mammals 2/5, potato and barley 0/5), and its coordinates
-are reported (`seq_alt_start/end`). Validated Hi-C that agrees with the second cluster and not the first chooses it
-(`hic_chose_alt`): Hi-C chooses between two sequence candidates; it does not place the call.
+are reported (`seq_alt_start/end`). Validated Hi-C that agrees with the second cluster, and is separated from the
+first by mappable bins, chooses it (`hic_chose_alt`): Hi-C chooses between two sequence candidates only when it can
+tell them apart, and it does not place the call. (Without the separation test Hi-C chose the wrong array of CHM13
+chr21, where both arrays lie in one blind stretch.)
 
 **Hi-C in mappable-bin geometry (hicfuse, fuse).** With MAPQ >= 30, the CENP-A domain lay in a block of unmappable
 bins on 139/157 chromosomes; partner windows (call midpoint +/- 4 bins) fell entirely inside such blocks (0/22 in
 each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at the block edges, 1-5 Mb from CENP-A.
-- Partner window: the 9 mappable bins nearest the call, at most 4 mappable bins outside it: the Hi-C engine's
-  midpoint +/- 4 window when the call is mappable, the array's flanks when it is not. Replacing only the empty
-  windows (and keeping partially mappable ones as they were) was tried: anchored peaks on the right locus fell from
-  97 to 86 of 139 in the six imported mammals, while it restored one rice anchored peak (integrated calls equal).
+- Partner window: the Hi-C engine's window (midpoint +/- 4 bins, its mappable bins) when most of its bins are
+  mappable; otherwise the 9 mappable bins nearest the call, at most 4 mappable bins outside it (the array's flanks).
+  Two alternatives were run: replacing only empty windows lowered anchored peaks on the right locus from 97 to 86 of
+  139 in six imported mammals; padding every window lost 1-2 agreements each in CHM13, chimpanzee and S. orangutan.
+  No rule restored horse, whose gate passed in v2 (8 of 13 references) and fails now (6 of 13, P 2.5e-9 but no
+  majority): its partners with mostly blind windows move several peaks.
 - Distances involving a Hi-C interval are counted in mappable bins (`visible_gap`). For agreement (support, the
   gate and its chance, which use one geometry so the gate stays calibrated) at most HIC_FAR_BINS unmappable bins are
   discounted: a peak at the edge of an array is adjacent to a call inside it. For opposition and moves, unmappable
@@ -456,6 +460,13 @@ each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at t
   Hi-C therefore neither supports nor opposes. Full credit for every blind bin was tried first: on 92 chromosomes
   with CENP-A truth it let Hi-C support 73 calls, one of them wrong (bonobo CM055489.2, 81 blind bins across a 20-Mb
   pericentric array); the cap supports 65, all right.
+
+**Gate chance from the null replicates.** The gate's chance that a chromosome's peak agrees with its call was the
+share of scored bins that would agree (a uniformly placed peak). With randomized Hi-C that keeps every read end's
+coverage (partners re-paired), coverage and mappability alone drew sheep peaks into 2 of 3 reference calls and the
+gate passed on 2/28 chromosomes. The anchored test already computes 200 null replicates with the partner windows at
+random places; the chance is now the larger of the uniform share and the share of null replicates whose peak agrees,
+(hits + 1) / (n + 1). On real Hi-C this left the CHM13 and macaque gates unchanged.
 
 **Gate `untested`.** With fewer than GATE_MIN_REF reference chromosomes the gate is reported `untested`, not `fail`.
 

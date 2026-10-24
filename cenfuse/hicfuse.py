@@ -163,14 +163,19 @@ def visible_dist(bins, good, k: int, s: int, e: int, cap: int | None = None) -> 
 
 
 def visible_window(bins, good, k: int, s: int, e: int, half: int = hp.HALF_WIN) -> np.ndarray:
-    """Global bins of the partner window of call [s, e) on chromosome k: the 2 half + 1 mappable bins nearest the
-    call (mappable-bin distance, then distance to the midpoint), at most `half` mappable bins outside it. A mappable
-    call gives the Hi-C engine's midpoint +/- half window; a call inside an unmappable array gives the array's
-    mappable flanks, the nearest places Hi-C can see."""
-    off = int(bins.off[k])
+    """Global bins of the partner window of call [s, e) on chromosome k. When most bins of the Hi-C engine's window
+    (midpoint +/- half) are mappable, its mappable bins; otherwise the 2 half + 1 mappable bins nearest the call
+    (mappable-bin distance, then distance to the midpoint), at most `half` mappable bins outside it: for a call inside
+    an unmappable array, the array's flanks, the nearest places Hi-C can see (T2T macaques: 0/22 engine windows held
+    a mappable bin). Padding every window, mostly mappable ones too, lost anchored agreements in CHM13, chimpanzee
+    and S. orangutan; keeping every window that holds any mappable bin lost 11 of 97 in six imported mammals."""
+    off, nb = int(bins.off[k]), int(bins.nb[k])
+    mid = min(nb - 1, ((s + e) // 2) // bins.size)
+    w = off + np.arange(max(mid - half, 0), min(mid + half, nb - 1) + 1)
+    if 2 * int(good[w].sum()) > len(w):          # mostly mappable: the Hi-C engine's own window
+        return w[good[w]]
     d = visible_dist(bins, good, k, s, e)
-    mid = min(int(bins.nb[k]) - 1, ((s + e) // 2) // bins.size)
-    j = np.flatnonzero(good[off:off + int(bins.nb[k])] & (d <= half))
+    j = np.flatnonzero(good[off:off + nb] & (d <= half))
     order = np.lexsort((np.abs(j - mid), d[j]))
     return np.sort(off + j[order[:2 * half + 1]])
 
