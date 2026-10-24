@@ -28,7 +28,7 @@ def test_peak_beside_an_unmappable_nor_cannot_oppose():
     t = pd.DataFrame([dict(chrom="c", bin_size=250_000, anch_peak_start=4_500_000, anch_peak_end=4_750_000,
                            anch_strong=True, anch_level="high", anch_flags="", seq_start=9_000_000,
                            seq_end=12_000_000, masked=((2_000_000, 4_500_000),))])
-    nors = [("c", 2_100_000, 3_000_000, 20, 44_300)]
+    nors = [("c", 2_100_000, 3_900_000, 20, 44_300)]        # 2.4 blind bins between the NOR and the peak
     out = hicfuse.nor_peaks(t, nors)
     assert out.anch_flags.iat[0] == "rDNA" and not out.anch_strong.iat[0]
     far = hicfuse.nor_peaks(t, [("c", 500_000, 900_000, 9, 44_300)])     # mappable bins between: not this NOR

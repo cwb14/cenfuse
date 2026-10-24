@@ -20,7 +20,9 @@ The integrated call is the sequence call unless a validated functional line move
   discarded by the rule that asked for level high.
 
 Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
-unmappable arrays, so a peak at an array's edge is adjacent to a call inside it.
+unmappable arrays, so a peak at an array's edge is adjacent to a call inside it. Agreement discounts at most
+HIC_FAR_BINS unmappable bins; opposition needs that many mappable bins. Across a longer blind stretch Hi-C cannot
+place the centromere on either side, so it neither supports nor opposes.
 
 Confidence uses the satellite engine's levels, changed one step at a time (its te_concordant convention):
 - A kept sequence call goes up one level for agreeing validated Hi-C and up one for methylation support, at most
@@ -79,24 +81,27 @@ def _bins(ev: Evidence, n: int) -> int:
     return n * int(ev.hic["bin_size"])
 
 
-def _vgap(ev: Evidence, a, b) -> int:
-    """bp between intervals a and b that Hi-C can see (unmappable stretches of this chromosome removed)."""
-    return visible_gap(*a, *b, (ev.hic or {}).get("masked") or ())
+def _vgap(ev: Evidence, a, b, capped: bool) -> int:
+    """bp between intervals a and b that Hi-C can see: unmappable stretches of this chromosome removed (capped: at
+    most HIC_FAR_BINS bins of them, hicfuse). Agreement is capped, opposition is not: across a blind stretch longer
+    than the method's resolution Hi-C neither supports nor opposes a call."""
+    h = ev.hic or {}
+    return visible_gap(*a, *b, h.get("masked") or (), HIC_FAR_BINS * int(h.get("bin_size") or 0) if capped else None)
 
 
 def _peak_agrees(ev: Evidence, iv) -> bool:
     """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS mappable bins of iv."""
     pk = hic_peak(ev)
     return bool(pk and iv and ev.hic.get("anch_level", "none") != "none"
-                and _vgap(ev, pk, iv) <= _bins(ev, HIC_TOL_BINS))
+                and _vgap(ev, pk, iv, True) <= _bins(ev, HIC_TOL_BINS))
 
 
 def _peak_far(ev: Evidence, iv) -> bool:
     """The peak points to another locus: farther from iv than the method's resolution (HIC_FAR_BINS mappable bins),
     and its core does not reach iv."""
     pk, core = hic_peak(ev), hic_core(ev)
-    return bool(pk and iv and _vgap(ev, pk, iv) > _bins(ev, HIC_FAR_BINS)
-                and (core is None or _vgap(ev, core, iv) > _bins(ev, HIC_TOL_BINS)))
+    return bool(pk and iv and _vgap(ev, pk, iv, False) > _bins(ev, HIC_FAR_BINS)
+                and (core is None or _vgap(ev, core, iv, False) > _bins(ev, HIC_TOL_BINS)))
 
 
 def _te_agrees(ev: Evidence, iv) -> bool:
@@ -106,7 +111,7 @@ def _te_agrees(ev: Evidence, iv) -> bool:
 
 def _te_near(ev: Evidence, iv, n: int) -> bool:
     """The TE core within n mappable Hi-C bins of iv (one fixed tolerance for both places a move compares)."""
-    return bool(ev.te and iv and _vgap(ev, (ev.te["start"], ev.te["end"]), iv) <= _bins(ev, n))
+    return bool(ev.te and iv and _vgap(ev, (ev.te["start"], ev.te["end"]), iv, False) <= _bins(ev, n))
 
 
 def _clean_medium(h) -> bool:

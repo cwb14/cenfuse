@@ -15,7 +15,11 @@
 Distances are counted in mappable bins (`visible_gap`). Hi-C sees nothing inside a megabase array of near-identical
 repeat units: no read maps uniquely there, so its bins are masked. In T2T mammals the CENP-A domain lay inside such
 an unmappable block on 139/157 chromosomes and the anchored peak sat at the block's edge, 1-5 Mb away (benchmark
-v2). A peak separated from a call only by unmappable bins is adjacent to it as far as Hi-C can tell."""
+v2). For agreement (support, the gate) up to HIC_FAR_BINS unmappable bins between a peak and a call (the method's
+resolution) count as no distance and longer blind stretches count beyond that; for opposition unmappable bins never
+count. Hi-C cannot tell which side of a long blind stretch the centromere is on, so there it neither supports nor
+opposes (T2T bonobo: a call 81 unmappable bins away, at the far edge of a 20-Mb pericentric array, was the only wrong
+call that full credit let Hi-C support, of 92 with CENP-A truth)."""
 from __future__ import annotations
 
 from argparse import Namespace
@@ -139,15 +143,22 @@ def _bin_range(bins, k: int, s: int, e: int) -> tuple:
     return min(nb - 1, s // bins.size), min(nb - 1, max(s, e - 1) // bins.size)
 
 
-def visible_dist(bins, good, k: int, s: int, e: int) -> np.ndarray:
-    """Per bin of chromosome k: the number of mappable bins strictly between it and [s, e) (0 inside)."""
+def visible_dist(bins, good, k: int, s: int, e: int, cap: int | None = None) -> np.ndarray:
+    """Per bin of chromosome k: the number of mappable bins strictly between it and [s, e) (0 inside), plus the
+    unmappable bins between them beyond the first `cap` (None: unmappable bins never count)."""
     nb, off = int(bins.nb[k]), int(bins.off[k])
     lo, hi = _bin_range(bins, k, s, e)
     cg = np.concatenate([[0], np.cumsum(good[off:off + nb])])       # cg[j] = mappable bins in [0, j)
     j = np.arange(nb)
     d = np.zeros(nb, dtype=np.int64)
-    d[j < lo] = cg[lo] - cg[j[j < lo] + 1]
-    d[j > hi] = cg[j[j > hi]] - cg[hi + 1]
+    L, Rt = j < lo, j > hi
+    d[L] = cg[lo] - cg[j[L] + 1]
+    d[Rt] = cg[j[Rt]] - cg[hi + 1]
+    if cap is not None:
+        between = np.zeros(nb, dtype=np.int64)
+        between[L] = lo - j[L] - 1
+        between[Rt] = j[Rt] - hi - 1
+        d = d + np.maximum(0, between - d - cap)
     return d
 
 
@@ -180,13 +191,15 @@ def masked_runs(bins, good, k: int) -> tuple:
     return tuple(out)
 
 
-def visible_gap(a0: int, a1: int, b0: int, b1: int, masked) -> int:
-    """bp between two intervals that Hi-C can see: the gap minus the unmappable stretches inside it."""
+def visible_gap(a0: int, a1: int, b0: int, b1: int, masked, cap_bp: int | None = None) -> int:
+    """bp between two intervals that Hi-C can see: the gap minus the unmappable stretches inside it, of which at most
+    cap_bp are discounted (None: all)."""
     g = gap(a0, a1, b0, b1)
     if g == 0 or not masked:
         return g
     lo, hi = min(a1, b1), max(a0, b0)
-    return max(0, g - sum(max(0, min(e, hi) - max(s, lo)) for s, e in masked))
+    m = sum(max(0, min(e, hi) - max(s, lo)) for s, e in masked)
+    return max(0, g - (m if cap_bp is None else min(m, cap_bp)))
 
 
 def _partners(bins, members, good, seq: dict) -> tuple:
@@ -209,8 +222,8 @@ def _partners(bins, members, good, seq: dict) -> tuple:
 
 
 def _agrees_bin(bins, good, k: int, j: int, s: int, e: int) -> bool:
-    """The peak bin j lies within HIC_TOL_BINS mappable bins of [s, e)."""
-    return bool(visible_dist(bins, good, k, s, e)[j] <= HIC_TOL_BINS)
+    """The peak bin j lies within HIC_TOL_BINS mappable bins of [s, e) (unmappable bins free up to HIC_FAR_BINS)."""
+    return bool(visible_dist(bins, good, k, s, e, HIC_FAR_BINS)[j] <= HIC_TOL_BINS)
 
 
 def _chance(S, bins, good, k: int, s: int, e: int) -> float:
@@ -220,7 +233,7 @@ def _chance(S, bins, good, k: int, s: int, e: int) -> float:
     ok = np.isfinite(S[sl])
     if not ok.any():
         return float("nan")
-    near = visible_dist(bins, good, k, s, e) <= HIC_TOL_BINS
+    near = visible_dist(bins, good, k, s, e, HIC_FAR_BINS) <= HIC_TOL_BINS
     return float((near & ok).sum() / ok.sum())
 
 
@@ -346,10 +359,11 @@ def nor_peaks(t: pd.DataFrame, nors) -> pd.DataFrame:
         fl = set(str(r.anch_flags).split(",")) - {""}
         if not (r.anch_strong or (r.anch_level == "medium" and not fl & set(NOT_STRONG_FLAGS))):
             continue
-        if r.seq_start >= 0 and visible_gap(r.anch_peak_start, r.anch_peak_end, r.seq_start, r.seq_end, r.masked) \
-                <= HIC_FAR_BINS * r.bin_size:
+        cap = HIC_FAR_BINS * r.bin_size
+        if r.seq_start >= 0 and visible_gap(r.anch_peak_start, r.anch_peak_end, r.seq_start, r.seq_end,
+                                             r.masked) <= cap:                    # cannot oppose: nothing to test
             continue
-        if any(visible_gap(r.anch_peak_start, r.anch_peak_end, a, b, r.masked) <= HIC_TOL_BINS * r.bin_size
+        if any(visible_gap(r.anch_peak_start, r.anch_peak_end, a, b, r.masked, cap) <= HIC_TOL_BINS * r.bin_size
                for a, b in by[r.chrom]):
             t.at[i, "anch_flags"] = ",".join([f for f in str(r.anch_flags).split(",") if f] + ["rDNA"])
             t.at[i, "anch_strong"] = False

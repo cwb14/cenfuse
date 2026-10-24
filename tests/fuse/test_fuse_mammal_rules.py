@@ -21,8 +21,11 @@ def test_visible_distance_skips_unmappable_bins():
     bins, good = masked_chrom()
     d = hicfuse.visible_dist(bins, good, 0, 45 * BIN, 50 * BIN)          # call inside the array
     assert d[39] == 0 and d[60] == 0 and d[38] == 1 and d[61] == 1 and d[47] == 0
-    assert hicfuse._agrees_bin(bins, good, 0, 60, 45 * BIN, 50 * BIN)   # the array's edge agrees
-    assert not hicfuse._agrees_bin(bins, good, 0, 62, 45 * BIN, 50 * BIN)
+    dc = hicfuse.visible_dist(bins, good, 0, 45 * BIN, 50 * BIN, cap=4)  # 5 unmappable bins left, 10 right of it
+    assert dc[39] == 1 and dc[60] == 6
+    assert hicfuse._agrees_bin(bins, good, 0, 39, 45 * BIN, 50 * BIN)   # the array's near edge agrees
+    assert not hicfuse._agrees_bin(bins, good, 0, 60, 45 * BIN, 50 * BIN)   # across 10 blind bins it does not
+    assert hicfuse._agrees_bin(bins, good, 0, 60, 45 * BIN, 58 * BIN)   # a call spanning the array: its edge agrees
 
 
 def test_partner_window_is_the_mappable_flank_of_an_unmappable_call():
@@ -40,9 +43,12 @@ def test_visible_gap_and_chance_use_the_same_geometry():
     assert runs == ((40 * BIN, 60 * BIN),)
     assert hicfuse.visible_gap(60 * BIN, 61 * BIN, 45 * BIN, 50 * BIN, runs) == 0
     assert hicfuse.visible_gap(70 * BIN, 71 * BIN, 45 * BIN, 50 * BIN, runs) == 10 * BIN
+    assert hicfuse.visible_gap(60 * BIN, 61 * BIN, 45 * BIN, 50 * BIN, runs, 4 * BIN) == 6 * BIN
     S = np.where(good, 1.0, np.nan)
-    # agreeing bins: 38, 39 (left flank, <= 1 mappable bin between) and 60, 61: 4 of 80 scored bins
-    assert hicfuse._chance(S, bins, good, 0, 45 * BIN, 50 * BIN) == 4 / 80
+    # agreeing bins (blind bins free up to 4): 39 only on the left (5 blind bins), none on the right (10)
+    assert hicfuse._chance(S, bins, good, 0, 45 * BIN, 50 * BIN) == 1 / 80
+    # a call spanning the array (40-58): 38, 39 and 60, 61 agree
+    assert hicfuse._chance(S, bins, good, 0, 40 * BIN, 58 * BIN) == 4 / 80
 
 
 def ev(seq=(11_250_000, 12_500_000), conf="low", alt=None, peak=None, level="high", gate=True, strong=True,
@@ -61,10 +67,12 @@ def ev(seq=(11_250_000, 12_500_000), conf="low", alt=None, peak=None, level="hig
 
 def test_peak_at_the_edge_of_the_unmappable_array_supports_the_call():
     runs = ((10_000_000, 15_000_000),)
-    d = fuse.decide(ev(peak=15_000_000, masked=runs))
+    d = fuse.decide(ev(seq=(11_250_000, 14_500_000), peak=15_000_000, masked=runs))   # 2 blind bins between
     assert d["relation"] == "concordant" and "hic" in d["support"] and d["confidence"] == "medium"
-    d = fuse.decide(ev(peak=15_000_000))                                 # same peak without the mask: 2.5 Mb away
+    d = fuse.decide(ev(seq=(11_250_000, 14_500_000), peak=15_000_000))      # no mask: 2 mappable bins away
     assert d["relation"] != "concordant"
+    d = fuse.decide(ev(peak=15_000_000, masked=runs))     # call 10 blind bins away: Hi-C cannot place it
+    assert d["relation"] != "concordant" and "hic" not in d["support"]
 
 
 def test_validated_hic_chooses_the_competing_cluster():
