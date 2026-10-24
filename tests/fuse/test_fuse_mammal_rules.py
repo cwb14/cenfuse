@@ -76,10 +76,12 @@ def test_peak_at_the_edge_of_the_unmappable_array_supports_the_call():
 
 
 def test_validated_hic_chooses_the_competing_cluster():
-    d = fuse.decide(ev(alt=(20_000_000, 20_500_000), peak=20_250_000, level="medium", strong=False))
+    d = fuse.decide(ev(alt=(20_000_000, 20_500_000), peak=20_250_000))
     assert d["call"] == (20_000_000, 20_500_000) and "hic_chose_alt" in d["flags"]
     assert d["relation"] == "concordant" and d["confidence"] == "medium"
-    row = fuse.row(ev(alt=(20_000_000, 20_500_000), peak=20_250_000, level="medium", strong=False), d)
+    weak = fuse.decide(ev(alt=(20_000_000, 20_500_000), peak=20_250_000, level="medium", strong=False))
+    assert weak["call"] == (11_250_000, 12_500_000) and "hic_chose_alt" not in weak["flags"]   # a move needs strong
+    row = fuse.row(ev(alt=(20_000_000, 20_500_000), peak=20_250_000), d)
     assert row["offset_bp"] == "." and row["seq_alt_start"] == 20_000_001
     d = fuse.decide(ev(alt=(20_000_000, 20_500_000), peak=20_250_000, gate=False))     # not validated: no choice
     assert d["call"] == (11_250_000, 12_500_000) and "hic_chose_alt" not in d["flags"]
