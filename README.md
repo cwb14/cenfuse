@@ -254,7 +254,7 @@ reference call (`shared`) or elsewhere (`shifted`)? Details: `docs/plants.md`.
   karyotypes are handled without annotation).
 - With genes and Hi-C: 149/157, 4 confident misses (pig against other-animal ChIP, one orangutan centromere 14 Mb
   from any satellite).
-- Hi-C passes its test in 7 of 14 genomes and never on randomized Hi-C. It finds the array, not the kinetochore:
+- Hi-C passes its test in 8 of 14 genomes and never on randomized Hi-C. It finds the array, not the kinetochore:
   calls are 0.8-5.6 Mb wide.
 
 **Plants** (13 genomes; `docs/benchmark.md`): Truth: CENH3/CENP-A for rice,
