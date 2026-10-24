@@ -461,12 +461,12 @@ each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at t
   with CENP-A truth it let Hi-C support 73 calls, one of them wrong (bonobo CM055489.2, 81 blind bins across a 20-Mb
   pericentric array); the cap supports 65, all right.
 
-**Gate chance from the null replicates.** The gate's chance that a chromosome's peak agrees with its call was the
-share of scored bins that would agree (a uniformly placed peak). With randomized Hi-C that keeps every read end's
-coverage (partners re-paired), coverage and mappability alone drew sheep peaks into 2 of 3 reference calls and the
-gate passed on 2/28 chromosomes. The anchored test already computes 200 null replicates with the partner windows at
-random places; the chance is now the larger of the uniform share and the share of null replicates whose peak agrees,
-(hits + 1) / (n + 1). On real Hi-C this left the CHM13 and macaque gates unchanged.
+**Gate needs a majority of the whole reference set (hicfuse.gate).** With randomized Hi-C that keeps every read
+end's coverage (partners re-paired), coverage and mappability drew sheep peaks into 2 of 4 reference calls; leaving
+out a dissenting reference made that 2 of 3, and the gate passed on 2/28 chromosomes. Hi-C must now also agree on a
+majority of the whole reference set. On real Hi-C this changed no gate in 14 mammals or the plant benchmark. Tried
+and not kept: taking the chance from the 200 null replicates (the larger of the uniform share and the share of
+replicates whose peak agrees), which removed only one of the two sheep passes.
 
 **Gate `untested`.** With fewer than GATE_MIN_REF reference chromosomes the gate is reported `untested`, not `fail`.
 
@@ -474,5 +474,9 @@ random places; the chance is now the larger of the uniform share and the share o
 Hi-C level medium, the call is `functional_only`, confidence low, flag `hic_medium_peak` (horse chr11, the
 satellite-free centromere: the medium peak lay inside the CENP-A domain and was discarded).
 
-**NOR peaks (hicfuse).** A peak that could oppose or place a call is searched for 18S rRNA genes (peak bin +/- 1
-bin, Rfam SSU, cmsearch --hmmonly); a hit flags it rDNA, so it never opposes or places a call.
+**NOR peaks (rdna, hicfuse).** The 45S arrays are found with the 18S universal motif (rdna.py: runs of >= 3 motif
+hits <= 100 kb apart; CHM13 genome-wide in 32 s, its 5 NORs). An anchored peak that could oppose or place a call and
+lies within HIC_TOL_BINS mappable bins of a NOR is flagged rDNA and is not strong; peaks whose core overlaps a NOR
+are flagged by the Hi-C engine (add_nors). NORs contact one another across chromosomes (the nucleolus), so they
+mimic a centromere cluster. An HMM search (Rfam SSU, cmsearch --hmmonly) was tried first and stalled for minutes on
+low-complexity sequence.

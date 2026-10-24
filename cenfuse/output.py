@@ -108,6 +108,9 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
                  hic_anch_on_seq=int(h.anch_agrees_seq.sum()), hic_denovo_on_seq=int(h.denovo_agrees_seq.sum()),
                  hic_denovo_on_anch=int(h.denovo_agrees_anch.sum()), hic_seq_called=int(h.seq_start.ge(0).sum()),
                  hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".")
+        fo = hic.get("fold")
+        d.update(fold_gate=fo["status"] if fo else ".", fold_on_denovo=f"{fo['k']}/{fo['n']}" if fo else ".",
+                 fold_p=f"{fo['p']:.3g}" if fo else ".")
         fc = hic.get("classes")
         if fc is not None and len(fc):
             for name, key in (("centromeres (sequence calls)", "hic_3d_centromeres"), ("chromosome ends", "hic_3d_ends")):
