@@ -239,12 +239,15 @@ def _chance(S, bins, good, k: int, s: int, e: int) -> float:
 
 def gate(table: pd.DataFrame) -> pd.DataFrame:
     """Leave-one-chromosome-out gate (see module doc). Reference: chromosomes with a high sequence call (plus medium
-    when fewer than GATE_MIN_REF are high) and a scored anchored peak."""
+    when fewer than GATE_MIN_REF are high) and a scored anchored peak. Hi-C must also agree on a majority of the whole
+    reference set: with a few references, leaving out one that disagrees can turn 2 of 4 into 2 of 3 (T2T sheep,
+    partners re-paired at random: 2 gate passes; on real Hi-C the rule changed no gate in 14 mammals)."""
     t = table.copy()
     scored = t.anch_peak_start.ge(0) & t.chance.notna() & t.seq_start.ge(0)
     ref = t[scored & t.seq_confidence.eq("high")]
     if len(ref) < GATE_MIN_REF + 1:
         ref = t[scored & t.seq_confidence.isin(["high", "medium"])]
+    majority = 2 * int(ref.anch_agrees_seq.sum()) > len(ref)
     ks, ns, ps, passed = [], [], [], []
     for c in t.chrom:
         r = ref[ref.chrom != c]
@@ -253,7 +256,7 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
         ks.append(k)
         ns.append(n)
         ps.append(p)
-        passed.append(bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P))
+        passed.append(bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P and majority))
     t["gate_k"], t["gate_n"], t["gate_p"], t["gate_pass"] = ks, ns, ps, passed
     return t
 

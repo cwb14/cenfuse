@@ -449,8 +449,13 @@ each macaque, 1/20 in pig), so Hi-C never ran there, and anchored peaks sat at t
   midpoint +/- 4 window when the call is mappable, the array's flanks when it is not. Replacing only the empty
   windows (and keeping partially mappable ones as they were) was tried: anchored peaks on the right locus fell from
   97 to 86 of 139 in the six imported mammals, while it restored one rice anchored peak (integrated calls equal).
-- Every distance involving a Hi-C interval counts mappable bins only (`visible_gap`), and the gate's chance uses the
-  same geometry, so the gate stays calibrated: a peak at an array's edge is adjacent to a call inside it.
+- Distances involving a Hi-C interval are counted in mappable bins (`visible_gap`). For agreement (support, the
+  gate and its chance, which use one geometry so the gate stays calibrated) at most HIC_FAR_BINS unmappable bins are
+  discounted: a peak at the edge of an array is adjacent to a call inside it. For opposition and moves, unmappable
+  bins never count: Hi-C must show mappable separation. Across a blind stretch longer than the method's resolution
+  Hi-C therefore neither supports nor opposes. Full credit for every blind bin was tried first: on 92 chromosomes
+  with CENP-A truth it let Hi-C support 73 calls, one of them wrong (bonobo CM055489.2, 81 blind bins across a 20-Mb
+  pericentric array); the cap supports 65, all right.
 
 **Gate `untested`.** With fewer than GATE_MIN_REF reference chromosomes the gate is reported `untested`, not `fail`.
 

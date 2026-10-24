@@ -13,8 +13,9 @@ The integrated call is the sequence call unless a validated functional line move
   is `contested`.
 - Methylation never moves a call alone.
 - Competing clusters (the satellite engine's second cluster, at least half the main one): validated Hi-C that agrees
-  with the second cluster and not the main one chooses it (flag hic_chose_alt). Hi-C chooses between two sequence
-  candidates; it does not place the call.
+  with the second cluster and is separated from the main one by mappable bins chooses it (flag hic_chose_alt). Hi-C
+  chooses between two sequence candidates only when it can tell them apart (CHM13 chr21: both arrays lie in one
+  blind stretch, so Hi-C does not choose); it does not place the call.
 - No sequence call, gate passed, a clean (no hub/rDNA/telomeric) anchored peak at Hi-C level medium: a low-confidence
   functional_only call (flag hic_medium_peak). Horse chr11, the satellite-free centromere, was found this way and
   discarded by the rule that asked for level high.
@@ -135,9 +136,10 @@ def decide(ev: Evidence) -> dict:
     strong = bool(valid and h.get("anch_strong") and core)
     agree = bool(valid and seq_iv and _peak_agrees(ev, seq_iv))
     flags, relation, source = [], "sequence_only", "sequence"
-    if valid and alt_iv and not agree and _peak_agrees(ev, alt_iv):     # Hi-C picks the competing cluster
-        seq_iv, agree = alt_iv, True
-        flags.append("hic_chose_alt")
+    if valid and alt_iv and not agree and _peak_agrees(ev, alt_iv) and peak and \
+            _vgap(ev, peak, seq_iv, False) > _bins(ev, HIC_TOL_BINS):    # Hi-C picks the competing cluster, only
+        seq_iv, agree = alt_iv, True                                       # if mappable bins separate it from the
+        flags.append("hic_chose_alt")                                      # other (it can tell the two apart)
     far = bool(seq_iv and _peak_far(ev, seq_iv))
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
     second = []

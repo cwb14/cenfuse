@@ -119,3 +119,13 @@ def test_lopo_fast_path_equals_the_engine_rule():
             v = cluster_score(oe, bins, good, members, exclude={x: {y}})[bins.sl(x)]
             ref.append(int(np.nanargmax(v)) if np.isfinite(v).any() else -1)
         assert list(fast[x]) == ref
+
+
+def test_gate_needs_a_majority_of_the_whole_reference_set():
+    """2 of 4 references agree: leaving out a dissenter gives 2 of 3, but there is no majority, so no gate."""
+    import pandas as pd
+    rows = [dict(chrom=f"c{i}", seq_start=0, seq_end=1, seq_confidence="high", anch_peak_start=0, chance=0.01,
+                 anch_agrees_seq=i < 2) for i in range(4)]
+    assert not hicfuse.gate(pd.DataFrame(rows)).gate_pass.any()
+    rows[2]["anch_agrees_seq"] = True                                   # 3 of 4: a majority
+    assert hicfuse.gate(pd.DataFrame(rows)).gate_pass.all()            # every leave-one-out set: >= 2 of 3, P 3e-4
