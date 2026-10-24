@@ -8,7 +8,7 @@ nucleus, so where the two place the centromere at one locus on most chromosomes,
 other without the sequence line. That third line settles the genome-wide dispute fuse.sequence_conflict reports
 (barley: satellite calls at the chromosome ends, prior-free Hi-C at the CENH3 domains, fold with Hi-C).
 
-Benchmark (bench/fold_test.py, fold_gate.py): the fold point lies at the CENH3 domain in rice (11/12 at 500 kb) and
+Benchmark (docs/benchmark.md): the fold point lies at the CENH3 domain in rice (11/12 at 500 kb) and
 barley (4/7 within 8 Mb) and agrees with the de novo Hi-C peak in barley 6/7 and Poa annua 8/14; it is at chance in
 potato and in every T2T mammal (no Rabl fold in those nuclei) and in all randomized Hi-C controls. Its resolution is
 the arm scale (core ~5-10% of the chromosome): it can contradict a call at the wrong end of a chromosome, not place

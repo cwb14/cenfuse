@@ -1,4 +1,4 @@
-"""Integration rules (docs/design.md, 'provisional' and 'fuse').
+"""Integration rules (docs/design.md, 'Fusion rules').
 
 The integrated call is the sequence call unless a validated functional line moves it:
 - Hi-C may act on chromosome x only when its gate passes (hicfuse.gate), and only through a strong anchored peak
@@ -305,9 +305,10 @@ def table(evs: list, decisions: list) -> pd.DataFrame:
 def sequence_conflict(t: pd.DataFrame) -> dict:
     """Genome-level diagnostic. Hi-C's prior-free calls are confident (Hi-C high/medium) on most chromosomes but agree
     with the sequence calls on fewer than half, and the gate fails on most: the two lines disagree genome-wide, so at
-    least one is wrong everywhere, and two lines cannot tell which. cenfuse then keeps the sequence calls. A third line
-    decides: tes/ (CRM cores) or methylation. Seen in the benchmark both ways: barley (satellite line wrong, prior-free
-    Hi-C right) and S. orangutan / giraffe (the reverse)."""
+    least one is wrong everywhere, and two lines cannot tell which. A third line decides: the arm fold (fold.py, from
+    the same Hi-C; Rabl nuclei only), tes/ (CRM cores) or methylation; without one the sequence calls are kept. Seen
+    both ways: barley (satellite line wrong, prior-free Hi-C right; the fold sides with Hi-C) and S. orangutan /
+    giraffe (the reverse; no fold)."""
     s = t[t.seq_start.ge(0) & t.callable]
     n = len(s)
     conf = int(s.denovo_confidence.isin(["high", "medium"]).sum())

@@ -1,4 +1,4 @@
-"""Rules added after the T2T mammal benchmark (docs/design.md, Changes after the mammal benchmark): dispersed repeats
+"""Rules added after the T2T mammal benchmark (docs/design.md, 'Satellites and TEs'): dispersed repeats
 are not satellites, dominance is judged per satellite kind, acrocentric centromeres are not subtelomeres, classify's
 per-chromosome choice makes the call, and a competing cluster is reported and lowers the call to low."""
 import pandas as pd

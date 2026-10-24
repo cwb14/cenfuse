@@ -1,5 +1,5 @@
 """Co-localization: every candidate feature of every line, merged into loci, with the value of each line at each
-locus and a kind (docs/design.md, 'loci').
+locus and a kind (docs/design.md, 'Loci').
 
 Members are:
 - satellite clusters of every family (>= LOCI_MIN_SAT_BP), with their role and rDNA tag;

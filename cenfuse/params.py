@@ -15,7 +15,7 @@ NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NOR
                           # an end window (8 bins): chromosome-end clusters are the main non-centromeric trans attractor
                           # (Hi-C engine benchmarks: rice 12/12 and giraffe 15/15 prior-free peaks at ends; 33 mammal misses).
                           # They may support a call, never oppose or move one. Added 2026-10-16 after the rice run
-                          # (docs/design.md, Changes after the first runs)
+                          # (docs/design.md, 'Decisions and alternatives tried')
 HIC_MAX_THREADS = 8       # Hi-C bootstrap threads: each holds ~3 copies of the contact matrix (memory, not speed)
 METH_SCORE = 0.5          # centromere_like = signature score >= 0.5 (methylation engine SIG_FRACTION: nearer the anchors than
                           # the background)

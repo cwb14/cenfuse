@@ -1,41 +1,49 @@
 # cenfuse
 
-Find the centromere of every chromosome in a genome assembly. cenfuse combines up to four kinds of evidence:
-satellite repeats, LTR retrotransposons, Hi-C and DNA methylation. Only the FASTA is required. Each extra input
-adds a line of evidence that can confirm, contest or move a call. cenfuse also maps telomeres, rDNA, knobs and
-other satellite blocks on the same coordinates.
+Finds the centromere of every chromosome in a genome assembly. It combines satellite repeats, LTR
+retrotransposons, Hi-C and DNA methylation, lets them check each other, and says when it is unsure. Only the FASTA
+is required.
 
 ![cenfuse overview of the Poa annua assembly](docs/img/example_overview.png)
 
-*Example output: the* Poa annua *assembly with all four inputs (full PDF with legends:
-[`docs/img/example_overview.pdf`](docs/img/example_overview.pdf)). **A**, one row per chromosome: anchored Hi-C
-score (blue), CHG methylation (black, down = loss), satellite arrays colored by role, retrotransposon (TE) density;
-black box = sequence call, gray band = final call (blue when Hi-C placed it). **B**, which lines support (●) or oppose (×) each call. **C**,
-each line's call relative to the sequence call. **D**, Hi-C score around every call. All 14 calls are `concordant` and `high`: satellites,
-retrotransposons and Hi-C agree (Pa1A has no centromeric satellite; the retrotransposons place it). The
-methylation comes from five other plants, so it is drawn but does not vote (empty `meth` column in B).*
+*Poa annua, all four inputs ([PDF with legends](docs/img/example_overview.pdf)). **A** one row per chromosome:
+Hi-C score (blue), CHG methylation (black), satellite arrays by role, TE density; black box = sequence call, gray
+band = final call. **B** lines that support (●) or oppose (×) each call. **C** each line's call relative to the
+sequence call. **D** Hi-C score around each call.*
 
-## Why combine evidence?
+## At a glance
 
-A satellite array is not always the centromere. The functional centromere can sit beside the array, far from it,
-or on no satellite at all (potato, horse chr11). Each kind of evidence fails in its own way:
-
-| evidence | fails when |
+| | |
 |---|---|
-| satellite arrays | the array is pericentromeric, inactive or a knob; the centromere has no satellite |
-| LTR retrotransposons (CRM clade) | the CRM cluster flanks the centromere instead of marking it (some Solanaceae) |
-| Hi-C | another cluster of loci dominates the nucleus (Hi-C alone is wrong on all 12 rice chromosomes) |
-| methylation | used alone: false dips are as deep as true ones |
+| **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, ONT methylation, genes |
+| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; telomeres, rDNA, knobs and other repeat blocks on the same map |
+| **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
+| **Runtime** | the satellite search dominates (3-Gb genome: ~5 h at 16 threads); Hi-C and fusion take minutes; reruns resume |
 
-Because they fail independently, they can check each other:
-- **Hi-C tests the other lines.** For each chromosome, cenfuse measures how strongly each place contacts the
-  centromeres of the *other* chromosomes, as their sequence calls place them. Hi-C may move a call only if, on the
-  other chromosomes, it agrees with the sequence calls more often than chance (P <= 0.01).
-- **Methylation is calibrated on the other chromosomes' calls** and never moves a call by itself.
-- **The arm fold settles a dispute between Hi-C and the satellites.** In nuclei where chromosome arms fold back at
-  the centromere (the Rabl layout of grasses), each chromosome's own contact map shows the fold. Where the fold and
-  Hi-C's centromere cluster agree with each other genome-wide but not with the satellite calls (barley), the two
-  move or lower the satellite calls they both contradict.
+## How well it works
+
+Right = the call overlaps the CENP-A/CENH3 domain (mammals) or lies within 4 Hi-C bins of it (plants).
+Details and every failure: [`docs/benchmark.md`](docs/benchmark.md).
+
+| genomes | truth | inputs | chromosomes | right | confidently wrong | wrong but `low`, or no call |
+|---|---|---|---|---|---|---|
+| 9 T2T mammals (human, great apes, macaque, pig, horse) | CENP-A | FASTA only | 157 | 148 | 5 | 4 |
+| same | CENP-A | + genes + Hi-C | 157 | 149 | 4 | 4 |
+| rice | CENH3 | FASTA + Hi-C | 12 | 12 | 0 | 0 |
+| barley | CENH3 | FASTA + Hi-C | 7 | 6 | 0 | 1 |
+| potato | CENH3 | FASTA + Hi-C | 11 | 2 | 2 | 7 |
+| horse (EquCab3) | CENP-A | FASTA + Hi-C | 5 | 3 (all `low`) | 0 | 2 |
+
+Controls: on randomized Hi-C (29 runs) the Hi-C test never passed and no call changed.
+
+| strong | weak |
+|---|---|
+| Satellite centromeres from the FASTA alone (mammals 148/157, rice 12/12) | Satellite-free centromeres without `tes/` (potato 2/11; horse chr11 has no call) |
+| `high` is reliable: 119/122 `high` calls on CENP-A truth were right | Confidence is conservative: many `medium`/`low` calls are right too (horse 17/18) |
+| Hi-C, satellites and TEs are tested against each other, not trusted on their own word | A centromere far from any satellite (an orangutan neocentromere) is confidently wrong |
+| Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Hi-C cannot see inside repeat arrays: calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
+| In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
+| Rejects interspersed repeats and handles acrocentric karyotypes without annotation | Acrocentric detection needs ≥ ~16 chromosomes |
 
 ## Install
 
@@ -43,7 +51,7 @@ Because they fail independently, they can check each other:
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 460 tests, about 2 min
+pytest -q -n 8          # optional: 460 tests, ~2 min
 ```
 
 ## Quick start
@@ -53,175 +61,115 @@ mkdir mygenome && cp asm.fa mygenome/ && samtools faidx mygenome/asm.fa
 cenfuse run mygenome -t 32
 ```
 
-Results go to `mygenome/cenfuse/`. Open `cenfuse_overview.pdf`, then `asm.centromeres.tsv` (one row per
-chromosome). A rerun resumes where the last one stopped.
+Read `mygenome/cenfuse/asm.centromeres.tsv` (one row per chromosome), and look at `cenfuse_overview.pdf`.
 
 ## Inputs
 
-Put everything for one genome in one folder. `asm` is the FASTA's name without its extension, and every other file
-must use the same name:
+One folder per genome. Every file uses the FASTA's name (`asm`):
 
 ```
 mygenome/
-├── asm.fa + asm.fa.fai    required: chromosome-level assembly
-├── tes/asm.gff3           LTR retrotransposons    (strongly recommended for plants; needed for methylation)
-├── hic/asm.pairs.gz       Hi-C contacts
+├── asm.fa + asm.fa.fai    required: chromosome-level assembly (unplaced scaffolds are skipped)
+├── tes/asm.gff3           LTR retrotransposons    strongly recommended for plants; needed for methylation
+├── hic/asm.pairs.gz       Hi-C contacts           (or .cool/.mcool)
 ├── meth/asm.tsv           ONT methylation samples table
 └── genes/asm.gff3         gene annotation
 ```
 
-| input | what it adds |
+| input | adds |
 |---|---|
-| FASTA | satellite families found de novo, every array and its role, telomeres, rDNA, one sequence call per chromosome |
-| `tes/` | CRM-clade retrotransposon cores, which mark grass centromeres. Without them, satellite-only calls were wrong on barley (7/7) and potato (9/11) |
+| FASTA | satellite families found de novo, each array's role, telomeres, rDNA, one sequence call per chromosome |
+| `tes/` | CRM retrotransposon cores, which mark grass centromeres (without them, satellite calls were wrong on barley 7/7 and potato 9/11) |
 | `hic/` | a functional test of every call; validated Hi-C can move a call |
-| `meth/` | a second functional line; per-plant checks when samples come from several plants |
-| `genes/` | gene density at every locus; gene class for methylation |
+| `meth/` | a second functional line; per-plant verdicts when samples come from several plants |
+| `genes/` | gene density at every locus; helps reject gene-rich and subtelomeric repeats |
 
-Unplaced scaffolds are dropped automatically. Several FASTAs in one folder are analyzed together and share one set
-of satellite family names.
+Several FASTAs in one folder are analyzed together and share satellite family names.
 
-## Making the input files
+<details>
+<summary><b>Recipes: making each input</b> (click)</summary>
 
-Each recipe uses tools outside cenfuse; install them in their own environment. Replace `asm.fa`, read files and
-thread counts with yours.
-
-### Genome (required)
+**LTR retrotransposons** with [LTRquest](https://github.com/cwb14/LTRquest):
 
 ```bash
-samtools faidx asm.fa                    # or compressed: bgzip -@ 8 asm.fa && samtools faidx asm.fa.gz
-```
-
-### LTR retrotransposons: `tes/asm.gff3`
-
-Use [LTRquest](https://github.com/cwb14/LTRquest):
-
-```bash
-git clone https://github.com/cwb14/LTRquest.git && cd LTRquest      # once
-mamba env create -n ltrquest -f environment.yml && mamba activate ltrquest && pip install . && cd ..
-
-ltrquest --genome asm.fa --proteins related.pep.fa --threads 32
+ltrquest --genome asm.fa --proteins related.pep.fa --threads 32      # uncompressed FASTA; --proteins optional
 mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm.gff3
 ```
+Set `--mutation-rate` for your organism (default 3e-8, plants). Any GFF3 works if each element's type contains
+`LTR_retrotransposon` and it carries `clade=` (e.g. EDTA + TEsorter).
 
-- Give LTRquest the uncompressed FASTA. `--proteins` (the proteome of any related species) is optional but
-  recommended.
-- Use `*_all_depth_LTR_cleaned.gff3`, not the `*_protein_*` file.
-- The default `--mutation-rate` (3e-8) is for plants; set your organism's.
-- Other annotations also work if each element is a feature whose type contains `LTR_retrotransposon`, with a
-  `clade=` attribute (for example EDTA elements classified by TEsorter).
-
-### Hi-C: `hic/asm.pairs.gz`
-
-From raw Hi-C (or Omni-C) FASTQ to deduplicated, uniquely mapped pairs (4DN format):
+**Hi-C** to uniquely mapped, deduplicated pairs (~100 M read pairs is enough; map to this exact assembly):
 
 ```bash
-mamba create -n hic -c conda-forge -c bioconda bwa-mem2 pairtools && mamba activate hic   # once
-
-bwa-mem2 index asm.fa
-cut -f1,2 asm.fa.fai > asm.chrom.sizes
-mkdir -p mygenome/hic
+bwa-mem2 index asm.fa && cut -f1,2 asm.fa.fai > asm.chrom.sizes && mkdir -p mygenome/hic
 bwa-mem2 mem -5SP -T0 -t 32 asm.fa hic_R1.fq.gz hic_R2.fq.gz \
   | pairtools parse --min-mapq 30 --walks-policy 5unique --max-inter-align-gap 30 \
       --add-columns mapq --drop-sam --drop-seq -c asm.chrom.sizes \
-  | pairtools sort --nproc 8 --memory 16G --tmpdir . \
-  | pairtools dedup \
-  | pairtools select '(pair_type=="UU") or (pair_type=="UR") or (pair_type=="RU")' \
-      -o mygenome/hic/asm.pairs.gz
+  | pairtools sort --nproc 8 --memory 16G --tmpdir . | pairtools dedup \
+  | pairtools select '(pair_type=="UU") or (pair_type=="UR") or (pair_type=="RU")' -o mygenome/hic/asm.pairs.gz
 ```
 
-- `-5SP` maps the two reads separately and keeps each read's 5' piece (the Hi-C standard).
-- `--min-mapq 30` and `select` keep only pairs whose two ends map uniquely. This matters because centromeres are
-  repeats.
-- `dedup` removes PCR duplicates.
-- About 100 M read pairs are enough; the benchmark used 100 M.
-- Map to this exact assembly. A `.cool` or `.mcool` made on it also works (`hic/asm.mcool`).
-
-### Methylation: `meth/asm.tsv`
-
-From ONT reads, one sample per plant. CHG is required; CG and CHH are optional. `tes/` is also needed.
+**Methylation** from ONT reads, one sample per plant (CHG required; needs `tes/` too):
 
 ```bash
-mamba create -n ont -c conda-forge -c bioconda ont-modkit=0.6.4 minimap2 samtools htslib && mamba activate ont
-# once; dorado: https://github.com/nanoporetech/dorado
-
-# 1. basecall with the all-context model (5mC_5hmC); the CpG-only 5mCG_5hmCG model gives no CHG
-dorado basecaller sup pod5/ --modified-bases 5mC_5hmC --min-qscore 10 > plant1.ubam
-
-# 2. align, keeping the methylation tags; keep primary alignments with MAPQ >= 20
-samtools fastq -T MM,ML,MN plant1.ubam \
-  | minimap2 -t 32 -ax lr:hq -y asm.fa - \
-  | samtools view -u -q 20 -F 0x904 - | samtools sort -@ 8 -o plant1.bam
-samtools index plant1.bam
-
-# 3. one bedMethyl per context, bgzipped and indexed
+dorado basecaller sup pod5/ --modified-bases 5mC_5hmC --min-qscore 10 > plant1.ubam     # not the CpG-only model
+samtools fastq -T MM,ML,MN plant1.ubam | minimap2 -t 32 -ax lr:hq -y asm.fa - \
+  | samtools view -u -q 20 -F 0x904 - | samtools sort -@ 8 -o plant1.bam && samtools index plant1.bam
 M=mygenome/meth; mkdir -p $M
-for ctx in CHG CHH; do
+for ctx in CHG CHH; do                                  # no --combine-strands for CHG: strands are read separately
   modkit pileup plant1.bam - --ref asm.fa --modified-bases 5mC 5hmC --motif $ctx 0 -t 32 \
-    | awk -F'\t' '$4=="m"' | bgzip > $M/plant1.$ctx.bed.gz
-  tabix -p bed $M/plant1.$ctx.bed.gz
+    | awk -F'\t' '$4=="m"' | bgzip > $M/plant1.$ctx.bed.gz && tabix -p bed $M/plant1.$ctx.bed.gz
 done
 modkit pileup plant1.bam - --ref asm.fa --modified-bases 5mC 5hmC --motif CG 0 --combine-strands -t 32 \
-  | awk -F'\t' '$4=="m"' | bgzip > $M/plant1.CG.bed.gz
-tabix -p bed $M/plant1.CG.bed.gz
-
-# 4. the samples table: tab-separated, one row per plant, paths relative to meth/
+  | awk -F'\t' '$4=="m"' | bgzip > $M/plant1.CG.bed.gz && tabix -p bed $M/plant1.CG.bed.gz
 printf 'sample\tCHG\tCG\tCHH\nplant1\tplant1.CHG.bed.gz\tplant1.CG.bed.gz\tplant1.CHH.bed.gz\n' > $M/asm.tsv
 ```
+Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or empty for all).
 
-- Do **not** use `--combine-strands` for CHG: cenfuse reads the two strands separately to tell plants apart.
-- Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or empty for all samples).
+**Genes:** any GFF3 of this assembly with `gene` lines.
 
-### Genes: `genes/asm.gff3`
-
-Any GFF3 of this assembly with `gene` lines, such as the annotation released with the genome. Only gene positions
-are used.
+</details>
 
 ## Outputs (`mygenome/cenfuse/`)
 
 | file | content |
 |---|---|
-| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer.** One row per chromosome: the final call, its `relation` and `confidence`, the lines that support or oppose it, and each line's own call |
-| `cenfuse_overview.pdf`, `asm.overview.png` | the figure above, with short and long legend pages |
-| `cenfuse_summary.tsv` | one row per genome: what each line found, whether Hi-C passed its test, warnings (`hic_sequence_conflict`) |
-| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, rDNA, knob-like interstitial blocks, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres), each with every line's value there |
-| `asm.feature_signatures.tsv` | per feature kind: the median signal of every line |
-| `asm.feature_contacts.tsv` | per feature kind: do its members contact each other in the nucleus more than random places do (fold, P)? |
-| `asm.hic_anchored.bedgraph` | the anchored Hi-C score per bin, for a genome browser |
-| `asm.provenance.tsv`, `asm.plants.tsv`, `asm.plant_sites.tsv`, `asm.plants.png` | with several plants: which plant each input comes from, and each plant's centromere, chromosome by chromosome |
-| `satellite/`, `hic/`, `methylation/` | each line's detailed outputs: satellite families and arrays, Hi-C peaks and tracks, methylation tracks and candidates |
+| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, and each line's own call |
+| `cenfuse_overview.pdf` | the figure above |
+| `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C passed its tests, warnings |
+| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, rDNA, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there |
+| `asm.hic_anchored.bedgraph` | the Hi-C centromere score per bin, for a browser |
+| `asm.provenance.tsv`, `asm.plants.tsv` | with several plants: which plant each input comes from; each plant's centromere |
+| `satellite/`, `hic/`, `methylation/` | each line's detailed outputs |
 
 ## Reading a call
 
 | `relation` | meaning |
 |---|---|
-| `concordant` | Hi-C or methylation agrees with the satellite/TE call: the best case |
-| `offset` | Hi-C, with a second line where needed, puts the centromere elsewhere. The old call stays in `loci.tsv` as `sequence_centromere` |
-| `contested` | Hi-C points elsewhere but nothing else agrees. The call stays, one confidence level lower |
-| `functional_only` | no satellite or TE call; Hi-C places it |
-| `sequence_only` | only the satellite/TE call could be used: no Hi-C or methylation, Hi-C failed its test, or its peak was weak or at a hub, NOR or chromosome end |
+| `concordant` | Hi-C or methylation agrees with the satellite/TE call (best case) |
+| `offset` | validated Hi-C (with a second line for a high call) moved the call; the old one is kept in `seq_start`/`seq_end` |
+| `contested` | a validated line points elsewhere without enough support to move: call kept, one level lower |
+| `functional_only` | no satellite/TE call; Hi-C placed it |
+| `sequence_only` | only the satellite/TE call was usable (no Hi-C, Hi-C failed its test, or its peak was weak) |
 | `none` | no call |
 
-`confidence` is `low`, `medium` or `high`. Each independent line that agrees raises a kept call one level (at
-most two); a contest lowers it one. **Read `low` as "uncertain":** the call is the best candidate, but the lines
-cannot exclude another place. When two satellite clusters compete, the call is `low` and the other one is in
-`seq_alt_start`/`seq_alt_end`; validated Hi-C may choose between them (flag `hic_chose_alt`).
-
-Flags worth knowing:
+**`confidence`**: `high`, `medium`, or `low` = uncertain (the best candidate, but another place is not excluded).
+Agreeing independent lines raise a kept call (at most two levels); an opposing line lowers it one. A call that Hi-C
+moved or placed is `medium` (`high` with a second line).
 
 | flag | meaning |
 |---|---|
-| `competing_cluster` | a second centromeric-satellite cluster at least half the size of the called one (`seq_alt_*`) |
-| `acrocentric` | the call is on a family that ends most chromosomes at one end only (an acrocentric karyotype) |
-| `hic_chose_alt` | validated Hi-C agreed with the competing cluster, not the larger one |
-| `hic_medium_peak` | no sequence call; a clean medium-level anchored Hi-C peak placed a low-confidence call |
-| `fold_pair` | the arm fold and the prior-free Hi-C peak agree here, away from the sequence call: the call moved there |
-| `fold_offset`, `hic_denovo_offset` | the fold / the prior-free Hi-C peak points elsewhere: the kept call is one level lower for each |
-| `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | the satellite engine's reasons for a lower level |
+| `competing_cluster` | a second satellite cluster at least half the size; call is `low`, the other is in `seq_alt_start`/`seq_alt_end` |
+| `hic_chose_alt` | validated Hi-C picked the competing cluster |
+| `acrocentric` | the family sits at one end of most chromosomes (acrocentric karyotype) |
+| `fold_pair` | Hi-C's centromere cluster and the chromosome's arm fold agree here, away from the satellite call: the call moved |
+| `fold_offset`, `hic_denovo_offset` | the arm fold / Hi-C's prior-free peak points elsewhere (one level lower each) |
+| `hic_medium_peak` | no sequence call; a clean medium Hi-C peak placed a `low` call |
+| `moved_with_te`, `_meth`, `_fold` | a high call moved: a second line (TE core, methylation, arm fold) agreed with Hi-C |
+| `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence |
 
-The Hi-C gate (`hic_gate`) is `pass`, `fail` or `untested` (fewer than 3 chromosomes with a reference-grade call).
-The fold test (`fold_gate`; fold core in `fold_core_start`/`fold_core_end`) is `pass` when the fold cores hold the
-prior-free Hi-C peaks on most chromosomes beyond chance; it acts only where the Hi-C gate did not pass.
+Per-genome tests (`*.centromeres.tsv` and `cenfuse_summary.tsv`): `hic_gate` (`pass`/`fail`/`untested`: does Hi-C
+find the other chromosomes' centromeres?) and `fold_gate` (does the arm fold agree with Hi-C's own peaks?).
 
 ## Options
 
@@ -229,94 +177,39 @@ prior-free Hi-C peaks on most chromosomes beyond chance; it acts only where the 
 |---|---|
 | `-o DIR` | output folder [`GENOME_DIR/cenfuse`] |
 | `-t N` | threads [8] |
-| `--satellite-dir DIR` | reuse the `satellite/` folder of an earlier run instead of recomputing it |
+| `--satellite-dir DIR` | reuse the `satellite/` folder of an earlier run |
 | `--seed-engine fastan\|trf` | tandem-repeat finder for satellite seeds [fastan] |
-| `--seed-cache DIR` | tandem-repeat results shared between runs |
+| `--seed-cache DIR` | share tandem-repeat results between runs |
 | `--classify-from T=S` | genome T (e.g. a contig assembly) takes its satellite families from genome S |
 | `--force STAGE` | recompute one stage |
 | `-v` | per-step progress |
 
-Every threshold is a fixed constant with its reason, in `cenfuse/params.py` and the `params.py` of `cenfuse/sat`,
-`hic` and `meth`. None is an option.
+There are no tuning knobs: every threshold is a fixed constant with its reason in a `params.py`.
 
 ## Several plants
 
-Methylation samples and Hi-C libraries often come from plants other than the assembled one, and their centromeres
-can sit elsewhere. Give one row per plant. The same `sample` name in both tables means the same plant:
-
-```
-meth/asm.tsv                                  hic/asm.tsv   (only for several Hi-C libraries)
-sample  CHG                CG                 sample  file
-ref     ref.CHG.bed.gz     ref.CG.bed.gz      ref     ref.pairs.gz
-plantB  plantB.CHG.bed.gz  plantB.CG.bed.gz   plantB  plantB.pairs.gz
-```
-
-cenfuse genotypes every methylation sample against the assembly. Only inputs from the assembled plant, or of
-unknown origin, decide the reference calls. Every plant is then scored on its own: is its centromere at the
-reference call (`shared`) or elsewhere (`shifted`)? Details: `docs/plants.md`.
-
-## Does it work?
-
-**T2T mammals** (14 genomes, CENP-A truth on 157 chromosomes in 9 of them; criteria fixed before any run):
-- FASTA only: 148/157 on the CENP-A domain, 5 confident misses (genome-wide interspersed repeats and acrocentric
-  karyotypes are handled without annotation).
-- With genes and Hi-C: 149/157, 4 confident misses (pig against other-animal ChIP, one orangutan centromere 14 Mb
-  from any satellite).
-- Hi-C passes its test in 8 of 14 genomes and never on randomized Hi-C. It finds the array, not the kinetochore:
-  calls are 0.8-5.6 Mb wide.
-
-**Plants** (13 genomes; `docs/benchmark.md`): Truth: CENH3/CENP-A for rice,
-potato, barley, horse and CHM13; the satellome for the other apes and giraffe; earlier analyses for *Poa*.
-
-- **Never worse than satellites alone.** In every genome, the final calls are right at least as often as the
-  satellite calls: rice 12/12, CHM13 23/24, chimpanzee 25/25, gorilla 25/25, siamang 22/26, horse 3/4, potato
-  2/11, barley 6/7 (satellites 0/7).
-- **The arm fold fixed barley.** The satellite calls sat at the chromosome ends (3 of 7 high). The arm fold and
-  Hi-C's centromere cluster agreed with each other on 6/7 chromosomes (P 2e-5) and moved 6 calls onto the CENH3
-  domains (all right); the seventh dropped to low. The fold test failed in every mammal, randomized control, rice and
-  potato run, where no call changed.
-- **Hi-C is used only where it earns it.** Its test passed in the genomes where anchored Hi-C was right on 67-85%
-  of chromosomes (CHM13, chimpanzee, siamang, rice, *Poa*). It failed where anchored Hi-C was right on 0-33%
-  (orangutans, gorilla, giraffe, potato, barley), and on permuted Hi-C. Hi-C never changed a call in a genome where
-  it was misleading.
-- **A real offset found.** *Poa annua* chromosome Pa1A: starting from satellite-only calls, Hi-C plus the CRM cores
-  moved the call 20.2 Mb, from the satellite array to the functional centromere.
-- **Known misses.** Potato without `tes/` (the satellite line is wrong there, and its Hi-C shows no fold); barley
-  LR890100.1 (low); horse chr11 (no
-  satellite, missed by every line); CHM13 chr14 and chr22 (Hi-C peaks on the rDNA arm contest correct calls).
+Methylation and Hi-C often come from plants other than the assembled one, whose centromeres can sit elsewhere. Give
+one row per plant (`meth/asm.tsv`; `hic/asm.tsv` with columns `sample`, `file`); the same `sample` name means the
+same plant. cenfuse genotypes each input, lets only the assembled plant's (or unknown) inputs decide the calls, and
+scores every plant on its own (`shared` or `shifted`). Details: [`docs/plants.md`](docs/plants.md).
 
 ## Limitations
 
-- Hi-C is checked against the satellite/TE calls. If those are wrong genome-wide, Hi-C can fix them only through
-  the arm fold, which needs a Rabl nucleus: it worked in barley and is absent in potato and every T2T mammal.
-  Otherwise `cenfuse_summary.tsv` flags `hic_sequence_conflict`; add `tes/` or methylation as a third line.
-- The fold is coarse (its core spans 5-10% of a chromosome): it can contradict a call at the wrong end of a
-  chromosome, not place a centromere within an array.
-- One wrong Hi-C peak, in a genome where Hi-C mostly works, passes the test. The second-line rule protects only
-  high-confidence calls.
-- Hi-C resolution is one *mappable* bin. In complete assemblies the centromeric array itself is unmappable (T2T
-  mammals: the CENP-A domain lay in unmappable blocks of 2.5-19 Mb median), so Hi-C locates the array, not the
-  kinetochore inside it. cenfuse counts Hi-C distances in mappable bins, so a peak at the array's edge supports a
-  call inside the array.
-- Without genes or TEs, a satellite is told from an interspersed repeat by tandem structure alone: a family must
-  lie mostly in tandem repeats, or be hit as whole units, or be concentrated at one locus per chromosome.
-- The acrocentric test needs about 16 or more chromosomes; smaller all-acrocentric karyotypes still have their
-  terminal satellites called subtelomeric.
-- Methylation needs ONT CHG calls and `tes/`. Plants below ~4x often lack data at centromeres, and per-plant
-  methylation verdicts are weak evidence.
-- Hi-C given as pairs or cool cannot be genotyped, so its plant of origin is usually `unknown`.
-- Telomeres are reported only where the assembly holds them.
-- The 3D contact test does not match compartments: heterochromatic classes can look clustered through the B
-  compartment alone.
+- **Satellite-free centromeres** need `tes/` (CRM cores) or validated Hi-C; the satellite line alone misses them.
+- **A genome-wide wrong satellite line** can be overruled by Hi-C only through the arm fold, which needs Rabl nuclei
+  (grasses). Elsewhere `cenfuse_summary.tsv` flags `hic_sequence_conflict`; add `tes/` or methylation.
+- **Resolution**: Hi-C locates the unmappable array, not the kinetochore inside it.
+- **One wrong Hi-C peak** in a genome where Hi-C mostly works passes the test; only high calls need a second line to move.
+- **Methylation** needs ONT CHG calls and `tes/`; plants below ~4x often lack data at centromeres.
+- **Hi-C provenance**: pairs or cool files cannot be genotyped, so their plant of origin is usually `unknown`.
 
-## More
+## Documentation
 
-| path | content |
+| file | read it for |
 |---|---|
-| `docs/design.md` | how each line works and why; every rule and threshold |
-| `docs/plants.md` | provenance and per-plant scoring |
-| `docs/benchmark.md` | pre-registered criteria and all results, failures included |
-| `cenfuse/` | `pipeline.py` (stages), `fuse.py` (integration rules), `hicfuse.py`, `methfuse.py`, `loci.py`, `plot.py`; the satellite, Hi-C and methylation engines in `sat/`, `hic/`, `meth/` |
+| [`docs/benchmark.md`](docs/benchmark.md) | all results as tables: per genome, per line, controls, failures |
+| [`docs/design.md`](docs/design.md) | how each line works, the fusion rules, constants, and alternatives that were rejected |
+| [`docs/plants.md`](docs/plants.md) | provenance and per-plant scoring |
 
 ## License
 

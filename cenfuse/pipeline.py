@@ -1,8 +1,8 @@
-"""Stage orchestration: satellite -> genotype -> hic -> karyotype -> provisional -> meth -> fuse -> plants -> loci ->
-output -> plot.
+"""Stage orchestration: satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse ->
+plants -> loci -> output -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The genotype, hic, karyotype and meth
-stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and fingerprints
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The rdna, genotype, hic, fold, karyotype and
+meth stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and fingerprints
 of every input they read (including the calls they are anchored on), so a changed input recomputes them and an
 unchanged rerun resumes. The later stages are cheap and always rerun.
 
