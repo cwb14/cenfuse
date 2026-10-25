@@ -23,7 +23,8 @@ sequence call. **D** Hi-C score around each call.*
 ## How well it works
 
 Right = the call overlaps the CENP-A/CENH3 domain (mammals) or lies within 4 Hi-C bins of it (plants).
-Details and every failure: [`docs/benchmark.md`](docs/benchmark.md).
+Figure, details and every failure: [`docs/benchmark.md`](docs/benchmark.md). Every genome's overview plot:
+[`docs/gallery.md`](docs/gallery.md).
 
 | genomes | truth | inputs | chromosomes | right | confidently wrong | wrong but `low`, or no call |
 |---|---|---|---|---|---|---|
@@ -40,7 +41,7 @@ Controls: on randomized Hi-C (29 runs) the Hi-C test never passed and no call ch
 |---|---|
 | Satellite centromeres from the FASTA alone (mammals 148/157, rice 12/12) | Satellite-free centromeres without `tes/` (potato 2/11; horse chr11 has no call) |
 | `high` is reliable: 119/122 `high` calls on CENP-A truth were right | Confidence is conservative: many `medium`/`low` calls are right too (horse 17/18) |
-| Hi-C, satellites and TEs are tested against each other, not trusted on their own word | A centromere far from any satellite (an orangutan neocentromere) is confidently wrong |
+| Hi-C, satellites and TEs are tested against each other, not trusted on their own word | When a small array is the active one and a large array of the same satellite sits elsewhere, the large one is called, confidently (one orangutan chromosome) |
 | Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Hi-C cannot see inside repeat arrays: calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
 | Rejects interspersed repeats and handles acrocentric karyotypes without annotation | Acrocentric detection needs ≥ ~16 chromosomes |
@@ -207,7 +208,8 @@ scores every plant on its own (`shared` or `shifted`). Details: [`docs/plants.md
 
 | file | read it for |
 |---|---|
-| [`docs/benchmark.md`](docs/benchmark.md) | all results as tables: per genome, per line, controls, failures |
+| [`docs/benchmark.md`](docs/benchmark.md) | all results as a figure and tables: per genome, per line, controls, failures |
+| [`docs/gallery.md`](docs/gallery.md) | cenfuse's overview plot for every benchmark genome |
 | [`docs/design.md`](docs/design.md) | how each line works, the fusion rules, constants, and alternatives that were rejected |
 | [`docs/plants.md`](docs/plants.md) | provenance and per-plant scoring |
 

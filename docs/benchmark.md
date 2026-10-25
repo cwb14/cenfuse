@@ -11,6 +11,17 @@ Every number here comes from criteria fixed before the run they score: plants 20
 - *P*: Poisson-binomial tail of the right count. A chromosome's chance is (call + truth + tolerance) / chromosome
   length.
 
+## At a glance
+
+![benchmark overview](img/benchmark_overview.png)
+
+*[PDF with legends](img/benchmark_overview.pdf). **A** every chromosome with a mapped centromere: the call (box,
+colored by outcome) against CENP-A/CENH3 (black bar); open boxes and arrows = barley calls moved by Hi-C. **B-F**
+one chromosome per kind of outcome: right (B); uncertain, two similar satellite clusters (C); confidently wrong,
+CENP-A on a small array (D); moved by the Hi-C arm fold (E, barley, with its contact map); no line has signal (F,
+potato). **G** every chromosome as one square; black tick = chance. **H** each evidence line alone vs the fused
+call. **I** the Hi-C test on real vs randomized Hi-C, and the arm-fold test.*
+
 ## 1. T2T mammals (14 genomes)
 
 - **Truth**: CENP-A CDRs (Logsdon et al. 2024) for human CHM13 and five great apes. CENP-A ChIP for crab-eating
@@ -69,9 +80,9 @@ Every number here comes from criteria fixed before the run they score: plants 20
 
 | genome, chromosome | call | why |
 |---|---|---|
-| pig CM000817.6, CM000822.6, CM000828.6 | wrong, high/high/medium | the truth is weak ChIP from other pigs, far from any satellite; on the first two, Hi-C also favors the satellite array |
+| pig CM000817.6, CM000822.6, CM000828.6 | wrong, high/high/medium | the truth is weak ChIP from other pigs, with no centromeric-family array within 1 Mb; on the first two, Hi-C also favors the satellite array |
 | pig CM001155.3 | wrong, low | same |
-| B. orangutan CM054652.2 | wrong, high | CENP-A sits 14 Mb from the only satellite array (likely an evolutionary new centromere) |
+| B. orangutan CM054652.2 | wrong, high | CENP-A sits on 4 small alpha-satellite arrays (84 kb in all); cenfuse called the 3.4-Mb array cluster 14 Mb away. Hi-C points weakly to the right place |
 | bonobo CM055489.2 | wrong, low | the true array is the reported competing cluster |
 | horse CM128059.1 (chr11) | no call | satellite-free centromere; horse Hi-C failed its test, so it cannot place one |
 | horse CM128070.1 | wrong, low | |
