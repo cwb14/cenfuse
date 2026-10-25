@@ -41,7 +41,7 @@ OTHER = "#B0B0B0"
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
 BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8"}
 LINES = ["satellite", "te", "hic", "meth"]
-LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "meth": "meth"}
+LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "meth": "meth"}
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
              "functional_only": "functional only", "sequence_only": "sequence only", "none": "none"}
 VERDICT_COLOR = {"shared": "#BDBDBD", "shifted": "#D55E00", "possible_shift": "#E69F00", "call_absent": "#000000",
@@ -189,12 +189,12 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
                     ax.add_patch(Rectangle((s, y0 + ml), e - s, mh - ml, fill=False, hatch="////", ec="#C8C8C8",
                                            lw=0, zorder=1))
         ax.text(-Lmax * 0.01, y0 + 0.5, c, ha="right", va="center", fontsize=6.5)
-        for j, line in enumerate(LINES):
+        for j, line in enumerate(f["lines"]):
             if line in r["support"]:
                 axb.plot(j, y0 + 0.5, "o", ms=3.6, color="black", mew=0)
             elif line in r["against"]:
                 axb.plot(j, y0 + 0.5, "x", ms=3.6, color="#D55E00", mew=0.9)
-        axb.text(len(LINES) - 0.35, y0 + 0.5, f"{REL_SHORT.get(r['relation'], r['relation'])}"
+        axb.text(len(f["lines"]) - 0.35, y0 + 0.5, f"{REL_SHORT.get(r['relation'], r['relation'])}"
                  f"{', ' + r['conf'] if r['conf'] != 'none' else ''}", va="center", fontsize=6)
     ax.set_xlim(-Lmax * 0.005, Lmax * 1.005)
     ax.set_ylim(-0.1, n + 0.1)
@@ -205,10 +205,10 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
     ax.set_xticks(ticks)
     ax.set_xticklabels([f"{t / 1e6:g}" for t in ticks])
     ax.set_xlabel("position (Mb)", labelpad=1)
-    axb.set_xlim(-0.6, len(LINES) + 3.2)
+    axb.set_xlim(-0.6, len(f["lines"]) + 3.2)
     axb.set_ylim(-0.1, n + 0.1)
-    axb.set_xticks(range(len(LINES)))
-    axb.set_xticklabels([LINE_LABEL[x] for x in LINES], rotation=90)
+    axb.set_xticks(range(len(f["lines"])))
+    axb.set_xticklabels([LINE_LABEL[x] for x in f["lines"]], rotation=90)
     axb.tick_params(axis="x", length=0, labeltop=True, labelbottom=False, pad=1)
     axb.set_yticks([])
     for sp in axb.spines.values():
@@ -327,6 +327,9 @@ def _pages(f):
         scale["meth"] = max(float(np.nanpercentile(v, 99.5)), 0.02) if np.isfinite(v).any() else 0.1
     roles = set(f["seq"].arrays.role)
     f["scale"] = scale
+    fold = any("fold" in (r["support"] | r["against"]) for r in rows)   # a fold column only where the fold acted
+    f["lines"] = LINES[:3] + (["fold"] if fold else []) + LINES[3:]
+    label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
     pages = []
     chunks = [rows[i:i + ROWS_PER_PAGE] for i in range(0, len(rows), ROWS_PER_PAGE)]
     for pi, chunk in enumerate(chunks):
@@ -334,7 +337,8 @@ def _pages(f):
         row_mm = (6.6 if (has_hic and has_meth) else 5.4 if (has_hic or has_meth) else 4.2) + \
             (0.8 if f["tel"].get("density") else 0)
         gal_mm = row_mm * len(chunk)
-        bottom_mm = 62 if last else 0
+        yb_mm = max(9.0, label_mm)
+        bottom_mm = yb_mm + 53 if last else 0
         gtop = 27                                              # mm from the top: key, then letters, then rows
         height = (gtop + gal_mm + 12 + bottom_mm) * MM
         fig = plt.figure(figsize=(WIDTH, height))
@@ -346,7 +350,7 @@ def _pages(f):
         fig.text(0.01, 1 - 21 / H, "A", fontsize=9, fontweight="bold", va="bottom")
         fig.text(0.765, 1 - 21 / H, "B", fontsize=9, fontweight="bold", va="bottom")
         if last:
-            yb = 9 / H
+            yb = yb_mm / H
             hb = 44 / H
             axc = fig.add_axes([0.11, yb, 0.5 if has_hic else 0.85, hb])
             _offsets(axc, rows)
@@ -586,7 +590,10 @@ def legends(f) -> tuple[str, str]:
             f"chromosome's own call is never used), over the chromosome median. Integrated call: the sequence call, "
             f"unless Hi-C that agrees with the sequence calls of the other chromosomes (gate: majority, "
             f"Poisson-binomial P <= 0.01) places a strong peak elsewhere; a high sequence call moves only with a "
-            f"second line (retrotransposon core or methylation) at the Hi-C peak. Lines used here: {lines_used}."]
+            f"second line (retrotransposon core or methylation) at the Hi-C peak. Where that gate fails, the arm fold "
+            f"(the anti-diagonal of each chromosome's own contact map in a Rabl nucleus) can validate the prior-free "
+            f"Hi-C peaks instead (majority, P <= 0.01); the two then move calls they both contradict. Lines used "
+            f"here: {lines_used}."]
     a = (f"A, {n} chromosomes in assembly order, to one base-pair scale. Each satellite array "
          f"is a box colored by its family's role in this genome ({len(f['seq'].arrays):,} arrays; arrays too small "
          f"to see are drawn at the minimum visible width). The orange area is the density of the "
@@ -614,8 +621,9 @@ def legends(f) -> tuple[str, str]:
     long.append("B, One column per evidence line: filled circle, the line supports the integrated call (satellite: "
                 ">= 5 kb of centromeric-family arrays inside it; TE: the marker core agrees; Hi-C: gated and the "
                 "anchored peak within one bin; methylation: centromere-like under the leave-one-chromosome-out "
-                "signature); cross, a gated strong Hi-C peak or a CRM core points elsewhere. Text: relation and "
-                "confidence.")
+                "signature; fold, shown only where it acted: the call lies in the arm-fold core); cross, a gated "
+                "strong Hi-C peak, a CRM core, the arm fold or a validated prior-free Hi-C peak points elsewhere. "
+                "Text: relation and confidence.")
     long.append("C, Black bar: the sequence call, centered at 0. Orange: the TE marker core; blue: the anchored Hi-C "
                 "core with its peak; open diamond: the integrated call when it differs from the sequence call.")
     if hic is not None:
