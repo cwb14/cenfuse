@@ -130,8 +130,8 @@ def discover(genome_dir) -> list[GenomeInputs]:
             g.notes.append(f"{dropped} shorter sequences (unplaced scaffolds; {sum(fai.values()) - sum(g.chroms.values()):,} bp)"
                            f" are not analyzed")
         if g.meth and not g.tes:
-            g.notes.append("meth/ needs tes/ (LTR retrotransposon classes): methylation is skipped")
-            g.meth = None
+            g.notes.append("meth/ without tes/: the CHG line needs LTR retrotransposon classes and is skipped; CG "
+                           "files still locate kinetochores (CpG line)")
         out.append(g)
     return out
 

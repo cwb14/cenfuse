@@ -15,10 +15,11 @@ sequence call. **D** Hi-C score around each call.*
 
 | | |
 |---|---|
-| **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, ONT methylation, genes |
-| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; telomeres, rDNA, knobs and other repeat blocks on the same map |
+| **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, ONT methylation (CpG and/or CHG), genes |
+| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; with CpG methylation, the kinetochore inside it; telomeres, rDNA, knobs and other repeat blocks on the same map |
 | **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
 | **Runtime** | the satellite search dominates (3-Gb genome: ~5 h at 16 threads); Hi-C and fusion take minutes; reruns resume |
+| **Memory** | the satellite search peaks at 40-160 GB for T2T mammals (12 threads) and 260 GB for chicken (24 threads) |
 
 ## How well it works
 
@@ -34,15 +35,33 @@ Figure, details and every failure: [`docs/benchmark.md`](docs/benchmark.md). Eve
 | barley | CENH3 | FASTA + Hi-C | 7 | 6 | 0 | 1 |
 | potato | CENH3 | FASTA + Hi-C | 11 | 2 | 2 | 7 |
 | horse (EquCab3) | CENP-A | FASTA + Hi-C | 5 | 3 (all `low`) | 0 | 2 |
+| *Arabidopsis* (Col-CC) | CENH3 | FASTA (+ `tes/`, + ONT methylation) | 5 | 5 (all `high`) | 0 | 0 |
+| chicken (GGswu, 40 chromosomes) | CENP-A windows | FASTA only | 33 | 28 (all `low`) | 0 | 5 |
 
 Controls: on randomized Hi-C (29 runs) the Hi-C test never passed and no call changed.
+
+**Kinetochores from CpG methylation** (public ONT tracks; the CpG line refines calls, never changes them):
+
+| genomes | truth | kinetochores | on truth | width |
+|---|---|---|---|---|
+| 5 great apes | DiMeLo-seq CENP-A | 39 | 35 within 50 kb (29 overlap); CENP-A signal higher inside on 39/39 | median 60 kb, calls 5.1 Mb |
+| same + human | curated CDRs | 63 | 63 | |
+| crab-eating macaque | CENP-A ChIP of another animal | 21 (15 with truth) | 12/15 inside its domain | |
+| rhesus (R10, held out) | none | 21 of 22 | | |
+
+The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 runs on misplaced (rotated) methylation.
+
+**Holocentric controls** (any single confident centromere is wrong): *C. elegans*, *Bombyx mori* (no CenH3),
+*Rhynchospora breviuscula* (Tyba holocentromeres): 0 confident calls in 40 chromosomes (25 `low`, 15 none).
 
 | strong | weak |
 |---|---|
 | Satellite centromeres from the FASTA alone (mammals 148/157, rice 12/12) | Satellite-free centromeres without `tes/` (potato 2/11; horse chr11 has no call) |
 | `high` is reliable: 119/122 `high` calls on CENP-A truth were right | Confidence is conservative: many `medium`/`low` calls are right too (horse 17/18) |
 | Hi-C, satellites and TEs are tested against each other, not trusted on their own word | When a small array is the active one and a large array of the same satellite sits elsewhere, the large one is called, confidently (one orangutan chromosome) |
-| Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Hi-C cannot see inside repeat arrays: calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
+| Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Without CpG methylation, calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
+| CpG methylation places the kinetochore inside the array (60 kb; 35/39 within 50 kb of CENP-A) | The CpG line refines a call but cannot fix a wrong one; its test failed on older chimpanzee data |
+| No confident call on holocentric genomes (0/40 chromosomes) | |
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
 | Rejects interspersed repeats and handles acrocentric karyotypes without annotation | Acrocentric detection needs ≥ ~16 chromosomes |
 
@@ -52,7 +71,7 @@ Controls: on randomized Hi-C (29 runs) the Hi-C test never passed and no call ch
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 460 tests, ~2 min
+pytest -q -n 8          # optional: 475 tests, ~2 min
 ```
 
 ## Quick start
@@ -71,7 +90,7 @@ One folder per genome. Every file uses the FASTA's name (`asm`):
 ```
 mygenome/
 ├── asm.fa + asm.fa.fai    required: chromosome-level assembly (unplaced scaffolds are skipped)
-├── tes/asm.gff3           LTR retrotransposons    strongly recommended for plants; needed for methylation
+├── tes/asm.gff3           LTR retrotransposons    strongly recommended for plants; needed for CHG methylation
 ├── hic/asm.pairs.gz       Hi-C contacts           (or .cool/.mcool)
 ├── meth/asm.tsv           ONT methylation samples table
 └── genes/asm.gff3         gene annotation
@@ -82,7 +101,7 @@ mygenome/
 | FASTA | satellite families found de novo, each array's role, telomeres, rDNA, one sequence call per chromosome |
 | `tes/` | CRM retrotransposon cores, which mark grass centromeres (without them, satellite calls were wrong on barley 7/7 and potato 9/11) |
 | `hic/` | a functional test of every call; validated Hi-C can move a call |
-| `meth/` | a second functional line; per-plant verdicts when samples come from several plants |
+| `meth/` | CG: the kinetochore inside each call, where CpG dips are shown to mark centromeres (primates); CHG (with `tes/`): a second functional line and per-plant verdicts (plants) |
 | `genes/` | gene density at every locus; helps reject gene-rich and subtelomeric repeats |
 
 Several FASTAs in one folder are analyzed together and share satellite family names.
@@ -110,7 +129,7 @@ bwa-mem2 mem -5SP -T0 -t 32 asm.fa hic_R1.fq.gz hic_R2.fq.gz \
   | pairtools select '(pair_type=="UU") or (pair_type=="UR") or (pair_type=="RU")' -o mygenome/hic/asm.pairs.gz
 ```
 
-**Methylation** from ONT reads, one sample per plant (CHG required; needs `tes/` too):
+**Methylation** from ONT reads, one sample per plant (CHG needs `tes/` too; CG alone needs nothing else):
 
 ```bash
 dorado basecaller sup pod5/ --modified-bases 5mC_5hmC --min-qscore 10 > plant1.ubam     # not the CpG-only model
@@ -125,6 +144,13 @@ modkit pileup plant1.bam - --ref asm.fa --modified-bases 5mC 5hmC --motif CG 0 -
   | awk -F'\t' '$4=="m"' | bgzip > $M/plant1.CG.bed.gz && tabix -p bed $M/plant1.CG.bed.gz
 printf 'sample\tCHG\tCG\tCHH\nplant1\tplant1.CHG.bed.gz\tplant1.CG.bed.gz\tplant1.CHH.bed.gz\n' > $M/asm.tsv
 ```
+CpG only (animals; e.g. Dorado `5mCG_5hmCG` calls): one CG file per sample. A public strand-combined CpG bigWig works as
+a bedGraph of methylated fraction (0-1 or 0-100), converted with `bigWigToBedGraph`, sorted, bgzipped and tabixed.
+```bash
+modkit pileup sample1.bam - --ref asm.fa --cpg --combine-strands -t 32 \
+  | awk -F'\t' '$4=="m"' | bgzip > $M/sample1.CG.bed.gz && tabix -p bed $M/sample1.CG.bed.gz
+printf 'sample\tCG\nsample1\tsample1.CG.bed.gz\n' > $M/asm.tsv
+```
 Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or empty for all).
 
 **Genes:** any GFF3 of this assembly with `gene` lines.
@@ -135,9 +161,9 @@ Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or
 
 | file | content |
 |---|---|
-| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, and each line's own call |
+| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, and the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `kinetochore`) |
 | `cenfuse_overview.pdf` | the figure above |
-| `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C passed its tests, warnings |
+| `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C and CpG passed their tests, warnings |
 | `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, rDNA, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there |
 | `asm.hic_anchored.bedgraph` | the Hi-C centromere score per bin, for a browser |
 | `asm.provenance.tsv`, `asm.plants.tsv` | with several plants: which plant each input comes from; each plant's centromere |
@@ -170,7 +196,15 @@ moved or placed is `medium` (`high` with a second line).
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence |
 
 Per-genome tests (`*.centromeres.tsv` and `cenfuse_summary.tsv`): `hic_gate` (`pass`/`fail`/`untested`: does Hi-C
-find the other chromosomes' centromeres?) and `fold_gate` (does the arm fold agree with Hi-C's own peaks?).
+find the other chromosomes' centromeres?), `fold_gate` (does the arm fold agree with Hi-C's own peaks?) and
+`cpg_gate` (do CpG dips sit at the other chromosomes' calls more often than methylation from elsewhere would put them?).
+
+| CpG column | meaning |
+|---|---|
+| `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the call's CpG dip (half-depth run of its most prominent valley), shown where `cpg_gate` passes and the dip is significant. It refines the call; it does not check it (an inactive array has dips too) |
+| `cpg_dip_p` | the dip is longer than in the call's own 5-kb bins shuffled |
+| `cpg_pos_p` | the dip is longer than methylation from elsewhere on the chromosome makes on the same bins (the gate counts these) |
+| `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore and median over the array |
 
 ## Options
 
@@ -199,9 +233,14 @@ scores every plant on its own (`shared` or `shifted`). Details: [`docs/plants.md
 - **Satellite-free centromeres** need `tes/` (CRM cores) or validated Hi-C; the satellite line alone misses them.
 - **A genome-wide wrong satellite line** can be overruled by Hi-C only through the arm fold, which needs Rabl nuclei
   (grasses). Elsewhere `cenfuse_summary.tsv` flags `hic_sequence_conflict`; add `tes/` or methylation.
-- **Resolution**: Hi-C locates the unmappable array, not the kinetochore inside it.
+- **Resolution**: Hi-C locates the unmappable array, not the kinetochore inside it. CpG methylation does, where its
+  gate passes (primates); it never chooses the array, so a wrong call gets a kinetochore inside the wrong array.
+- **CpG gate** needs positional dips at more centromeres than chance: it failed in chimpanzee and siamang (older R9
+  CpG tracks), and five chromosomes (Arabidopsis) give it too few references. Small arrays that are hypomethylated as a
+  whole are not refined.
 - **One wrong Hi-C peak** in a genome where Hi-C mostly works passes the test; only high calls need a second line to move.
-- **Methylation** needs ONT CHG calls and `tes/`; plants below ~4x often lack data at centromeres.
+- **CHG methylation** needs ONT CHG calls and `tes/`; plants below ~4x often lack data at centromeres. In Arabidopsis
+  (Mb-wide CEN180 arrays) it found no signature: its expected domain size comes from genome size (315 kb there).
 - **Hi-C provenance**: pairs or cool files cannot be genotyped, so their plant of origin is usually `unknown`.
 
 ## Documentation

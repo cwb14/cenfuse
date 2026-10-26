@@ -2,7 +2,9 @@
 
 Every number here comes from criteria fixed before the run they score: plants 2026-10-16 and -19 (original text:
 [`docs/benchmark.md` at 961a23d](https://github.com/cwb14/cenfuse/blob/961a23d/docs/benchmark.md)), mammals
-2026-10-21. Rules changed after a result was seen are listed in [section 5](#5-rules-changed-after-seeing-a-result).
+2026-10-21, v4 2026-10-26 (CpG kinetochores, hard genomes, no-harm reruns: sections 6-8; the CpG criteria are
+not blind, section 6). Rules changed after a result was seen are listed in
+[section 5](#5-rules-changed-after-seeing-a-result).
 
 **Scoring.**
 - *Right*: mammals, the call overlaps the CENP-A domain; plants, the call lies within 4 Hi-C bins of the CENH3
@@ -165,6 +167,8 @@ This is a regression check of the satellite rules, not an accuracy test: only tw
 | randomized Hi-C, coverage kept (14 mammals) | same | 0 passes, no change |
 | arm-fold test on mammals, potato, rice | fails where there is no Rabl fold, or where Hi-C's own peaks are wrong (rice) | fails in all |
 | fold test, reverse conflicts (S. orangutan, giraffe: satellites right, prior-free Hi-C wrong) | must not side with Hi-C | 0/25, 0/16 agreement, no change |
+| CpG values rotated along each chromosome (8 primates; values from half a chromosome away, on real CpGs) | CpG gate fails | 0/8 genomes |
+| CpG positions shifted by half a chromosome (8 primates) | rejected or gate fails | 6/8 rejected as another assembly (rows off CpGs); 0/2 gate passes |
 
 ## 5. Rules changed after seeing a result
 
@@ -177,3 +181,103 @@ Each change has a reason independent of the case that prompted it, and was reche
 | 2026-10-19 | karyotype: skip only windows > half satellite; compare same-type coverage | P. annua R2 | R1 Pa5B, the Hi-C library |
 | 2026-10-23 | satellite rules (tandem test, satellite kinds, acrocentric test, competing clusters); Hi-C in mappable bins; NOR detection; test majority | the previous mammal run | plant benchmark, 185-genome batch |
 | 2026-10-24 | arm-fold line; centers only at centromeric index ≥ 12.5% | barley | rice, all mammals, randomized controls |
+| 2026-10-26 | CpG line (new): within-call valley, shuffle test, positional gate | designed on the 7 primate tracks it is scored on (not blind) | MMU8 (R10), Arabidopsis, rotated and shifted controls |
+| 2026-10-26 | CpG gate: positional (rotation) null instead of dips in other satellite clusters | the rotated control passed in gorilla | the other 7 rotated controls, real tracks |
+
+## 6. Kinetochores from CpG methylation (v4)
+
+Criteria: `v4/CRITERIA.md` (2026-10-26). **Not blind**: the line was designed on these same primate tracks
+(prototypes and rejected rules in `design.md`). Held out from the design: MMU8 and Arabidopsis.
+
+- **Inputs**: public ONT CpG tracks of the assembled individuals. Apes: GenomeArk modkit 5mC-CpG bigWigs (R9, Guppy
+  6.3.8; fraction only, as bedGraph). CHM13: nanopolish bigWig. MFA8: nanopolish with read counts (as bedMethyl). MMU8:
+  R10 Dorado SUP + modkit bedMethyl. With FASTA + genes + Hi-C, as the mammal FULL arm.
+- **Truth**: D = DiMeLo-seq CENP-A (CENP-A-directed 6mA, not CpG calls; 5 apes): domain = half-maximum run around the
+  top 5-kb bin of each centromeric region. F = curated CDRs (same ONT data as the input: an implementation check). W =
+  MFA8 CENP-A ChIP (testis, another animal; Mb-wide).
+
+| criterion | result | numbers |
+|---|---|---|
+| C1 gate passes on real tracks (≥ 5/7) | PASS | 6/7: CHM13, bonobo, gorilla, both orangutans, MFA8. Fails: chimpanzee (positional dip in 1/25 references); also siamang (no truth) |
+| C2 gate fails on control tracks | PASS | rotated 0/8; shifted: 6/8 rejected by the assembly check, 0/2 pass |
+| C3 kinetochore on DiMeLo CENP-A | PASS | within 50 kb 35/39 (overlap 29/39); DiMeLo higher inside than over the call 39/39 (median 5.02 vs 0.81) |
+| C4 kinetochore on the curated CDR | PASS | 63/63 |
+| C5 MFA8 kinetochore inside the ChIP domain (≥ 90%) | FAIL | 12/15. The 3 others sit in the same array, 1-3 Mb from the domain of another animal's testis ChIP |
+| C6 no call changed | PASS | 0 differences from v3 in calls, confidence, relation, support, flags (8 genomes) |
+| C7 resolution | PASS | median kinetochore 60 kb vs call 5.1 Mb (85×); 132 kinetochores |
+
+- **Positional dips** (share of tested calls; the gate counts them): CHM13 17/23, B. orangutan 19/25, S. orangutan
+  16/25, bonobo 11/24, gorilla 7/25, MFA8 20/21; chimpanzee 1/25 and siamang 4/22 (gate fails). Rotated tracks: 1-2
+  per genome (4-9%).
+- **MMU8** (held out; R10 with counts; no functional truth): dips in 21/21 calls, positional in 20/21, gate passes,
+  21 kinetochores (methylation 0.19-0.34 inside vs 0.52-0.61 over the array).
+- **Wrong calls get kinetochores too**: B. orangutan CM054652.2 (the confident miss) gets one inside its inactive
+  array (dip 0.15 vs 0.32). The line refines a call; it cannot check it. Tested and not adopted: CpG choosing between
+  arrays (design.md).
+- **Runtime** (final code): the CpG stage takes 1 min (CHM13 bedGraph) to 3 min (MMU8, 56 M per-strand
+  bedMethyl rows), one thread.
+
+## 7. Hard genomes (v4)
+
+### Arabidopsis thaliana Col-CC (held out; criteria fixed before its data were processed)
+
+Inputs: Col-CC (5 chromosomes); same-genotype ONT all-context modBAM (Dorado sup `5mC_5hmC`, ~56×) piled up with
+modkit (CG combined, CHG and CHH per strand); `tes/` from LTRquest; no genes, no Hi-C. Truth: CENH3 ChIP of Col-0, by
+the held-out plant rule (100-kb bins, half-maximum run, ≥ 4×): 1.3-1.6-Mb domains, 17-19×.
+
+| criterion | result | numbers |
+|---|---|---|
+| A1 sequence calls on CENH3 (reported) | 5/5 | all `high`, on CEN180 (2.8-Mb calls around 1.4-Mb CENH3 domains); with `tes/` the Athila core supports all 5 |
+| A2 CHG line does no harm | PASS | calls identical with and without methylation |
+| A3 CHG line supports ≥ 3 right calls | FAIL | 0/5: no methylation signature (leave-one-out signatures on 1/5 chromosomes) |
+| A4 CpG line in a plant | PASS | gate fails (positional dips 2/5); no kinetochore reported |
+| A5 CpG line does no harm | PASS | CG-only calls identical to FASTA-only |
+
+- **CHG line (first same-plant run with CENH3 truth):** inert. Its expected domain size comes from genome size (D =
+  315 kb here), but CEN180 arrays span 2.2-3.5 Mb, so the calibration ring (1.5-4 D from the anchor) lies inside the
+  centromeric arrays. A data-derived D is the likely fix; it was not adopted, because this genome prompted it and no
+  second same-plant ChIP case exists to recheck it.
+- **CpG:** the gate was right to fail. Exploratory: the strongest dips are shallow (0.62-0.74 vs 0.78-0.83 over
+  CEN180) and lie off CENH3 on 4/5 chromosomes, so Arabidopsis CENH3 is not marked by a CpG dip in these data.
+
+### Chicken GGswu (FASTA only; birds: 40 chromosomes, 2.5-200 Mb)
+
+Truth: the authors' CENP-A windows on this assembly (Huang et al. 2023; DT40 ChIP of another bird; plotting windows of
+0.1-2.6 Mb, 33 chromosomes). Chicken centromeres use chromosome-specific satellites, and chr5, chr27 and Z have none.
+
+| result | numbers |
+|---|---|
+| calls on the CENP-A window | 28/33 (chance 6.3, P 6e-23); 2 more within 1 Mb (chr32, chr34, beside 0.3-0.8-Mb windows) |
+| confidence | all 40 `low`: no satellite family dominates, so the satellite engine caps every call |
+| misses (all `low`) | chr2 (a 1.4-kb-unit array 90 Mb from CENP-A), chr3 (3.4 Mb away), chr5 (satellite-free; called near its end) |
+
+All 40 chromosomes, including the 2.5-7-Mb microchromosomes, are analyzed: the chromosome-set rule's only tenfold
+drop is at the mitochondrion. The calls are right far more often than `low` suggests (28/33), so confidence is
+conservative here. No confident call is wrong.
+
+### Holocentric and CenH3-less genomes (FASTA only)
+
+Any confident single centromere is wrong here.
+
+| genome | why it is hard | calls |
+|---|---|---|
+| *C. elegans* CGC1 (T2T, 6 chr) | holocentric, no centromeric satellite | 6 `low`, all `no_dominant_satellite` |
+| *Bombyx mori* P50T (29 chr) | holocentric; Lepidoptera lost CenH3 | 14 `low`, 15 none |
+| *Rhynchospora breviuscula* (5 chr) | holocentric; Tyba arrays along every chromosome | 5 `low` |
+
+0 confident calls in 40 chromosomes, with no code change. A genome-level "holocentric" flag was considered and not
+added: `no_dominant_satellite` also marks most calls of monocentric siamang (FASTA only, 25/26) and horse EquCab3
+(25/32).
+
+### Telomeres (14 T2T mammals, v3 runs)
+
+First scoring: cenfuse finds a telomere array at 687 of the 688 ends that hold one by the v2 truth rule (≥ 500 bp of
+TTAGGG runs in the terminal 10 kb). The miss is sheep CP162267.1 (end). It also reports arrays at 4 ends the rule does
+not count (it searches the terminal 100 kb).
+
+## 8. No harm to the earlier benchmarks (v4 code)
+
+Every earlier run was repeated with the v4 code (checkpoints resumed): the 14 T2T mammals with genes and Hi-C and the
+16 plant-benchmark runs (rice, potato, barley, horse EquCab3, gorilla, the six imported mammals, P. annua with all
+inputs and methylation, P. annua plants, the negative control, the Pa1A demonstration). Calls, loci and summaries are
+identical in 30/30 runs; only the new `cpg_*` columns (empty) were added.

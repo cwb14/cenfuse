@@ -40,16 +40,18 @@ class Sample:
     files: dict  # context ("CHG", "CG", "CHH") -> Path
 
 
-def read_samples(path) -> list[Sample]:
-    """TSV with columns sample, CHG and optional CG, CHH (paths relative to the table's folder allowed)."""
+def read_samples(path, require_chg: bool = True) -> list[Sample]:
+    """TSV with columns sample, CHG and optional CG, CHH (paths relative to the table's folder allowed). With
+    require_chg False (cenfuse: its CpG line needs only CG), every sample needs CHG or CG."""
     path = Path(path)
     try:
         d = pd.read_csv(path, sep="\t", dtype=str).fillna("")
     except Exception as e:
         raise InputError(f"cannot read samples table {path}: {e}") from e
-    if "sample" not in d.columns or "CHG" not in d.columns:
-        raise InputError(f"samples table {path} needs columns 'sample' and 'CHG' (optional 'CG', 'CHH'); "
-                         f"found {list(d.columns)}")
+    need = ("CHG",) if require_chg else ("CHG", "CG")
+    if "sample" not in d.columns or not set(need) & set(d.columns):
+        raise InputError(f"samples table {path} needs columns 'sample' and {' or '.join(repr(x) for x in need)} "
+                         f"(optional 'CG', 'CHH'); found {list(d.columns)}")
     if d.empty:
         raise InputError(f"samples table {path} has no rows")
     bad = [n for n in d["sample"] if not n or "/" in n or any(ch.isspace() for ch in n)]
@@ -64,7 +66,7 @@ def read_samples(path) -> list[Sample]:
         for ctx in CONTEXTS:
             v = r.get(ctx, "").strip()
             if not v:
-                if ctx == "CHG":
+                if ctx == "CHG" and require_chg:
                     raise InputError(f"sample {r['sample']}: no CHG file (CHG is required)")
                 continue
             p = Path(v) if Path(v).is_absolute() else path.parent / v
@@ -78,6 +80,8 @@ def read_samples(path) -> list[Sample]:
                 log.warning("sample %s: %s index is older than the file (re-index if the file changed): %s",
                             r["sample"], ctx, idx[0])
             files[ctx] = p
+        if not files:
+            raise InputError(f"sample {r['sample']}: no methylation file (give CHG or CG)")
         out.append(Sample(r["sample"], files))
     return out
 

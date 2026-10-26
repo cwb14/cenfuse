@@ -24,6 +24,7 @@ Not goals: mapping calls between assemblies, genotyping Hi-C from BAMs, CENH3 Ch
 | reference plant | no such excess against any sample, another sample shown different, and ≥ 95% power. With one sample: always `unknown` (assembly errors and another plant look alike) |
 | karyotype (any input with coverage) | a **missing segment** = ≥ 3 windows below 0.1× the input's median while a same-type input has ≥ 0.5× (windows over calls, gaps, mostly-satellite windows, ends and pile-ups are not judged). A missing segment means another plant |
 | verdict | `other` (genotype or karyotype evidence), `reference` (genotype), else `unknown`; an unknown input takes a same-named input's verdict |
+| CG-only samples (CpG line) | not genotyped (genotypes are read at CHG sites) and not in the karyotype test: `unknown`, so they decide; their rows must still sit on reference CpGs |
 
 ## Which inputs decide the reference call
 

@@ -1,10 +1,10 @@
 """Stage orchestration: satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse ->
-plants -> loci -> output -> plot.
+cpg -> plants -> loci -> output -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The rdna, genotype, hic, fold, karyotype and
-meth stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and fingerprints
-of every input they read (including the calls they are anchored on), so a changed input recomputes them and an
-unchanged rerun resumes. The later stages are cheap and always rerun.
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The rdna, genotype, hic, fold, karyotype, meth
+and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and
+fingerprints of every input they read (including the calls they are anchored on), so a changed input recomputes them
+and an unchanged rerun resumes. The later stages are cheap and always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, fold, fuse, hicfuse, inputs, loci, methfuse, output, plants, provenance, rdna, seqcalls, \
-    telomere, teline
+from . import __version__, cdr, fold, fuse, hicfuse, inputs, loci, methfuse, output, plants, provenance, rdna, \
+    seqcalls, telomere, teline
 from .hic import params as hp
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
@@ -36,7 +36,7 @@ from .sat.params import Params
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "rdna", "genotype", "hic", "fold", "karyotype", "meth"]
+STAGES = ["satellite", "rdna", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 _PKG = Path(__file__).parent
 
@@ -135,6 +135,7 @@ class Run:
         self.genomes = inputs.discover(self.gdir)
         self._prep = {}
         self._nors = {}
+        self._chg_ok = {}                            # genome -> the CHG methylation line can run (tes/, CHG files)
         if self.sat_import and not self.sat_import.is_dir():
             raise CenfuseError(f"--satellite-dir {self.sat_import}: not a directory")
 
@@ -306,7 +307,7 @@ class Run:
             return hit
         t0 = time.time()
         cov = {}
-        if g.meth:
+        if self._chg_ok.get(g.name):
             try:
                 prep = self._meth_prep(g, sat_dir)
                 cov = prep.coverage if prep is not None else {}
@@ -336,6 +337,23 @@ class Run:
                            sites=sites)
         self._store("meth", g.name, fp, res)
         log.info(f"meth: {g.name} done ({time.time() - t0:.0f} s)")
+        return res
+
+    def stage_cpg(self, g, files: list, calls: dict, seq: seqcalls.SeqLine) -> dict:
+        """The CpG line (cdr.py): a kinetochore inside each final call where CpG dips are validated genome-wide.
+        Checkpointed by its CG files, the final calls and the arrays."""
+        arr = seq.arrays[["chrom", "start", "end", "role"]]
+        fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py"),
+                  files=[file_fingerprint(f) for f in files], calls=obj_fingerprint(calls),
+                  arrays=obj_fingerprint(arr.values.tolist()))
+        hit = self._cached("cpg", g.name, fp)
+        if hit is not None:
+            log.info(f"cpg: {g.name} checkpoint found")
+            return hit
+        t0 = time.time()
+        res = cdr.run(files, calls, arr)
+        self._store("cpg", g.name, fp, res)
+        log.info(f"cpg: {g.name} done ({time.time() - t0:.0f} s)")
         return res
 
     # ------------------------------------------------------------------ assembly
@@ -384,18 +402,36 @@ class Run:
         samples = []
         if g.meth:
             try:
-                samples = mio.read_samples(g.meth)
+                samples = mio.read_samples(g.meth, require_chg=False)
             except mio.InputError as e:
                 log.warning(f"{g.name}: methylation line skipped: {e}")
                 g.notes.append(f"methylation skipped: {e}")
                 g.meth = None
+        chg = [s for s in samples if "CHG" in s.files]
+        self._chg_ok[g.name] = bool(g.tes and samples and len(chg) == len(samples))
+        if samples and g.tes and not self._chg_ok[g.name]:       # without tes/ the input note says it already
+            log.info(f"{g.name}: the CHG methylation line needs a CHG file for every sample: skipped" +
+                     ("; CG files locate kinetochores (CpG line)" if any("CG" in s.files for s in samples) else ""))
         D = mtrack.chromosome_set(mio.read_fai(f"{g.fasta}.fai"))[2]
         avoid = avoid_intervals(seq, D)
         geno = {}
         if samples:
             windows = provenance.genotype_windows(g.chroms, avoid, g.fasta)
-            geno = self.stage_genotype(g, samples, windows)
-            for x in geno["warnings"]:
+            if chg:                                     # genotypes are read at CHG sites
+                geno = self.stage_genotype(g, chg, windows)
+            cg_only = [s for s in samples if "CHG" not in s.files]
+            warn = geno.get("warnings", []) + (provenance.check_assembly(cg_only, g.fasta, windows) if cg_only else [])
+            for smp in samples:                         # bedGraph CG files (no strand or context): CpG positions
+                f = smp.files.get("CG")
+                if f is None or cdr.track_kind(f) != "bedgraph":
+                    continue
+                share, n = cdr.bedgraph_on_cpg(f, g.fasta, windows)
+                if n and share < provenance.MOTIF_MIN:
+                    raise CenfuseError(f"methylation {smp.name} CG ({f}): only {share:.0%} of {n} rows sit on "
+                                       f"reference CpGs; the file belongs to another assembly")
+                if n and share < provenance.MOTIF_WARN:
+                    warn.append(f"methylation {smp.name} CG: {share:.1%} of {n} rows on reference CpGs")
+            for x in warn:
                 log.warning(f"{g.name}: {x}")
         known = {n: v["verdict"] for n, v in geno.get("verdicts", {}).items()}
         classes = feature_classes(seq, tel, telo, self._nors.get(g.name, []))
@@ -468,7 +504,7 @@ class Run:
             evs = self.evidences(g, seq, tel, hic)
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}
-            if g.meth:
+            if self._chg_ok.get(g.name):
                 anchors = {e.chrom: d["call"] for e, d in zip(evs, prov) if d["call"] and d["confidence"] in
                            ANCHOR_LEVELS}
                 for e, d in zip(evs, prov):
@@ -496,6 +532,19 @@ class Run:
             final = [fuse.decide(e) for e in evs]
             t = fuse.table(evs, final)
             calls = {e.chrom: d["call"] for e, d in zip(evs, final)}
+            cg = [s.files["CG"] for s in samples if "CG" in s.files and s.name in deciders]
+            cpg = None
+            if cg:
+                fin = {e.chrom: (*d["call"], d["confidence"]) if d["call"] else (-1, -1, "none")
+                       for e, d in zip(evs, final)}
+                try:
+                    cpg = self.stage_cpg(g, cg, fin, seq)
+                except (OSError, ValueError) as e:
+                    log.warning(f"{g.name}: CpG line skipped: {e}")
+                    g.notes.append(f"CpG line skipped: {e}")
+            elif samples:
+                log.info(f"{g.name}: no CG file from a deciding methylation sample; CpG line not run")
+            t = cdr.columns(t, cpg)
             absent = provenance.call_absent(profiles, kar["skip"], segments, calls, kar["w"])
             ptab, psites = plants.score(list(g.chroms), calls, verdicts, meth["sites"] if meth is not None else None,
                                         absent, others, hic)
@@ -535,7 +584,7 @@ class Run:
             if fc is not None:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
-            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors))
+            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg))
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
                              plants=ptab, psites=psites, verdicts=verdicts, libraries=others))
             log.info(f"{g.name}: {len(t[t.start != '.'])}/{len(t)} chromosomes called; relations "

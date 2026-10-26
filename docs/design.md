@@ -6,7 +6,7 @@
 2. **Lines check each other.** No line is trusted on its own confidence: the Hi-C engine's prior-free `high` calls
    were right on only 45% of T2T mammal chromosomes.
 3. **Whether Hi-C works in a genome is measured, not assumed.** Hi-C must find the *other* chromosomes' centromeres
-   (the gate) before it may act on one.
+   (the gate) before it may act on one. CpG dips must mark them before they place a kinetochore.
 4. **The final call is the sequence call** unless a validated line moves it under the rules below. Every move and
    every disagreement is reported.
 5. **Fixed constants, each with a reason** (a convention, a majority rule, a data-derived value, or a named
@@ -18,7 +18,7 @@ choosing the satellite family.
 ## Stages
 
 ```
-satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse -> plants -> loci -> output -> plot
+satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse -> cpg -> plants -> loci -> output -> plot
 ```
 
 Each stage is checkpointed, keyed on its inputs and code, so a rerun resumes. `genotype`, `karyotype` and `plants`
@@ -92,6 +92,28 @@ map then has an anti-diagonal ridge through the centromere.
 - **Candidate interval**: `centromere_like` when the signature score at its most extreme CHG window is ≥ 0.5.
 - **Role**: support and second line only; it never moves a call alone. Only samples from the assembled plant (or of
   unknown origin) decide.
+- Needs `tes/` and a CHG file for every sample.
+
+### CpG kinetochores (`cdr.py`)
+
+In primates CENP-A sits in a CpG-hypomethylated dip of the methylated active array (the CDR). The satellite and Hi-C
+lines locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it. Inputs: the CG file of each deciding
+methylation sample (modkit bedMethyl, or a bedGraph of methylated fraction); `tes/` and CHG are not needed.
+
+- **Profile**: mean CpG methylation per 5-kb bin (CDR-Finder's window) on bins that centromeric-role arrays cover
+  for at least half, inside the final call. DNA between arrays (CpG islands, genes) is left out.
+- **Dip**: the most prominent valley (higher methylation on both sides, so an array edge is never a dip), extended to
+  its half-depth run (bins below the midpoint between its bottom and the array median).
+- **Dip test**: the run is longer than in the call's own bins shuffled (200 shuffles; significant at P ≤ 0.05).
+- **Positional test**: the run is longer than when the chromosome's CpG values are rotated by 200 random offsets onto
+  the call's own CpGs and array bins (methylation from elsewhere; same size, bins and CpG density).
+- **Gate** (per chromosome, leave one out): references = the other chromosomes' `high` calls. k of n have a positional
+  dip; binomial tail at 0.05 (each reference's chance under the null) ≤ 0.01. No majority is required: the
+  positional test is conservative (passing primates: 28-95% of tested calls; rotated tracks: 4-9%).
+- **Role**: where the gate passes, every call with a significant dip test gets its kinetochore (`cpg_kt_start/end`,
+  GFF3 `kinetochore`). It never moves a call or changes its confidence, and it cannot tell a wrong array.
+- **Assembly check**: bedMethyl rows must sit on reference CpGs (as for CHG); bedGraph rows too, at the row start or
+  one base off (public tracks differ by one base).
 
 ## Fusion rules (`fuse.py`)
 
@@ -112,6 +134,7 @@ map then has an anti-diagonal ridge through the centromere.
   methylation supports the call. A moved or Hi-C-placed call is `medium`, `high` with a second line.
 - **Support / against columns**: `satellite` (centromeric arrays inside the call, ≥ 5 kb), `te`, `hic`, `meth`,
   `fold`.
+- **CpG kinetochores** are added after fusion (`cdr.py`): they change no call, confidence or flag.
 - **`hic_sequence_conflict`** (per genome): Hi-C's prior-free peaks are confident but disagree with the sequence
   calls and the gate fails. One line is wrong genome-wide. The fold settles it in Rabl nuclei; otherwise add `tes/`
   or methylation.
@@ -149,6 +172,8 @@ first kind that matches:
 | TANDEM_FRAC, ACRO_ALPHA | 0.5, 0.01 | majority rule; conventional level |
 | LOCUS_FOLD | 2 | heuristic (as the Hi-C engine's hub fold) |
 | fold: S_MIN, CI_MIN | 9 bins, 12.5% | beyond the ± 4-bin centromeric domain; Levan's telocentric bound |
+| CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
+| CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
 
 ## Decisions and alternatives tried
 
@@ -164,6 +189,9 @@ first kind that matches:
 | fold center selection | centromeric index ≥ 12.5% | lower confidence bound of the mean: biased to the chromosome middle (barley 2/7) |
 | Hi-C peaks in end bins | support only, never oppose | (rice chr4: an end-bin peak contested a correct call) |
 | numpy huge pages | off by default | on: Hi-C bootstrap 30× slower on fragmented memory |
+| CpG dip inside a call | most prominent valley on array bins, half-depth run | deepest bin: lands on array edges (CHM13). Longest run below half the median: on the CDR 52/90 (valley 88/90) |
+| CpG dip significance | shuffle test per call; positional (rotation) test for the gate | equal-length windows of other satellite DNA as null: infeasible where most satellite DNA is centromeric (MFA8: 3.7 Mb outside calls vs 3.5-11 Mb calls). Dips in calls vs dips in satellite clusters away from calls: passed on rotated (misplaced) methylation in gorilla, because long calls hold coherent runs of any structured profile |
+| CpG choosing among satellite clusters | not done | least-methylated window anywhere: on the CDR 3/23 (CHM13). Most prominent valley across clusters: wrong cluster on 8-10/25 (orangutans). A cluster with half the call's valley floor: 6 changes in 7 primates, 1 right (B. orangutan), 2 wrong (CHM13) |
 
 ## Known risks
 
@@ -172,12 +200,19 @@ first kind that matches:
 - One wrong Hi-C peak in a genome where Hi-C mostly works passes the gate. Only `high` calls need a second line to move.
 - Methylation leave-one-out signatures need ≥ 3 anchors with data.
 - Hi-C resolution is a mappable bin (250 kb-2 Mb). Offsets inside an unmappable array are invisible.
+- CpG kinetochores need an array long enough for a dip with shoulders (≥ 10 bins with data). A small array that is
+  hypomethylated as a whole (bonobo and B. orangutan minicentromeres) is not refined, and CpG never chooses it.
+- The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
+- Satellite-search memory: 40-160 GB for T2T mammals, 260 GB for chicken. Freeing each chromosome's raw hits once it
+  is resolved did not lower the peak (dead_ends of the v4 benchmark): it lies inside one chromosome's hits.
 
 ## Tests
 
-`pytest -q -n 8`: 460 tests on small synthetic fixtures.
+`pytest -q -n 8`: 475 tests on small synthetic fixtures.
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three
   plants.
 - One full run of the satellite engine on its synthetic genome.
+- CpG: planted dips (found, positional), shifted tracks and dips everywhere (gate fails), both input formats,
+  malformed rows, the bedGraph assembly check, and a CG-only table that changes no call.

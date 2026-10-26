@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from . import __version__
+from .cdr import DIP_P
 from .params import GATE_MIN_REF
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
@@ -45,6 +46,10 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
                          f"{r.seq_start}-{r.seq_end}" if r.seq_start != "." else "."),
                      sequence_evidence=r.seq_evidence, main_family=r.main_family, offset_bp=r.offset_bp)
             f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
+            if getattr(r, "cpg_kt_start", ".") != ".":           # the CpG line's kinetochore inside the call
+                k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", dip_p=r.cpg_dip_p, kt_meth=r.cpg_kt_meth,
+                         array_meth=r.cpg_array_meth)
+                f.write(f"{r.chrom}\tcenfuse\tkinetochore\t{r.cpg_kt_start}\t{r.cpg_kt_end}\t.\t.\t.\t{_attrs(k)}\n")
 
 
 def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: Path) -> None:
@@ -85,7 +90,7 @@ def write_bedgraph(S, bins, members, path, title: str) -> None:
 
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
-                nors=()) -> dict:
+                nors=(), cpg: dict | None = None) -> dict:
     """One genome: what each line found, whether it was validated, calls by relation and confidence, the inputs'
     provenance and the plants' verdicts."""
     called = t[t.start != "."]
@@ -123,6 +128,12 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
                  meth_signature=",".join(f"{r.context}:{r.cls}:{r.direction}" for r in sig.itertuples()) or "none",
                  meth_call_support=int((called.meth_call == "centromere_like").sum()),
                  meth_deciding=",".join(meth.get("deciders", [])) or ".")
+    if cpg is not None:
+        c = cpg["table"]
+        d.update(cpg_gate_pass=int(c.gate_pass.sum()),
+                 cpg_dips=f"{int((c.dip_p <= DIP_P).sum())}/{int(c.dip_p.notna().sum())}",
+                 cpg_positional=f"{int((c.pos_p <= DIP_P).sum())}/{int(c.pos_p.notna().sum())}",
+                 cpg_kinetochores=int((c.kt_start >= 0).sum()))
     if verdicts:
         for v in ("reference", "other", "unknown"):
             d[f"inputs_{v}"] = ",".join(sorted(f"{k}:{n}" for (k, n), x in verdicts.items() if x["verdict"] == v)) or "."
