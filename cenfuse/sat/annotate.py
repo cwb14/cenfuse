@@ -1,5 +1,7 @@
 """S3: genome-wide nhmmer monomer calls (chromosome chunks on a thread pool), overlap resolution, array chaining."""
+import gc
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -7,6 +9,7 @@ import pandas as pd
 import pyhmmer
 import pysam
 from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextSequence
+from pyhmmer.plan7 import LongTargetsPipeline
 
 from .params import ANNOT_CHUNK, FULL_MONOMER_COV, MULTIMER_MIN_COV, MULTIMER_RATIO, NHMMER_REPORT_E, OVERLAP_MAX_COV
 from .util import log, union_bp
@@ -15,6 +18,31 @@ ABC = Alphabet.dna()
 MON_COLS = ["chrom", "start", "end", "strand", "family", "bitscore", "evalue",
             "hmm_from", "hmm_to", "model_len", "identity"]
 ARR_COLS = ["array_id", "chrom", "start", "end", "strand", "family", "n_monomers", "mean_identity", "monomer_len"]
+
+
+_PIPE = threading.local()
+
+
+def search_one(hmm, blk):
+    """TopHits of one model against one sequence block, on this thread's own LongTargetsPipeline, made once and cleared
+    after every search as pyhmmer's nhmmer workers do; the same hits as pyhmmer.hmmer.nhmmer([hmm], blk, cpus=1,
+    E=NHMMER_REPORT_E). A pipeline made per search sits in a reference cycle, so its workspace (model length x the
+    256-kb block: ~1.7 GB for an 1,853-bp model) waited for Python's full garbage collection, which a large process
+    runs rarely: RSS grew with every search done (chicken GGswu annotate: 277 GB at 24 threads). Reused, a thread
+    holds one workspace, its largest so far."""
+    pipe = getattr(_PIPE, "pipe", None)
+    if pipe is None:
+        pipe = _PIPE.pipe = LongTargetsPipeline(ABC, E=NHMMER_REPORT_E)
+    try:
+        return pipe.search_hmm(hmm, blk)
+    finally:
+        pipe.clear()
+
+
+def release_pipeline() -> None:
+    """Drop this thread's pipeline and collect it (and those of finished worker threads): free their workspaces."""
+    _PIPE.pipe = None
+    gc.collect()
 
 
 def _identity(a) -> float:
@@ -126,13 +154,17 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
                                                        .digitize(ABC)])
                 local.key = (c, s, e)
             scale = max(genome.chroms[c], ref_len) / (e - s)
-            return c, _rows(pyhmmer.hmmer.nhmmer([h], local.blk, cpus=1, E=NHMMER_REPORT_E), mlen, c, s, scale)
+            return c, _rows([search_one(h, local.blk)], mlen, c, s, scale)
 
         overlap = max(overlap, 2 * max(mlen.values()))
-        jobs = ((c, s, e, h) for c, s, e in _chunks(genome.chroms, chunk, overlap) for h in hmms)
+        jobs = [(c, s, e, h) for c, s, e in _chunks(genome.chroms, chunk, overlap) for h in hmms]
+        step, t0 = max(1, len(jobs) // 20), time.time()
         with ThreadPoolExecutor(max(1, threads)) as ex:
-            for c, rows in ex.map(work, jobs):
+            for i, (c, rows) in enumerate(ex.map(work, jobs), 1):
                 out[c].extend(rows)
+                if i % step == 0 or i == len(jobs):           # the longest stage: progress with -v
+                    log.debug(f"annotate: {genome.name}: {i:,}/{len(jobs):,} searches ({time.time() - t0:.0f} s)")
+        release_pipeline()
     return {c: resolve_overlaps(drop_multimer_hits(significant(r, max(genome.chroms[c], ref_len), evalue, gap_factor),
                                                    evalue=evalue))
             for c, r in out.items()}

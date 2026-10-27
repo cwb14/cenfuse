@@ -1,8 +1,8 @@
-"""Stage orchestration: satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse ->
-cpg -> plants -> loci -> output -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth ->
+fuse -> cpg -> plants -> loci -> output -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The rdna, genotype, hic, fold, karyotype, meth
-and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, genotype, hic, fold, karyotype,
+meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and
 fingerprints of every input they read (including the calls they are anchored on), so a changed input recomputes them
 and an unchanged rerun resumes. The later stages are cheap and always rerun.
 
@@ -36,7 +36,7 @@ from .sat.params import Params
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "rdna", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
+STAGES = ["satellite", "telomere", "rdna", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 _PKG = Path(__file__).parent
 
@@ -191,6 +191,17 @@ class Run:
         except SatelliteError as e:
             raise CenfuseError(f"satellite engine: {e}") from None
         return self.out / "satellite"
+
+    def stage_telomere(self, g) -> dict:
+        """Telomere unit, end arrays and interstitial arrays (telomere.py), checkpointed by the assembly index and the
+        code (the interstitial scan reads the whole genome: about a minute per 3 Gb)."""
+        fp = dict(version=__version__, code=code_key("telomere.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+                  chroms=obj_fingerprint(g.chroms))
+        hit = self._cached("telomere", g.name, fp)
+        if hit is None:
+            hit = telomere.detect(g.fasta, g.chroms)
+            self._store("telomere", g.name, fp, hit)
+        return hit
 
     def stage_rdna(self, g) -> list:
         """45S arrays (NORs) from the universal 18S motif (rdna.py), checkpointed by the assembly index and the code."""
@@ -476,7 +487,7 @@ class Run:
         for g in self.genomes:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
             tel = teline.te_line(g.tes, g.chroms)
-            telo = telomere.detect(g.fasta, g.chroms)
+            telo = self.stage_telomere(g)
             nors = self.stage_rdna(g)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]

@@ -11,6 +11,43 @@ from .params import TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_MIN_BIN, TE_MIN_
 from .util import log
 
 IGNORED_CLADES = {"unknown", "mixture", "na", "none", "."}
+# DANTE_LTR (REXdb) classification ranks above the lineage: an element classified only this far has no clade
+DANTE_RANKS = {"class_i", "ltr", "ty1/copia", "ty3/gypsy", "chromovirus", "non-chromovirus", "ota", "tat"}
+
+
+def dante_lineage(path: str) -> tuple:
+    """(clade, superfamily) of a DANTE_LTR Final_Classification (Class_I|LTR|Ty3/gypsy|chromovirus|CRM -> CRM, Gypsy):
+    the lineage is the last field unless that is a rank above it; superfamily Copia or Gypsy from Ty1/copia, Ty3/gypsy."""
+    f = path.split("|")
+    sf = next((x.split("/")[1].capitalize() for x in f if x.lower() in ("ty1/copia", "ty3/gypsy")), "")
+    return ("" if f[-1].lower() in DANTE_RANKS else f[-1]), sf
+
+
+def _clade(ftype: str, attrs: dict) -> str:
+    """The clade of one GFF3 feature that is a classified LTR retrotransposon, else ''. Two formats: a type holding
+    'LTR_retrotransposon' with clade= (LTRquest; EDTA + TEsorter), or a DANTE_LTR 'transposable_element' whose
+    Final_Classification is an LTR path (dante_lineage). Keys are lower-cased."""
+    if "LTR_retrotransposon" in ftype:
+        clade = attrs.get("clade", "")
+    elif ftype == "transposable_element" and "|LTR|" in attrs.get("final_classification", ""):
+        clade = dante_lineage(attrs["final_classification"])[0]
+    else:
+        return ""
+    return "" if clade.lower() in IGNORED_CLADES else clade
+
+
+def _te_rows(gff, chroms: dict):
+    """(chrom, start, end, clade) of every classified LTR retrotransposon on the genome's sequences (0-based)."""
+    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            p = line.rstrip("\r\n").split("\t")
+            if len(p) < 9 or p[0] not in chroms or not ("LTR_retrotransposon" in p[2] or p[2] == "transposable_element"):
+                continue
+            clade = _clade(p[2], {k.lower(): v for k, _, v in (kv.partition("=") for kv in p[8].split(";")) if v})
+            if clade:
+                yield p[0], int(p[3]) - 1, int(p[4]), clade
 
 
 def te_gff(complex_dir, genome: str):
@@ -22,21 +59,10 @@ def te_gff(complex_dir, genome: str):
 
 
 def load_te_gff(gff, chroms: dict) -> dict:
-    """{clade: {chrom: sorted midpoints}} of LTR retrotransposons (type containing 'LTR_retrotransposon', with a
-    clade= attribute) on the genome's sequences."""
+    """{clade: {chrom: sorted midpoints}} of classified LTR retrotransposons (_clade) on the genome's sequences."""
     out = {}
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
-        for line in f:
-            if line.startswith("#"):
-                continue
-            p = line.rstrip("\r\n").split("\t")
-            if len(p) < 9 or "LTR_retrotransposon" not in p[2] or p[0] not in chroms:
-                continue
-            attrs = {k.lower(): v for k, _, v in (kv.partition("=") for kv in p[8].split(";")) if v}
-            clade = attrs.get("clade", "")
-            if not clade or clade.lower() in IGNORED_CLADES:
-                continue
-            out.setdefault(clade, {}).setdefault(p[0], []).append((int(p[3]) - 1 + int(p[4])) // 2)
+    for c, s, e, clade in _te_rows(gff, chroms):
+        out.setdefault(clade, {}).setdefault(c, []).append((s + e) // 2)
     return {c: {ch: np.sort(np.array(v, dtype=np.int64)) for ch, v in d.items()} for c, d in out.items()}
 
 
@@ -46,17 +72,8 @@ def load_te_intervals(gff, chroms: dict) -> dict:
     detectors, so unclassified calls on tandem arrays are weak evidence of a retrotransposon (Carassius 1.6-2.0-kb
     families: 50-85% inside 'unknown' elements)."""
     out = {}
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
-        for line in f:
-            if line.startswith("#"):
-                continue
-            p = line.rstrip("\r\n").split("\t")
-            if len(p) < 9 or "LTR_retrotransposon" not in p[2] or p[0] not in chroms:
-                continue
-            attrs = {k.lower(): v for k, _, v in (kv.partition("=") for kv in p[8].split(";")) if v}
-            clade = attrs.get("clade", "")
-            if clade and clade.lower() not in IGNORED_CLADES:
-                out.setdefault(p[0], []).append((int(p[3]) - 1, int(p[4]), clade))
+    for c, s, e, clade in _te_rows(gff, chroms):
+        out.setdefault(c, []).append((s, e, clade))
     res = {}
     for c, v in out.items():
         v.sort()

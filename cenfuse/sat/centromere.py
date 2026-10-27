@@ -87,8 +87,9 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
     evidence, so satellite evidence alone cannot tell a centromeric array from an interstitial one: confidence low.
     A competing cluster (a second cluster at least half the main one) costs two levels: the satellite line cannot
     tell which array is the active one (T2T mammals: 2/6 such calls on the CENP-A domain), so the call is low and the
-    second cluster is reported (alt_start/alt_end) for the other lines to choose. acro: acrocentric families
-    (classify); a call on one is flagged acrocentric."""
+    second cluster is reported (alt_start/alt_end) for the other lines to choose. A rival satellite's cluster
+    (call_regions) competes the same way, whatever its size. acro: acrocentric families (classify); a call on one is
+    flagged acrocentric."""
     row = {k: "." for k in REG_COLS}
     row.update(chrom=chrom, chrom_len=L, evidence="none", confidence="none")
     if call is None:
@@ -100,8 +101,8 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
         pass                                             # satellite-amount flags do not apply
     elif call["sat_bp"] < p.low_sat_bp:
         flags.append("low_satellite")
-    if call["evidence"] != "retrotransposon" and call["second_cluster_bp"] > 0 and \
-            call["second_cluster_bp"] >= p.competing_ratio * call["sat_bp"]:
+    if call["evidence"] != "retrotransposon" and (call.get("rival_bp") or call["second_cluster_bp"] > 0 and
+                                                  call["second_cluster_bp"] >= p.competing_ratio * call["sat_bp"]):
         flags.append("competing_cluster")
     z = end_zone(L, p)
     if not borrowed and (s < z or e > L - z):
@@ -146,7 +147,8 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
 
 
 def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads: int, p, borrowed: bool = False,
-                 te=None, capped: bool = False, acro: frozenset = frozenset(), per_chrom: dict = None):
+                 te=None, capped: bool = False, acro: frozenset = frozenset(), per_chrom: dict = None,
+                 rivals: frozenset = frozenset()):
     """borrowed (contig assemblies with families from --classify-from): only full satellite calls count. A contig
     without the centromeric satellite is no evidence of a satellite-free centromere, so there is no weak-satellite
     or long-unit fallback, and the long-unit scan covers call flanks only.
@@ -160,7 +162,12 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     holding them (satellite_call), so a family chosen on a few chromosomes cannot take the call elsewhere where its
     cluster is merely larger (T2T siamang: an 80-bp satellite chosen on 2 chromosomes took 11 calls from alpha; CHM13
     chr21: the call took an inactive alpha array 2 Mb from the active one). Chromosomes without a choice take the
-    largest cluster (weak-satellite fallback)."""
+    largest cluster (weak-satellite fallback).
+    rivals: acrocentric families unrelated to every centromeric family (classify). A satellite call competes with a
+    rival's terminal block outside it (a cluster >= chrom_min_bp reaching the end zone, the blocks that made the
+    rival acrocentric; reported in alt_start/alt_end): two satellites both occur once per chromosome at its
+    centromeric end, and which carries the kinetochore is not in the sequence (T2T mouse: the 234-bp major
+    satellite out-sizes the 120-bp minor satellite that carries CENP-A)."""
     clade, cores, decisive = te if te else (None, {}, False)
     per_chrom = per_chrom or {}
     tmpdir.mkdir(parents=True, exist_ok=True)
@@ -171,6 +178,21 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
            if c in by_chrom else None for c, L in genome.chroms.items()}
     if borrowed:
         sat = {c: x if x and x["evidence"] == "satellite" else None for c, x in sat.items()}
+    elif rivals:
+        for c, x in sat.items():
+            r = by_chrom[c][by_chrom[c].family.isin(rivals)] if x else None
+            if r is None or r.empty:
+                continue
+            L = genome.chroms[c]
+            z = end_zone(L, p)
+            ends = [m for side in (r[r.end <= x["cen_start"]], r[r.start >= x["cen_end"]]) if len(side)
+                    for m in make_clusters(list(zip(side.start, side.end)), p.cluster_gap)
+                    if m.bp >= p.chrom_min_bp and (m.start < z or m.end > L - z)]     # its terminal block
+            if ends:
+                m = max(ends, key=lambda k: (k.bp, -k.start))
+                x["rival_bp"] = m.bp
+                if "alt_start" not in x:
+                    x.update(alt_start=int(m.start), alt_end=int(m.end))
     def target(c, L):
         x = sat[c] or (dict(cen_start=cores[c]["start"], cen_end=cores[c]["end"]) if c in cores else None)
         return (c, max(0, x["cen_start"] - p.lu_flank), min(L, x["cen_end"] + p.lu_flank)) if x else (c, 0, L)

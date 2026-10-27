@@ -275,3 +275,19 @@ def test_microsatellite_seeds_do_not_found_families(test_params):
                         "score": [5000, 5000], "entropy": [1.9, 1.9], "consensus": [micro, real]})
     s = select_seeds({"g": trf}, test_params)
     assert s.consensus.tolist() == [real]
+
+
+@pytest.mark.skipif(not have("mafft"), reason="mafft missing")
+def test_mafft_alignment_does_not_depend_on_threads(tmp_path):
+    """>= 200 monomers: --auto refines iteratively (FFT-NS-i), whose multithreaded refinement varied between runs; the
+    alignment must not change with the run or the thread count."""
+    from cenfuse.sat.families import mafft
+    rng = np.random.default_rng(3)
+    unit = rseq(rng, 300)
+    seqs = []
+    for _ in range(220):
+        s = mutate(rng, unit, 0.2)
+        cut = int(rng.integers(0, 280))
+        seqs.append(s[:cut] + s[cut + int(rng.integers(0, 20)):])          # a deletion per copy
+    a = mafft(seqs, tmp_path / "t1", 1)
+    assert all(mafft(seqs, tmp_path / f"t16_{i}", 16) == a for i in range(2))

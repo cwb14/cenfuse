@@ -8,7 +8,7 @@ import pyhmmer
 import pysam
 from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextMSA, TextSequence
 
-from .annotate import run_significant
+from .annotate import release_pipeline, run_significant, search_one
 from .params import (BLAST_BATCH, FAMILY_IDENT, FULL_MONOMER_COV, FULL_PERIOD_TOL, LEN_TOL, MSA_MAX_GAP,
                      NHMMER_REPORT_E, OVERHANG_MIN_BP, RDNA_FLANK_EVALUE, RDNA_TAG_EVALUE, RELATED_LEN_TOL)
 from .util import (SatelliteError, canonical_rotation, log, merge_intervals, parse_fasta_text, revcomp, run, union_bp,
@@ -370,10 +370,14 @@ def msa_hmm(name: str, rows: list):
 
 
 def mafft(seqs: list, workdir: Path, threads: int) -> list:
+    """--threadit 0: MAFFT's multithreaded iterative refinement (FFT-NS-i, which --auto picks for some families) gave a
+    different alignment on every run (A. thaliana 505-bp family: 4 runs, 4 HMMs), so reruns changed a model and with it
+    the array annotation. Refined in one thread, the alignment is the same at any thread count (1-32 tested) and the
+    progressive step keeps its threads."""
     workdir.mkdir(parents=True, exist_ok=True)
     inp = workdir / "mafft_in.fa"
     write_fasta(inp, ((f"m{i}", s) for i, s in enumerate(seqs)))
-    out = run(["mafft", "--auto", "--thread", threads, "--quiet", inp]).stdout
+    out = run(["mafft", "--auto", "--thread", threads, "--threadit", 0, "--quiet", inp]).stdout
     return [s.upper() for _, s in parse_fasta_text(out)]
 
 
@@ -401,7 +405,7 @@ def pad_hit(lo: int, hi: int, strand: str, hmm_from: int, hmm_to: int, M: int, s
     return max(1, lo - left), min(seqlen, hi + right)
 
 
-def sample_monomers(hmm, intervals: list, fastas: dict, p, threads: int, rng: random.Random) -> list:
+def sample_monomers(hmm, intervals: list, fastas: dict, p, rng: random.Random) -> list:
     """nhmmer hmm vs the intervals; up to p.hmm_sample monomers with >= 90% model coverage, significant alone or in
     a run of copies (annotate.run_significant; E-values are for all intervals together), in consensus orientation."""
     raw = []
@@ -413,13 +417,12 @@ def sample_monomers(hmm, intervals: list, fastas: dict, p, threads: int, rng: ra
     blk = DigitalSequenceBlock(ABC, [TextSequence(name=f"i{i}", sequence=x).digitize(ABC)
                                      for i, x in enumerate(raw)])
     rows = []
-    for hits in pyhmmer.hmmer.nhmmer([hmm], blk, cpus=threads, E=NHMMER_REPORT_E):
-        for h in hits:
-            if h.evalue > NHMMER_REPORT_E:
-                continue
-            a = h.best_domain.alignment
-            lo, hi = sorted((a.target_from, a.target_to))
-            rows.append((int(h.name[1:]), lo, hi, h.best_domain.strand, float(h.evalue), a.hmm_from, a.hmm_to))
+    for h in search_one(hmm, blk):
+        if h.evalue > NHMMER_REPORT_E:
+            continue
+        a = h.best_domain.alignment
+        lo, hi = sorted((a.target_from, a.target_to))
+        rows.append((int(h.name[1:]), lo, hi, h.best_domain.strand, float(h.evalue), a.hmm_from, a.hmm_to))
     hits = pd.DataFrame(rows, columns=["seq", "start", "end", "strand", "evalue", "hmm_from", "hmm_to"])
     hits = hits.assign(family=hmm.name, model_len=hmm.M)
     total = sum(len(x) for x in raw)
@@ -443,7 +446,7 @@ def build_hmm(fam_id: str, rep_seq: str, intervals, fastas, workdir: Path, threa
     c0 = frame_rotation(trim_overhang(rep_seq, workdir / "trim0", threads), refs, workdir / "frame0", threads,
                         p.superfam_ident)
     h = single_hmm(fam_id, c0)
-    s1 = sample_monomers(h, intervals, fastas, p, threads, rng)
+    s1 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s1) < p.min_hmm_seqs:
         log.warning(f"families: {fam_id}: only {len(s1)} monomers sampled; single-sequence HMM")
         return h, c0, "single", len(s1)
@@ -451,7 +454,7 @@ def build_hmm(fam_id: str, rep_seq: str, intervals, fastas, workdir: Path, threa
     c1 = frame_rotation(trim_overhang(msa_consensus(rows1), workdir / "trim1", threads), refs,
                         workdir / "frame1", threads, p.superfam_ident)
     h = single_hmm(fam_id, c1)
-    s2 = sample_monomers(h, intervals, fastas, p, threads, rng)
+    s2 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s2) < p.min_hmm_seqs:                     # a refinement never replaces its model with a worse one:
         log.warning(f"families: {fam_id}: only {len(s2)} monomers in pass 2; profile from pass 1")   # (Arachis:
         h = msa_hmm(fam_id, rows1)                   # pass-1 consensus collapsed to 20 bp, pass 2 found nothing)
@@ -532,4 +535,5 @@ def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) 
     with open(workdir / "families.hmm", "wb") as fh:
         for h in hmms:
             h.write(fh)
+    release_pipeline()
     return table

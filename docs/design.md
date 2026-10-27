@@ -18,7 +18,8 @@ choosing the satellite family.
 ## Stages
 
 ```
-satellite -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse -> cpg -> plants -> loci -> output -> plot
+satellite -> telomere -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse -> cpg -> plants ->
+loci -> output -> plot
 ```
 
 Each stage is checkpointed, keyed on its inputs and code, so a rerun resumes. `genotype`, `karyotype` and `plants`
@@ -38,17 +39,25 @@ Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs an
 |---|---|---|
 | dispersed repeat | tandem_frac < 0.5 **and** whole-unit hits < 0.5 **and** locus fold < 2 → never centromeric | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits. Satellites are tandem; retrotransposon-derived centromeric arrays are concentrated (fold ≥ 2.5) |
 | satellite kind | dominance judged per kind: subfamilies related by sequence are pooled | splitting alpha into 6 subfamilies let a pericentric satellite out-count it |
-| acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs ~16+ chromosomes |
+| acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival (judged per satellite kind) → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs ~16+ chromosomes. A subfamily at the inner edge of a terminal block is that block, not a rival (T2T mouse: a major-satellite subfamily beyond the 5% end zone had blocked the test) |
 | the call | the cluster holding classify's chosen family (layered families pooled); a decisive CRM core may favor the largest cluster | |
-| competing cluster | a second cluster ≥ half the main one → two levels down (`low`), reported in `seq_alt_*` | such calls were right 2/10 times on CENP-A/CENH3 truth |
+| competing cluster | a second cluster ≥ half the main one, or the terminal block of a second acrocentric satellite unrelated to the call → two levels down (`low`), reported in `seq_alt_*` | such calls were right 2/10 times on CENP-A/CENH3 truth. The acrocentric test finds a centromere's end, not which of two satellites there holds the kinetochore (mouse: the 234-bp major satellite out-sizes the 120-bp minor satellite that carries CENP-A; related layers, as in goat, are pooled instead) |
 | CRM cores (`tes/`) | the CRM clade's densest cores; a decisive core places or supports the call | CRM retrotransposons mark grass centromeres |
+| `tes/` formats | an element's clade from `clade=` (type holding `LTR_retrotransposon`: LTRquest, EDTA + TEsorter) or from a DANTE_LTR `transposable_element`'s `Final_Classification` (its last REXdb lineage field; an element classified only to `Ty3/gypsy`, `chromovirus` etc. has none) | DANTE_LTR is a common plant classifier; Arabidopsis with its file: the same 5 calls as with LTRquest |
 | genes (`genes/`) | gene-rich families are vetoed; subtelomeric = beyond the outermost genes | |
 
 ### rDNA and telomeres
 
 - **NORs** (`rdna.py`): tandem runs of ≥ 3 copies of the universal 18S motif (GTACACACCGCCCGTC), ≤ 100 kb apart.
   This finds CHM13's 5 NORs in 32 s. Hi-C peaks beside a NOR never oppose a call (NORs cluster in the nucleolus).
-- **Telomeres** (`telomere.py`): the unit is found de novo; arrays are reported at chromosome ends.
+- **Telomeres** (`telomere.py`): the unit is found de novo; arrays are reported at chromosome ends: >= 300 bp of unit
+  copies anywhere in the terminal 100 kb, or >= 100 bp when the array reaches the sequence end (within 1 kb). Short
+  telomeres are real (Neurospora NC12: 157-207 bp at 13/14 ends) and assemblers trim them; once the unit is the
+  genome's (10-fold denser in tandem at the ends), 100 bp of it at an end is no chance match.
+- **Interstitial telomeric sequences** (ITS, `telomere.py`): arrays of the same unit inside the chromosomes (beyond the
+  terminal 100 kb; >= 300 bp of unit copies), as `interstitial_telomeric` loci. They mark old chromosome fusions (CHM13:
+  16 arrays, most within 1 Mb of an end, one at the 2q13 fusion site) and the cores of some centromeres (chicken:
+  78-210-kb TTAGGG blocks at the CENP-A domain of several chromosomes).
 
 ### Hi-C (`cenfuse.hic` engine + `hicfuse.py`)
 
@@ -69,6 +78,12 @@ Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs an
    - x passes when most references' own peaks agree with their calls, beyond chance (Poisson-binomial P ≤ 0.01),
      and also a majority of the whole reference set.
    - Fewer than 3 references: `untested`.
+   - No call high or medium anywhere (no satellite family dominates, so every call is capped `low`: siamang without
+     genes, chicken): the low calls are the references, and an agreement counts only at a clean peak (no hub, rDNA or
+     telomeric flag); in that genome a peak supports a call only when clean. Chromosome ends, hubs and NORs cluster in
+     3D whatever the centromere: in a Rabl nucleus, wrong calls at the ends would agree with Hi-C. Two independent
+     lines that agree beyond chance on most chromosomes validate each other. `hic_gate_refs` says which references
+     were used.
 
 ### Arm fold (`fold.py`)
 
@@ -146,13 +161,14 @@ Every candidate interval becomes a locus member:
 - TE cores;
 - Hi-C cores and hubs;
 - methylation candidates;
-- telomere arrays;
+- telomere arrays at the ends and inside the chromosomes;
 - the sequence and final calls.
 
 Overlapping members merge; only Hi-C members are padded (1 bin). Each locus gets every line's value there and the
 first kind that matches:
 
-`centromere` > `sequence_centromere` (where the call moved from) > `telomere` > `rDNA` > `subtelomeric_block` >
+`centromere` > `sequence_centromere` (where the call moved from) > `telomere` > `interstitial_telomeric` > `rDNA` >
+`subtelomeric_block` >
 `interstitial_block` (knobs) > `alt_centromere_candidate` > `hic_hub` > `hic_peak` > `te_core` > `satellite_block` >
 `meth_candidate` > `other`.
 
@@ -191,6 +207,9 @@ first kind that matches:
 | numpy huge pages | off by default | on: Hi-C bootstrap 30× slower on fragmented memory |
 | CpG dip inside a call | most prominent valley on array bins, half-depth run | deepest bin: lands on array edges (CHM13). Longest run below half the median: on the CDR 52/90 (valley 88/90) |
 | CpG dip significance | shuffle test per call; positional (rotation) test for the gate | equal-length windows of other satellite DNA as null: infeasible where most satellite DNA is centromeric (MFA8: 3.7 Mb outside calls vs 3.5-11 Mb calls). Dips in calls vs dips in satellite clusters away from calls: passed on rotated (misplaced) methylation in gorilla, because long calls hold coherent runs of any structured profile |
+| pyhmmer search pipelines (memory) | one per thread, reused (`annotate.search_one`) | a new pipeline per search (pyhmmer's `nhmmer()`): each sits in a reference cycle and its workspace waits for Python's full collection (chicken 277 GB). glibc `malloc_trim` after each search: 229 GB. Model-major job order: 125 GB. Smaller pyhmmer blocks: less memory, but hits change |
+| MAFFT threads (reproducibility) | `--thread N --threadit 0` | `--thread N` alone: the multithreaded refinement gave a different alignment on every run (4 runs, 4 HMMs). `--thread 1`: reproducible but 2.5× slower MAFFT |
+| TE marker among several qualifying clades | most concentrated (median core share) | chromosomes with a core first: picked Retand over Tekay in *Arabidopsis* (DANTE_LTR), but agreed less with the satellite calls over the 185-genome batch (te_discordant 111 → 129) |
 | CpG choosing among satellite clusters | not done | least-methylated window anywhere: on the CDR 3/23 (CHM13). Most prominent valley across clusters: wrong cluster on 8-10/25 (orangutans). A cluster with half the call's valley floor: 6 changes in 7 primates, 1 right (B. orangutan), 2 wrong (CHM13) |
 
 ## Known risks
@@ -203,12 +222,12 @@ first kind that matches:
 - CpG kinetochores need an array long enough for a dip with shoulders (≥ 10 bins with data). A small array that is
   hypomethylated as a whole (bonobo and B. orangutan minicentromeres) is not refined, and CpG never chooses it.
 - The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
-- Satellite-search memory: 40-160 GB for T2T mammals, 260 GB for chicken. Freeing each chromosome's raw hits once it
-  is resolved did not lower the peak (dead_ends of the v4 benchmark): it lies inside one chromosome's hits.
+- Satellite-search memory: about one pyhmmer workspace per thread (model length × the 256-kb search block, up to ~2.4
+  GB for 2-kb units): chicken 58 GB at 24 threads (277 GB before v5), *Arabidopsis* 4.8 GB at 8.
 
 ## Tests
 
-`pytest -q -n 8`: 475 tests on small synthetic fixtures.
+`pytest -q -n 8`: 486 tests on small synthetic fixtures.
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three

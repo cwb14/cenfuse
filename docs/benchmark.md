@@ -3,7 +3,8 @@
 Every number here comes from criteria fixed before the run they score: plants 2026-10-16 and -19 (original text:
 [`docs/benchmark.md` at 961a23d](https://github.com/cwb14/cenfuse/blob/961a23d/docs/benchmark.md)), mammals
 2026-10-21, v4 2026-10-26 (CpG kinetochores, hard genomes, no-harm reruns: sections 6-8; the CpG criteria are
-not blind, section 6). Rules changed after a result was seen are listed in
+not blind, section 6), v5 2026-10-26 with dated amendments (memory, reproducibility, telomeres, new genomes:
+section 9). Rules changed after a result was seen are listed in
 [section 5](#5-rules-changed-after-seeing-a-result).
 
 **Scoring.**
@@ -99,7 +100,7 @@ satellome (gorilla). Inputs: FASTA + Hi-C. Each line scored on its own:
 | rice (T2T-NIP) | 12 | 12 | 0 | 7 | **12** | pass | fail |
 | barley (MorexV3) | 7 | 0 | 6 | 0 | **6** | fail | **pass** |
 | potato (DM v6.1) | 11 | 2 | 1 | 0 | **2** | fail | fail |
-| horse (EquCab3) | 5 | 3 | 3 | 3 | **3** | untested | fail |
+| horse (EquCab3) | 5 | 3 | 3 | 3 | **3** | fail (on its `low` calls) | fail |
 | gorilla (mGorGor1) | 25 | 25 | 0 | 19 | **25** | pass | fail |
 
 - **Arm fold point vs CENH3** (exploration, not a criterion): rice 11/12 (500-kb bins), barley 4/7 within 8 Mb
@@ -112,7 +113,8 @@ satellome (gorilla). Inputs: FASTA + Hi-C. Each line scored on its own:
   - Previous version: 0/7, 3 of them `high`.
 - **Potato**: half its centromeres are satellite-free, and its Hi-C carries no centromere signal. Nothing can rescue
   them without `tes/`: 2 calls are confidently wrong, 7 are `low`.
-- **Horse EquCab3**: right calls are `low` (no reference-grade call, so the Hi-C test is untested); chr11 has no call.
+- **Horse EquCab3**: right calls are `low` (no reference-grade call); the Hi-C test, run on those `low` calls, fails
+  (4/24 agree), so Hi-C changes nothing; chr11 has no call.
 
 **Poa annua / P. infirma (all four inputs; truth from earlier analyses, no ChIP):**
 
@@ -183,6 +185,9 @@ Each change has a reason independent of the case that prompted it, and was reche
 | 2026-10-24 | arm-fold line; centers only at centromeric index ≥ 12.5% | barley | rice, all mammals, randomized controls |
 | 2026-10-26 | CpG line (new): within-call valley, shuffle test, positional gate | designed on the 7 primate tracks it is scored on (not blind) | MMU8 (R10), Arabidopsis, rotated and shifted controls |
 | 2026-10-26 | CpG gate: positional (rotation) null instead of dips in other satellite clusters | the rotated control passed in gorilla | the other 7 rotated controls, real tracks |
+| 2026-10-26 | telomeres: ≥ 100 bp counts when the array reaches the sequence end | *Neurospora* 0/14, *P. falciparum* 25/28 | 14 T2T mammals and mouse (no end lost or moved), 28 genomes |
+| 2026-10-26 | Hi-C gate: `low` calls are references when no call is `high`/`medium` (clean peaks only) | siamang without genes (gate untestable) | 4 randomized Hi-C runs, chicken, EquCab3 |
+| 2026-10-27 | acrocentric test: interior rival judged per satellite kind; a second unrelated acrocentric satellite competes with the call | T2T mouse (0/20; the v3 prediction failed) | the 72 earlier satellite runs (goat, the other all-acrocentric genome, among them) and 9 other v5 genomes: no change |
 
 ## 6. Kinetochores from CpG methylation (v4)
 
@@ -281,3 +286,118 @@ Every earlier run was repeated with the v4 code (checkpoints resumed): the 14 T2
 16 plant-benchmark runs (rice, potato, barley, horse EquCab3, gorilla, the six imported mammals, P. annua with all
 inputs and methylation, P. annua plants, the negative control, the Pa1A demonstration). Calls, loci and summaries are
 identical in 30/30 runs; only the new `cpg_*` columns (empty) were added.
+
+## 9. v5: memory, reproducibility, telomeres, TE formats, new lineages
+
+Criteria: `v5/PLAN.md` (2026-10-26, before any v5 edit; dated amendments for tracks added later).
+
+### Memory of the satellite search
+
+Every pyhmmer `nhmmer()` call built a search pipeline that ended in a reference cycle. Its workspace (model length ×
+the 256-kb search block: ~1.7 GB for an 1,853-bp model) waited for Python's full garbage collection, which a large
+process runs rarely, so memory grew with every search done. One pipeline per thread, reused (as pyhmmer's own workers
+do), gives the same hits and holds one workspace per thread.
+
+| genome (threads) | before | after | outputs |
+|---|---|---|---|
+| chicken GGswu (24) | 277 GB | 58 GB | monomers, arrays, calls, loci identical |
+| giraffe T2T (12) | 140 GB | 17 GB | monomers and arrays identical |
+| *Arabidopsis* Col-CC (8, run side by side) | 7.8 GB, 23:47 | 4.8 GB, 23:59 | monomers identical |
+
+Tried and not used (dead ends): glibc `malloc_trim` after each search (chicken 229 GB), job order (125 GB), smaller
+pyhmmer blocks (hits change).
+
+### Reproducibility of the satellite search
+
+The families stage gave a different model for one *Arabidopsis* family on every run (3 runs, 3 models; one monomer
+more or less downstream). MAFFT's multithreaded iterative refinement was the cause (4 runs, 4 alignments). With the
+refinement single-threaded (`--threadit 0`), the alignment is the same at 1-32 threads at no time cost. Two
+*Arabidopsis* runs from scratch at 16 and 8 threads now give byte-identical outputs (families, monomers, arrays, calls,
+loci, summary).
+
+### Telomeres (28 genomes: mammals, a bird, an insect, a nematode, plants, fungi, a protist)
+
+A short array now counts when it reaches the sequence end: *Neurospora* NC12 0 → 13/14 ends (157-207-bp telomeres),
+*P. falciparum* 25 → 27/28, horse EquCab3 19 → 27, yeast 0 → 7 (its irregular TG1-3 telomeres, as GGGTGT). The 14 T2T
+mammals and mouse are unchanged (no end lost or moved); every added array lies within 98 bp of its end. Remaining
+misses: ends without terminal repeats in the assembly (chicken 22), TTAGG broken by TRAS/SART retrotransposons
+(*Bombyx* 15), fragmented NOR-arm telomeres (*Arabidopsis* 2).
+
+**Interstitial telomeric arrays (new loci kind).** CHM13: 16 arrays ≥ 300 bp, most within 1 Mb of an end, one at the
+2q13 fusion site (chr2 114.03 Mb). Chicken: 50 arrays, 22 of them on or within 100 kb of a CENP-A window (expected 1.4:
+the padded windows cover 2.9% of the genome; binomial P 4e-21), holding 63% of all interstitial TTAGGG (up to 210 kb on
+one chromosome): the telomere-repeat centromere cores Huang et al. 2023 described, genome-wide.
+
+**NORs.** Every 45S array call that can be checked lies on a known NOR chromosome: *Arabidopsis* chr2/chr4, chicken
+chr16, *C. elegans* chrI, pig chr8/chr10, human chr13/14/15/21/22, horse chr1/28/31; barley 1H, 2H, 5H, 6H, 7H (major
+5H and 6H plus minor sites); mouse chr12, 15, 16, 18 and 19 (all five NOR chromosomes of the laboratory mouse).
+
+### LTR retrotransposon input
+
+DANTE_LTR GFF3 is read as it is (lineage from `Final_Classification`). *Arabidopsis* with the DANTE_LTR file: the same
+5 calls, all `high`, as with LTRquest. DANTE classifies more lineages, so the flags-only marker clade can differ (Tekay
+here, cored on 3/5 chromosomes; TE support 2/5 vs 5/5 with LTRquest's Athila). Ranking the marker by chromosomes first
+was tested and rejected: over the 185-genome batch it agreed less with the independent satellite calls (te_discordant
+111 → 129).
+
+### Hi-C where every sequence call is `low`
+
+When no satellite family dominates, every sequence call is capped `low`, so the Hi-C gate had no reference-grade call
+and Hi-C could never act. The low calls are now the references, and only agreements at clean peaks (not at chromosome
+ends, hubs or NORs) count.
+
+| genome (inputs) | gate | effect |
+|---|---|---|
+| siamang (FASTA + Hi-C, no genes) | 0 → 26/26 chromosomes | 20 calls `low` → `medium`, one Hi-C-placed call; against the genes + Hi-C run, the `medium` calls match 18/20 and the remaining `low` ones 4/6 (before: 25 `low`, 21 matching) |
+| siamang, randomized Hi-C (both modes) | 0/26, 0/26 | none |
+| chicken (FASTA + 40 M Hi-C pairs) | fails on 30/30 | none; 25/30 anchored peaks sit in end windows: chicken Hi-C is dominated by telomere clustering (telomere arrays 4.0×, centromere calls 1.4×) |
+| chicken, randomized Hi-C (both modes) | fails on 30/30 | none |
+| horse EquCab3 (FASTA + Hi-C) | fails (4/24 agree) | none |
+
+### New genomes
+
+**Small genomes with point, regional or AT-rich centromeres** (FASTA only, seconds each): *S. cerevisiae* R64,
+*S. pombe*, *P. falciparum* 3D7, *N. crassa* NC12. No confident call: yeast 0/16 calls (point centromeres), *S. pombe*
+1 `low` call on cen3 (a long-unit tandem), *P. falciparum* 1 `low` call on a chromosome 4 var-gene cluster (the gene veto
+removes it when genes are given), *Neurospora* 0/7 (RIP-mutated TE-relic centromeres). A genome with an IUPAC code every
+5 kb (2,620 in all, inside an inserted 100-kb satellite array too) runs cleanly and finds the array exactly.
+
+**Maize Mo17 T2T** (FASTA only; truth: same-line CENH3 ChIP, PRJNA751841, held-out plant rule). The 180-bp knob repeat
+is the largest satellite (23.6 Mb, 20.6 Mb of it on chr8) and is classed `interstitial`; CentC is centromeric on all
+10 chromosomes, all calls `high`, none holding any knob repeat. Calls on CENH3 (38-49× domains): 7/10 overlapping,
+9/10 within 1 Mb (4 Hi-C bins, the plant rule; chance 0.2, P 1e-14). The misses (chr2 0.3 Mb, chr8 0.7 Mb, chr5 2.0 Mb
+away; chr5 confidently wrong) have CENH3 on satellite-free DNA beside the CentC arrays, the case `tes/` (CRM cores) is
+for.
+
+**Mouse T2T (mhaESC; all 20 chromosomes acrocentric)** (FASTA only; truth: the minor-satellite array at the start of
+each chromosome, 0.48-1.04 Mb, the CENP-A satellite). This tested the prediction that all-acrocentric karyotypes are
+called without genes, and the prediction failed: 0/20 calls on the minor satellite, 14 confident calls 1.7-72 Mb
+away (9 `high`), 2 chromosomes without a call. The major satellite (162 Mb, the largest satellite, pericentric) and
+the minor satellite (16.5 Mb) were both judged subtelomeric. A 58-bp major-satellite subfamily at the inner edge of
+the terminal block (beyond the 5% end zone on 10/20 chromosomes) counted as a strong interior rival and blocked the
+acrocentric test. Two changes:
+- the interior rival is judged per satellite kind (subfamilies pooled, as dominance already is), so the subfamily is
+  part of its terminal block;
+- both satellites then pass the acrocentric test. They are unrelated by sequence, and which one carries the
+  kinetochore is not in the sequence: here the larger one is pericentric. In goat, the two acrocentric satellites are
+  related layers and are pooled into one call. A second acrocentric satellite unrelated to the call now competes
+  with it: the call is `low`, and that satellite's terminal block is reported (`seq_alt_*`).
+
+Now all 20 calls sit at the centromeric end, on the major-satellite block, each within 45 kb of the minor satellite
+(1/20 overlapping it), all `low`; the minor-satellite array is the reported alternative on 20/20. Of the criteria set
+before the run, ≥ 15/20 calls overlapping the minor satellite still fails; no confident call off it now passes. Hi-C cannot
+choose between the two arrays, because no mappable bins separate them. Telomeres are found at all 40 ends, plus 36
+interstitial telomeric arrays.
+
+### No harm (v5 code)
+
+Every earlier run was repeated with the v5 code (checkpoints resumed): the 14 T2T mammals with genes and Hi-C and the
+16 plant-benchmark runs. In 29/30 the calls, confidence, relation, support, against, flags and summaries are
+identical; new columns (`hic_gate_refs`, `telomere_interstitial`) are added and the loci gain only interstitial
+telomeric loci (+1 to +38 per genome; every earlier locus kept, or grown by one). Horse EquCab3: 8 short end telomeres
+are found (19 → 27 ends), and its Hi-C gate, untested before (no reference-grade call), now tests the low calls and
+fails; no call changed. The satellite search on the same families gives byte-identical monomers, arrays and calls
+(chicken, *Arabidopsis*). The two acrocentric changes (mouse) act inside the satellite engine, so its classify and
+call stages were replayed on all 72 earlier satellite runs (the 14 T2T mammals with and without genes, 6 plant runs,
+38 polyploid complexes of the 185-genome batch: 3,134 chromosomes) and on the other 9 genomes of this round (104
+chromosomes): no call, confidence or flag changed.

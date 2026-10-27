@@ -120,6 +120,28 @@ def test_gate_falls_back_to_medium_references():
     assert t.gate_pass.all() and (t.gate_n == 5).all()
 
 
+def test_gate_takes_low_references_only_when_no_call_is_high_or_medium():
+    t = hicfuse.gate(_gate_table([True] * 6 + [False] * 2, conf=["low"] * 8).assign(anch_flags=""))
+    assert t.gate_pass.all() and (t.gate_refs == "low").all() and (t.gate_n == 7).all()
+    t = hicfuse.gate(_gate_table([True] * 8, conf=["high"] + ["low"] * 7).assign(anch_flags=""))
+    assert not t.gate_pass.any() and (t.gate_refs == "reference").all()     # one high call: low ones never count
+    # Rabl nuclei: wrong calls at the chromosome ends would agree with the ends' trans cluster; with low references an
+    # agreement at a telomeric (or hub, rDNA) peak does not count
+    t = hicfuse.gate(_gate_table([True] * 8, conf=["low"] * 8).assign(anch_flags=["telomeric"] * 5 + [""] * 3))
+    assert not t.gate_pass.any() and (t.gate_k <= 3).all()
+
+
+def test_with_low_references_only_a_clean_peak_supports():
+    e = ev(conf="low", peak=1_200_000)
+    e.hic.update(gate_refs="low", anch_flags="")
+    assert fuse.decide(e)["confidence"] == "medium"                        # two independent lines agree
+    e.hic["anch_flags"] = "telomeric"
+    d = fuse.decide(e)
+    assert d["confidence"] == "low" and "hic" not in d["support"]
+    e.hic["gate_refs"] = "reference"                                       # validated by high calls: as before
+    assert fuse.decide(e)["confidence"] == "medium"
+
+
 def test_loci_merge_and_kinds():
     m = [(0, 100, "satellite_cluster", "satellite", "subT", dict(role="subtelomeric", rdna=".")),
          (5_000, 9_000, "sequence_call", "satellite", "satellite", {}),
@@ -251,6 +273,51 @@ def test_review_telomere_longest_array_wins_over_a_nearer_decoy():
     seq = "A" * 3000 + real + "C" * 2000 + decoy + "G" * 100
     a = telomere.end_array(seq, telomere.canonical(unit), "end")
     assert a is not None and abs(a[2] - 4200) <= 7 and a[0] == 3000
+
+
+def test_short_telomere_counts_only_at_the_sequence_end(tmp_path):
+    import random
+    import pysam
+    from cenfuse import telomere
+    unit, cu = "TTAGGG", telomere.canonical("TTAGGG")
+    short = unit * 27                                          # 162 bp (Neurospora NC12 telomeres: 157-207 bp)
+    body = "".join(random.Random(2).choice("ACGT") for _ in range(20_000))
+    a = telomere.end_array(body + short, cu, "end")
+    assert a is not None and a[1] == len(body) + len(short) and abs(a[2] - 162) <= 6
+    assert telomere.end_array(short + body, cu, "start")[0] == 0
+    assert telomere.end_array(body[:15_000] + short + body[15_000:], cu, "end") is None    # 5 kb inside: interstitial
+    assert telomere.end_array(body + unit * 10, cu, "end") is None                          # 60 bp: too short
+    rnd = random.Random(3)                                     # a genome whose every telomere is short
+    seqs = {f"c{i}": "CCCTAA" * 27 + "".join(rnd.choice("ACGT") for _ in range(450_000)) + short for i in range(3)}
+    fa = tmp_path / "s.fa"
+    fa.write_text("".join(f">{c}\n{s}\n" for c, s in seqs.items()))
+    pysam.faidx(str(fa))
+    r = telomere.detect(fa, {c: len(s) for c, s in seqs.items()})
+    assert r["unit"] == cu and len(r["ends"]) == 6 and all(x[5] == 0 for x in r["ends"])
+
+
+def test_interstitial_telomeric_arrays(tmp_path, monkeypatch):
+    import random
+    import pysam
+    from cenfuse import telomere
+    rnd = random.Random(4)
+    body = "".join(rnd.choice("ACGT") for _ in range(600_000))
+    its, short, near_end = "TTAGGG" * 150, "CCCTAA" * 25, "TTAGGG" * 100     # 900 bp, 150 bp, 600 bp
+    seq = (body[:50_000] + near_end + body[50_000:299_000] + its + body[299_000:450_000] + short
+           + body[450_000:])
+    fa = tmp_path / "i.fa"
+    fa.write_text(f">c1\n{seq}\n")
+    pysam.faidx(str(fa))
+    monkeypatch.setattr(telomere, "SCAN_CHUNK", 100_000)              # the 900-bp array spans a chunk edge
+    start = 50_000 + 600 + 249_000                                    # 299,600-300,500: across the 300-kb chunk edge
+    assert seq[start:start + 900] == its and start < 300_000 < start + 900
+    out = telomere.interstitial(fa, {"c1": len(seq)}, telomere.canonical("TTAGGG"))
+    assert len(out) == 1                                               # not the terminal-zone or the 150-bp array
+    c, s, e, bp = out[0]
+    assert (c, s, e) == ("c1", start, start + 900) and abs(bp - 900) <= 6
+    m = (s, e, "telomere_interstitial", "telomere", "AACCCT", dict(bp=bp))
+    assert loci.kind([m]) == "interstitial_telomeric"
+    assert loci.kind([m, (0, 10, "telomere_array", "telomere", "AACCCT", dict(bp=10))]) == "telomere"
 
 
 def test_review_smoothing_stays_inside_chromosome_pairs():

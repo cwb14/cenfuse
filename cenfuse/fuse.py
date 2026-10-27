@@ -46,14 +46,15 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from .hicfuse import visible_gap
-from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, NOT_STRONG_FLAGS, SAT_SUPPORT_BP
+from .hicfuse import clean_peak, visible_gap
+from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
 from .sat.te import agrees
 from .util import gap, level_shift
 
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
               "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
-              "seq_alt_start", "seq_alt_end", "main_family", "te_clade", "te_start", "te_end", "hic_gate", "hic_gate_k", "hic_gate_n", "hic_gate_p",
+              "seq_alt_start", "seq_alt_end", "main_family", "te_clade", "te_start", "te_end", "hic_gate", "hic_gate_k",
+              "hic_gate_n", "hic_gate_p", "hic_gate_refs",
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "fold_gate", "fold_point", "fold_core_start",
@@ -103,9 +104,11 @@ def _vgap(ev: Evidence, a, b, capped: bool) -> int:
 
 
 def _peak_agrees(ev: Evidence, iv) -> bool:
-    """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS mappable bins of iv."""
+    """A significant anchored peak (Hi-C level not 'none') within HIC_TOL_BINS mappable bins of iv; a clean one when the
+    gate's references were low calls (hicfuse.gate: there only clean agreements validate Hi-C)."""
     pk = hic_peak(ev)
     return bool(pk and iv and ev.hic.get("anch_level", "none") != "none"
+                and (ev.hic.get("gate_refs") != "low" or clean_peak(ev.hic.get("anch_flags")))
                 and _vgap(ev, pk, iv, True) <= _bins(ev, HIC_TOL_BINS))
 
 
@@ -129,8 +132,7 @@ def _te_near(ev: Evidence, iv, n: int) -> bool:
 
 def _clean_medium(h) -> bool:
     """An anchored peak at Hi-C level medium without a hub, rDNA or telomeric flag."""
-    return bool(h and h.get("anch_level") == "medium"
-                and not set(str(h.get("anch_flags") or "").split(",")) & set(NOT_STRONG_FLAGS))
+    return bool(h and h.get("anch_level") == "medium" and clean_peak(h.get("anch_flags")))
 
 
 def _fold_far(ev: Evidence, f_core, iv) -> bool:
@@ -272,6 +274,7 @@ def row(ev: Evidence, d: dict) -> dict:
         hic_gate=gate_status(h) if h else na,
         hic_gate_k=h.get("gate_k", na) if h else na, hic_gate_n=h.get("gate_n", na) if h else na,
         hic_gate_p=h.get("gate_p", na) if h else na,
+        hic_gate_refs=h.get("gate_refs", na) if h else na,
         hic_anch_peak_start=one(h.get("anch_peak_start", -1)) if h else na,
         hic_anch_peak_end=end(h.get("anch_peak_end", -1)) if h else na,
         hic_anch_core_start=one(h.get("anch_core_start", -1)) if h else na,

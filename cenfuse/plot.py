@@ -165,6 +165,10 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
             if tc == c:
                 ax.plot(0 if side == "start" else L, y0 + fh - 0.02, marker=">" if side == "start" else "<",
                         ms=3.2, color="black", mew=0, zorder=5, clip_on=False)
+        for tc, ts, te_, _ in (f.get("telo") or {}).get("interstitial", []):
+            if tc == c:
+                ax.plot((ts + te_) / 2, y0 + fh + 0.06, marker="v", ms=3.0, color="black", mew=0, zorder=5,
+                        clip_on=False)
         if has_hic:
             hl, hh = lanes["hic"]
             ax.plot([0, L], [y0 + hl] * 2, color="#D0D0D0", lw=0.3, zorder=1)
@@ -245,6 +249,7 @@ def _offsets(ax, rows):
         if r["call"] and r["call"] != r["seq"]:
             a, b = rel(r["call"])
             ax.plot(x, (a + b) / 2, marker="D", ms=3.4, mfc="white", mec="black", mew=0.7, zorder=5)
+    ax.autoscale_view()          # patches alone never rescale: a FASTA-only run calling every chromosome kept 0-1 Mb
     ax.axhline(0, color="#D0D0D0", lw=0.4, zorder=0)
     ax.set_xticks(list(xs))
     ax.set_xticklabels([r["chrom"] for r in rows], rotation=90, fontsize=5.5)
@@ -302,6 +307,7 @@ def _key(fig, y, has_hic, has_meth, roles):
     if has_meth:
         items.append(Line2D([], [], color=METH, lw=0.6, label="adjusted CHG (down = loss)"))
     items.append(Line2D([], [], ls="", marker=">", ms=3.4, color="black", label="telomere array"))
+    items.append(Line2D([], [], ls="", marker="v", ms=3.4, color="black", label="interstitial telomeric array"))
     items += [Line2D([], [], ls="", marker="o", ms=3.4, color="black", label="line supports the call"),
               Line2D([], [], ls="", marker="x", ms=3.4, mew=0.9, color="#D55E00", label="line opposes the call"),
               Patch(fc="none", ec="#C8C8C8", hatch="////", lw=0, label="no data")]
@@ -612,8 +618,11 @@ def legends(f) -> tuple[str, str]:
               f"calls of the other chromosomes: {sig}.")
     telo = f.get("telo") or {}
     if telo.get("unit"):
+        k = len(telo.get("interstitial", []))
+        its = (f"downward triangles: {k} array{'s' if k != 1 else ''} of the unit inside chromosomes (interstitial "
+               f"telomeric sequences)" if k else "none inside chromosomes")
         a += (f" Triangles: telomere arrays of the unit {telo['unit']} (found de novo; {len(telo['ends'])} of "
-              f"{2 * n} chromosome ends).")
+              f"{2 * n} chromosome ends); {its}.")
     else:
         a += " No telomere unit was enriched in tandem arrays at the chromosome ends."
     a += " Hatching: no data (masked or uncovered bins). Bands: integrated calls; arrows: sequence call to moved call."

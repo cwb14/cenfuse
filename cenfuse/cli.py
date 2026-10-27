@@ -24,7 +24,7 @@ def main(argv=None) -> int:
                                    "resumes from checkpoints.")
     r.add_argument("genome_dir", type=Path, metavar="GENOME_DIR",
                    help="one FASTA per genome (+ .fai; bgzip also .gzi); optional genes/<g>.gff3, tes/<g>.gff3 "
-                        "(LTR_retrotransposon with clade=), hic/<g>.pairs[.gz]|.cool|.mcool or hic/<g>.tsv (one "
+                        "(LTR_retrotransposon with clade=, or DANTE_LTR), hic/<g>.pairs[.gz]|.cool|.mcool or hic/<g>.tsv (one "
                         "library per plant: sample, file), meth/<g>.tsv (samples table: sample, CHG[, CG, CHH] "
                         "modkit bedMethyl) [+ meth/<g>.exclude.bed]. A Hi-C library and a methylation sample with "
                         "the same name are the same plant")

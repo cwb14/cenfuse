@@ -32,8 +32,10 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # 0.4.0 (seeds) = stage trf renamed seeds; FasTAN engine (default) beside TRF.
 # 0.10.0 = classify: dispersed repeats (tandem test), dominance per satellite kind, acrocentric test;
 #          centromeres: competing clusters reported (alt_start/alt_end) and low (T2T mammal benchmark).
-STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.0",
-                 "centromeres": "0.10.0", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
+# 0.10.1 = classify: the acrocentric test's interior rival is judged per satellite kind; centromeres: a second
+#          acrocentric satellite unrelated to the call competes with it (T2T mouse).
+STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.1",
+                 "centromeres": "0.10.1", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
@@ -299,6 +301,7 @@ class Pipeline:
 
             acro = frozenset(fams.family[fams["acrocentric"].astype(str).eq("True")]) if "acrocentric" in fams \
                 else frozenset()
+            rivals = classify.acro_rivals(acro, primary, self.fam_info())
             chosen = {}                                      # classify's per-chromosome choice (defines)
             for r in fams[fams.cls == "centromeric"].itertuples(index=False):
                 for c in str(r.defines).split(","):
@@ -308,7 +311,7 @@ class Pipeline:
             def call_with(prim):
                 return centromere.call_regions(g, arrays, prim, self.genes(g), self.seed_table(g),
                                                self.work / "centromeres" / f"tmp_{g.name}", self.threads, self.p,
-                                               borrowed=borrowed, te=tev, capped=capped, acro=acro,
+                                               borrowed=borrowed, te=tev, capped=capped, acro=acro, rivals=rivals,
                                                per_chrom=chosen)
             rows, lu = call_with(primary)
             te_fams = set(fams.family[pd.to_numeric(fams.get("in_ltr"), errors="coerce") >= TE_DERIVED_FRAC]) \

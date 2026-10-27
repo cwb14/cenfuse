@@ -142,3 +142,54 @@ def test_competing_cluster_is_reported_and_low(tmp_path):
     assert "alt_start" not in one
     with pysam.FastaFile(str(fa)) as h:
         assert finalize("c", 20_000_000, one, h, None, None, P)["confidence"] == "high"
+
+
+def test_a_subfamily_at_the_inner_edge_of_a_terminal_block_is_no_interior_rival():
+    """T2T mouse: a major-satellite subfamily beyond the end zone on half the chromosomes is strong and interior by
+    itself, but its kind (subfamilies pooled) is terminal, so it does not block the acrocentric test. An unrelated
+    family in the same place still does."""
+    a, chroms = acro_genome(0, False)
+    sub = pd.DataFrame([arr("T2", f"c{i}", 5_500_000, 200, 817) for i in range(10)], columns=ARR_COLS)
+    a = pd.concat([a, sub], ignore_index=True)                        # 163 kb at 5.5 Mb on 10/20 chromosomes
+    info = lambda sf2: {"T": dict(superfamily="S", length=817, rdna=".", chain_group="T"),
+                        "T2": dict(superfamily=sf2, length=817, rdna=".", chain_group="T2")}
+    f = family_metrics(a, chroms, None, P, fam_info=info("S"))[0].set_index("family")
+    assert f.loc["T2", "eligible"] and f.loc["T2", "subtel_frac"] == 0
+    assert f.loc["T", "eligible"] and f.loc["T", "acrocentric"]
+    f = family_metrics(a, chroms, None, P, fam_info=info("U"))[0].set_index("family")
+    assert not f.loc["T", "eligible"] and not f.loc["T", "acrocentric"]
+
+
+def test_acro_rivals_are_unrelated_acrocentric_families_outside_the_call():
+    from cenfuse.sat.classify import acro_rivals
+    info = {"Ma": dict(superfamily="Ma", length=59, rdna=".", chain_group="Ma"),
+            "Ma2": dict(superfamily="Ma", length=58, rdna=".", chain_group="Ma2"),
+            "Mi": dict(superfamily="Mi", length=120, rdna=".", chain_group="Mi")}
+    assert acro_rivals({"Ma", "Mi"}, {"Ma"}, info) == {"Mi"}
+    assert acro_rivals({"Ma", "Ma2"}, {"Ma"}, info) == frozenset()               # a subfamily is no rival
+    assert acro_rivals({"Ma", "Mi"}, {"Ma", "Mi"}, info) == frozenset()          # pooled in the call (goat)
+    assert acro_rivals({"Ma", "X"}, {"Ma"}, info) == frozenset()                 # unknown family: no rival
+
+
+def test_a_rival_acrocentric_satellite_competes_with_its_terminal_block(tmp_path, monkeypatch):
+    """T2T mouse: the call takes the larger major satellite; the minor satellite at the end (CENP-A) is the other
+    candidate. Its larger interior block is not the one that made it acrocentric, so the terminal one is reported."""
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.genomes import Genome
+    from cenfuse.sat.seeds import COLS
+    fa = tmp_path / "m.fa"
+    fa.write_text(">c\n" + "A" * 20_000_000 + "\n")                  # 1-Mb end zones
+    pysam.faidx(str(fa))
+    g = Genome("m", fa, {"c": 20_000_000})
+    a = pd.DataFrame([arr("Ma", "c", 600_000, 10_000, 180), arr("Mi", "c", 10_000, 2000, 120),
+                      arr("Mi", "c", 10_000_000, 5000, 120)], columns=ARR_COLS)
+    monkeypatch.setattr(longunit, "detect", lambda *x, **k: pd.DataFrame(columns=longunit.LU_COLS))
+    trf = pd.DataFrame(columns=COLS)
+    base, _ = centromere.call_regions(g, a, {"Ma"}, None, trf, tmp_path / "t1", 1, P, acro=frozenset({"Ma", "Mi"}))
+    assert base["c"]["confidence"] == "medium" and base["c"]["alt_start"] == "."   # near_end only
+    rows, _ = centromere.call_regions(g, a, {"Ma"}, None, trf, tmp_path / "t2", 1, P, acro=frozenset({"Ma", "Mi"}),
+                                      rivals=frozenset({"Mi"}))
+    r = rows["c"]
+    assert (r["cen_start"], r["cen_end"]) == (600_000, 600_000 + 10_000 * 180)
+    assert r["confidence"] == "low" and "competing_cluster" in r["flags"] and "acrocentric" in r["flags"]
+    assert (r["alt_start"], r["alt_end"]) == (10_000, 10_000 + 2000 * 120)

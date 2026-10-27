@@ -205,9 +205,20 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
                          eligible=False, cls="other", strength=".", defines=".", dominant=False, reason=".",
                          subtelomeric=bool(subtelomeric), rdna_tag=rdna, role=".", in_ltr=float("nan"), ltr_clade=".",
                          tandem_frac=tf, whole_frac=wf, locus_fold=fold, acrocentric=False,
-                         _fails=fails, _subtel=subtel_why, _ends=(end_chroms, both_chroms, most_ends)))
+                         _fails=fails, _subtel=subtel_why, _ends=(end_chroms, both_chroms, most_ends), _near=near))
     strong = lambda r: r["prevalence"] >= p.strong_prevalence and r["median_main_bp"] >= p.strong_cluster_bp
-    interior = any(strong(r) and not r["_fails"] and not r["_subtel"] for r in rows)
+    # an interior rival must be interior as a satellite kind (subfamilies pooled, as for dominance): a subfamily at the
+    # inner edge of a terminal block is part of that block (T2T mouse: a 58-bp major-satellite subfamily 2-13 Mb from
+    # the end of 10/20 chromosomes lies beyond the end zone while its kind is 61% terminal)
+    known = sorted(r["family"] for r in rows if fam_info is not None and r["family"] in fam_info)
+    kind_of = {f: i for i, k in enumerate(kinds(known, fam_info)) for f in k}
+    kbp, knear = {}, {}
+    for r in rows:
+        k = kind_of.setdefault(r["family"], r["family"])
+        kbp[k] = kbp.get(k, 0) + r["bp"]
+        knear[k] = knear.get(k, 0) + r["_near"]
+    interior = any(strong(r) and not r["_fails"] and not r["_subtel"]
+                   and knear[kind_of[r["family"]]] < p.max_subtel_frac * kbp[kind_of[r["family"]]] for r in rows)
     n = len(chroms)
     for r in rows:
         e, b, most = r["_ends"]
@@ -221,7 +232,7 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
         fails = r.pop("_fails") + ([r["_subtel"]] if r["_subtel"] else [])
         r["eligible"] = not fails
         r["reason"] = "; ".join(fails) if fails else "eligible" + (f"; {r['_acro']}" if r.get("_acro") else "")
-        for k in ("_subtel", "_ends", "_acro"):
+        for k in ("_subtel", "_ends", "_acro", "_near"):
             r.pop(k, None)
     return pd.DataFrame(rows, columns=CLS_COLS), mains
 
@@ -293,6 +304,15 @@ def kinds(families, fam_info) -> list:
         hit = [k for k in out if any(same_sequence(f, x, fam_info) for x in k)]
         out = [k for k in out if k not in hit] + [sorted({f, *(x for k in hit for x in k)})]
     return out
+
+
+def acro_rivals(acro, primary, fam_info) -> frozenset:
+    """Acrocentric families unrelated by sequence to every centromeric family (`primary`): another satellite that
+    also occurs once per chromosome at its centromeric end, so the sequence line cannot tell which one carries the
+    kinetochore (centromere.call_regions). A family missing from fam_info counts as related (no rival)."""
+    info = fam_info or {}
+    kin = lambda f, x: f not in info or x not in info or same_sequence(f, x, info)
+    return frozenset(f for f in set(acro) - set(primary) if not any(kin(f, x) for x in primary))
 
 
 def largest_kinds(arrays: pd.DataFrame, elig: set, chroms: dict, p, fam_info) -> list:

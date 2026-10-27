@@ -8,7 +8,7 @@ is required.
 
 *Poa annua, all four inputs ([PDF with legends](docs/img/example_overview.pdf)). **A** one row per chromosome:
 Hi-C score (blue), CHG methylation (black), satellite arrays by role, TE density; black box = sequence call, gray
-band = final call. **B** lines that support (●) or oppose (×) each call. **C** each line's call relative to the
+band = final call; ▶ ▼ = telomere arrays at the ends and inside. **B** lines that support (●) or oppose (×) each call. **C** each line's call relative to the
 sequence call. **D** Hi-C score around each call.*
 
 ## At a glance
@@ -16,10 +16,11 @@ sequence call. **D** Hi-C score around each call.*
 | | |
 |---|---|
 | **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, ONT methylation (CpG and/or CHG), genes |
-| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; with CpG methylation, the kinetochore inside it; telomeres, rDNA, knobs and other repeat blocks on the same map |
+| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; with CpG methylation, the kinetochore inside it; telomeres (also interstitial ones), rDNA, knobs and other repeat blocks on the same map |
 | **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
-| **Runtime** | the satellite search dominates (3-Gb genome: ~5 h at 16 threads); Hi-C and fusion take minutes; reruns resume |
-| **Memory** | the satellite search peaks at 40-160 GB for T2T mammals (12 threads) and 260 GB for chicken (24 threads) |
+| **Runtime** | the satellite search dominates and grows with satellite content (T2T mammals, 2.6-3.5 Gb: 1.5-7 h at 12 threads; mouse, ~6% satellite: 12 h at 16; maize, 2.2 Gb: 40 min at 16); Hi-C and fusion take minutes; reruns resume |
+| **Memory** | the satellite search holds about one search workspace (≤ ~2.4 GB) per thread: chicken 58 GB at 24 threads, giraffe 17 GB at 12, *Arabidopsis* 5 GB at 8 |
+| **Reproducible** | reruns give byte-identical outputs (FASTA-only runs tested at 16 and 8 threads) |
 
 ## How well it works
 
@@ -36,9 +37,13 @@ Figure, details and every failure: [`docs/benchmark.md`](docs/benchmark.md). Eve
 | potato | CENH3 | FASTA + Hi-C | 11 | 2 | 2 | 7 |
 | horse (EquCab3) | CENP-A | FASTA + Hi-C | 5 | 3 (all `low`) | 0 | 2 |
 | *Arabidopsis* (Col-CC) | CENH3 | FASTA (+ `tes/`, + ONT methylation) | 5 | 5 (all `high`) | 0 | 0 |
-| chicken (GGswu, 40 chromosomes) | CENP-A windows | FASTA only | 33 | 28 (all `low`) | 0 | 5 |
+| chicken (GGswu, 40 chromosomes) | CENP-A windows | FASTA (+ Hi-C: unchanged) | 33 | 28 (all `low`) | 0 | 5 |
+| maize (Mo17 T2T, knobs) | CENH3 | FASTA only | 10 | 9 (all `high`; 7 overlap) | 1 | 0 |
+| mouse (mhaESC T2T, all acrocentric) | minor-satellite (CENP-A) array | FASTA only | 20 | 1 (`low`; all 20 at the centromeric end, the minor satellite the reported alternative on 20) | 0 | 19 |
 
-Controls: on randomized Hi-C (29 runs) the Hi-C test never passed and no call changed.
+Controls: on randomized Hi-C (33 runs, 4 of them on genomes whose calls are all `low`) the Hi-C test never passed and no
+call changed. Siamang without genes (all calls `low`): Hi-C now validates 20 calls (`medium`; 18/20 match the genes + Hi-C
+run).
 
 **Kinetochores from CpG methylation** (public ONT tracks; the CpG line refines calls, never changes them):
 
@@ -61,9 +66,10 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 | Hi-C, satellites and TEs are tested against each other, not trusted on their own word | When a small array is the active one and a large array of the same satellite sits elsewhere, the large one is called, confidently (one orangutan chromosome) |
 | Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Without CpG methylation, calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
 | CpG methylation places the kinetochore inside the array (60 kb; 35/39 within 50 kb of CENP-A) | The CpG line refines a call but cannot fix a wrong one; its test failed on older chimpanzee data |
-| No confident call on holocentric genomes (0/40 chromosomes) | |
+| No confident call on holocentric genomes (0/40 chromosomes), or on point, regional and AT-rich centromeres (yeasts, *Plasmodium*, *Neurospora*) | CENH3 on satellite-free DNA beside the satellite array can be missed confidently (maize chr5, 2 Mb from CentC) |
+| Knobs are not taken for centromeres (maize: 23.6 Mb of knob repeat, none in a call) | Chicken: right calls stay `low`; its Hi-C is dominated by telomere clustering and cannot validate them |
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
-| Rejects interspersed repeats and handles acrocentric karyotypes without annotation | Acrocentric detection needs ≥ ~16 chromosomes |
+| Rejects interspersed repeats and finds the centromeric end of acrocentric karyotypes without annotation (goat 30/30 on the satellome locus; mouse 20/20 at the right end) | Acrocentric detection needs ≥ ~16 chromosomes. Where a larger pericentric satellite shares that end (mouse), the call is `low` on it and the CENP-A satellite is the reported alternative |
 
 ## Install
 
@@ -71,7 +77,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 475 tests, ~2 min
+pytest -q -n 8          # optional: 486 tests, ~3 min
 ```
 
 ## Quick start
@@ -116,7 +122,8 @@ ltrquest --genome asm.fa --proteins related.pep.fa --threads 32      # uncompres
 mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm.gff3
 ```
 Set `--mutation-rate` for your organism (default 3e-8, plants). Any GFF3 works if each element's type contains
-`LTR_retrotransposon` and it carries `clade=` (e.g. EDTA + TEsorter).
+`LTR_retrotransposon` and it carries `clade=` (e.g. EDTA + TEsorter). A [DANTE_LTR](https://github.com/kavonrtep/dante_ltr)
+GFF3 works as it is: each `transposable_element` takes its REXdb lineage from `Final_Classification`.
 
 **Hi-C** to uniquely mapped, deduplicated pairs (~100 M read pairs is enough; map to this exact assembly):
 
@@ -164,7 +171,7 @@ Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or
 | **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, and the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `kinetochore`) |
 | `cenfuse_overview.pdf` | the figure above |
 | `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C and CpG passed their tests, warnings |
-| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, rDNA, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there |
+| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, interstitial telomeric arrays, rDNA, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there |
 | `asm.hic_anchored.bedgraph` | the Hi-C centromere score per bin, for a browser |
 | `asm.provenance.tsv`, `asm.plants.tsv` | with several plants: which plant each input comes from; each plant's centromere |
 | `satellite/`, `hic/`, `methylation/` | each line's detailed outputs |
@@ -186,7 +193,7 @@ moved or placed is `medium` (`high` with a second line).
 
 | flag | meaning |
 |---|---|
-| `competing_cluster` | a second satellite cluster at least half the size; call is `low`, the other is in `seq_alt_start`/`seq_alt_end` |
+| `competing_cluster` | a second satellite cluster at least half the size, or a second satellite that also marks the acrocentric end; call is `low`, the other is in `seq_alt_start`/`seq_alt_end` |
 | `hic_chose_alt` | validated Hi-C picked the competing cluster |
 | `acrocentric` | the family sits at one end of most chromosomes (acrocentric karyotype) |
 | `fold_pair` | Hi-C's centromere cluster and the chromosome's arm fold agree here, away from the satellite call: the call moved |
@@ -196,7 +203,8 @@ moved or placed is `medium` (`high` with a second line).
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence |
 
 Per-genome tests (`*.centromeres.tsv` and `cenfuse_summary.tsv`): `hic_gate` (`pass`/`fail`/`untested`: does Hi-C
-find the other chromosomes' centromeres?), `fold_gate` (does the arm fold agree with Hi-C's own peaks?) and
+find the other chromosomes' centromeres? `hic_gate_refs`: `reference` = tested against the confident calls, `low` =
+no confident call anywhere, so against the `low` calls at clean peaks), `fold_gate` (does the arm fold agree with Hi-C's own peaks?) and
 `cpg_gate` (do CpG dips sit at the other chromosomes' calls more often than methylation from elsewhere would put them?).
 
 | CpG column | meaning |

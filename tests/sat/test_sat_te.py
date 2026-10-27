@@ -29,6 +29,38 @@ def test_load_te_gff_reads_clades_from_ltrquest_and_edta_style_lines(tmp_path):
     assert set(t) == {"CRM", "Ale"} and t["CRM"]["c1"].tolist() == [150, 1500] and t["Ale"]["c1"].tolist() == [5500]
 
 
+DANTE = ("##gff-version 3\n"
+         "c1\tdante_ltr\ttransposable_element\t101\t200\t.\t+\t.\tID=TE_1;Final_Classification=Class_I|LTR|Ty3/gypsy|"
+         "chromovirus|CRM;Rank=DLTP\n"
+         "c1\tdante_ltr\tlong_terminal_repeat\t101\t120\t.\t+\t.\tFinal_Classification=Class_I|LTR|Ty3/gypsy|chromovirus|"
+         "CRM;Parent=TE_1\n"
+         "c1\tdante\tprotein_domain\t130\t160\t5\t+\t.\tFinal_Classification=Class_I|LTR|Ty3/gypsy|chromovirus|CRM;"
+         "Parent=TE_1\n"
+         "c1\tdante_ltr\ttransposable_element\t1001\t2000\t.\t-\t.\tID=TE_2;Final_Classification=Class_I|LTR|Ty3/gypsy|"
+         "non-chromovirus|OTA|Athila;Rank=D\n"
+         "c1\tdante_ltr\ttransposable_element\t3001\t4000\t.\t-\t.\tID=TE_3;Final_Classification=Class_I|LTR|Ty3/gypsy|"
+         "chromovirus\n"
+         "c1\tdante_ltr\ttransposable_element\t5001\t6000\t.\t+\t.\tID=TE_4;Final_Classification=Class_I|LTR|Ty1/copia|"
+         "Ivana\n")
+
+
+def test_dante_ltr_elements_take_their_lineage(tmp_path):
+    from cenfuse.methfuse import read_tes
+    from cenfuse.sat.te import dante_lineage, load_te_intervals
+    assert dante_lineage("Class_I|LTR|Ty3/gypsy|chromovirus|CRM") == ("CRM", "Gypsy")
+    assert dante_lineage("Class_I|LTR|Ty3/gypsy|non-chromovirus|OTA|Tat|Retand") == ("Retand", "Gypsy")
+    assert dante_lineage("Class_I|LTR|Ty3/gypsy|chromovirus") == ("", "Gypsy")        # classified to a rank only
+    gff = tmp_path / "d.gff3"
+    gff.write_text(DANTE)
+    t = load_te_gff(gff, {"c1": 20_000})                       # parent elements only; the unresolved one is left out
+    assert {c: v["c1"].tolist() for c, v in t.items()} == {"CRM": [150], "Athila": [1500], "Ivana": [5500]}
+    s, e, cl = load_te_intervals(gff, {"c1": 20_000})["c1"]
+    assert s.tolist() == [100, 1000, 5000] and cl == ["CRM", "Athila", "Ivana"]
+    m = read_tes(gff)                                         # the CHG line's classes: lineage, else superfamily
+    assert m.cls.tolist() == ["LTR:CRM", "LTR:Athila", "LTR:Gypsy_unclassified", "LTR:Ivana"]
+    assert m.depth.tolist() == [0, 0, 0, 0]
+
+
 def test_core_finds_a_concentrated_cluster_and_ignores_uniform_spread():
     rng = np.random.default_rng(1)
     clustered = np.sort(np.concatenate([rng.integers(4_000_000, 4_400_000, 60), rng.integers(0, L, 40)]))

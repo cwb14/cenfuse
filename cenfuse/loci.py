@@ -8,14 +8,14 @@ Members are:
 - per-plant methylation candidates that are centromere_like (leave-one-out signature) or plant-specific;
 - the sequence call and the integrated call.
 
-- telomere arrays at the chromosome ends (cenfuse.telomere).
+- telomere arrays at the chromosome ends, and interstitial arrays of the telomere unit (cenfuse.telomere).
 
 Satellite families that are dispersed or minor in this genome are background, not features, and are not members
 (their 3D association is still tested per family). Members that overlap form one locus; Hi-C members are padded by
 one bin (their placement error) for this, and nothing else is, so dense satellite content cannot chain a locus
 along a whole chromosome. Its kind is the first that matches:
-centromere, sequence_centromere, telomere, rDNA, subtelomeric_block, interstitial_block, alt_centromere_candidate,
-hic_hub, hic_peak, te_core, satellite_block, meth_candidate, other. feature_signatures() then summarizes every line's signal per kind, so
+centromere, sequence_centromere, telomere, interstitial_telomeric, rDNA, subtelomeric_block, interstitial_block,
+alt_centromere_candidate, hic_hub, hic_peak, te_core, satellite_block, meth_candidate, other. feature_signatures() then summarizes every line's signal per kind, so
 each kind's joint signature (satellite, LTR, Hi-C, methylation) can be read and compared."""
 from __future__ import annotations
 
@@ -35,9 +35,9 @@ LOCUS_COLS = ["locus", "chrom", "start", "end", "length", "kind", "lines", "n_li
               "te_elements", "te_top_clades", "hic_anch_max", "hic_denovo_max", "hic_telomere_max", "hic_hub",
               "meth_pooled_extreme", "meth_raw_chg", "meth_samples_centromere_like", "meth_samples_specific",
               "gene_ratio", "gap_bp", "dist_to_call"]
-KIND_ORDER = ["centromere", "sequence_centromere", "telomere", "rDNA", "subtelomeric_block", "interstitial_block",
-              "alt_centromere_candidate", "hic_hub", "hic_peak", "te_core", "satellite_block", "meth_candidate",
-              "other"]
+KIND_ORDER = ["centromere", "sequence_centromere", "telomere", "interstitial_telomeric", "rDNA", "subtelomeric_block",
+              "interstitial_block", "alt_centromere_candidate", "hic_hub", "hic_peak", "te_core", "satellite_block",
+              "meth_candidate", "other"]
 
 
 def _runs(mask: np.ndarray):
@@ -56,6 +56,9 @@ def members(chrom: str, L: int, fused: dict, clusters: pd.DataFrame, tel: dict, 
     for c, side, s, e, bp, gap_end in (telo or {}).get("ends", []):
         if c == chrom:
             out.append((s, e, "telomere_array", "telomere", telo["unit"], dict(side=side, bp=bp, gap_to_end=gap_end)))
+    for c, s, e, bp in (telo or {}).get("interstitial", []):
+        if c == chrom:
+            out.append((s, e, "telomere_interstitial", "telomere", telo["unit"], dict(bp=bp)))
     if fused.get("call"):
         out.append((*fused["call"], "integrated_call", "call", fused["relation"], {}))
     if fused.get("seq"):
@@ -121,6 +124,8 @@ def kind(group: list) -> str:
         return "sequence_centromere"
     if "telomere_array" in types:
         return "telomere"
+    if "telomere_interstitial" in types:
+        return "interstitial_telomeric"
     if rdna or "rDNA" in roles or "rdna_array" in types:
         return "rDNA"
     if "subtelomeric" in roles:
@@ -166,7 +171,7 @@ def locus_values(chrom, s, e, group, seq, tel, hic, meth, genes, chrom_len, fa) 
                                 | {f"45S_array:{m[5]['units']}x{m[5]['unit_bp']}" for m in group
                                    if m[2] == "rdna_array"})) or "."
     v["te_clades"] = ",".join(sorted({m[4] for m in group if m[2] == "te_core"})) or "."
-    v["telomere_bp"] = sum(m[5]["bp"] for m in group if m[2] == "telomere_array")
+    v["telomere_bp"] = sum(m[5]["bp"] for m in group if m[2] in ("telomere_array", "telomere_interstitial"))
     dens = tel.get("density", {}).get(chrom)
     v["te_marker_elements"] = int(dens[1][s // dens[0]: (e - 1) // dens[0] + 1].sum()) if dens else np.nan
     if tel.get("mids"):

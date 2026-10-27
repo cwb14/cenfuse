@@ -7,7 +7,7 @@ Each image is the first page of `cenfuse_overview.pdf` from a default run on the
 
 | panel | shows |
 |---|---|
-| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved) |
+| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside the chromosome (▼) |
 | **B** | which evidence lines support (●) or oppose (×) each final call, then its relation and confidence (a `fold` column appears only where the arm fold acted: barley) |
 | **C** | where each line puts the centromere, relative to the satellite call |
 | **D** | Hi-C score around every final call: a peak at 0 means the calls sit where centromeres meet in the nucleus |
@@ -43,8 +43,17 @@ Each image is the first page of `cenfuse_overview.pdf` from a default run on the
 | [rice](#rice) | 12/12 | pass | |
 | [barley](#barley) | 6/7 | fail; arm fold passes | satellite calls at the chromosome ends; Hi-C and the arm fold moved 6 |
 | [potato](#potato) | 2/11 | fail | half the centromeres are satellite-free; no TE input |
-| [horse (EquCab3)](#horse-equcab3) | 3/5 | untested | right calls are uncertain |
+| [horse (EquCab3)](#horse-equcab3) | 3/5 | fail (on its `low` calls) | right calls are uncertain |
 | [*Poa infirma*](#poa-infirma) | 7/7 | pass | truth from earlier analyses |
+
+## Other genomes (no Hi-C)
+
+| genome | truth | inputs | right | note |
+|---|---|---|---|---|
+| [*Arabidopsis thaliana* (Col-CC)](#arabidopsis-thaliana-col-cc) | CENH3 | FASTA, `tes/`, ONT methylation | 5/5 | all `high` |
+| [chicken (GGswu)](#chicken-ggswu) | CENP-A windows (33 of 40 chromosomes) | FASTA | 28/33 | all `low`: no satellite family dominates |
+| [maize (Mo17 T2T)](#maize-mo17-t2t) | CENH3 | FASTA | 9/10 within 1 Mb (7 overlap) | the knob repeat (23.6 Mb) is never called; chr5 confidently wrong: CENH3 on satellite-free DNA 2 Mb from CentC |
+| [mouse (mhaESC T2T)](#mouse-mhaesc-t2t) | minor-satellite (CENP-A) array | FASTA | 1/20 (20/20 at the centromeric end) | all acrocentric: calls are `low` on the larger pericentric major satellite, with the minor satellite as the reported alternative |
 
 ---
 
@@ -104,3 +113,15 @@ Each image is the first page of `cenfuse_overview.pdf` from a default run on the
 
 ### Poa infirma
 ![Poa infirma](img/gallery/infirma.png)
+
+### Arabidopsis thaliana (Col-CC)
+![Arabidopsis thaliana Col-CC](img/gallery/colcc.png)
+
+### chicken (GGswu)
+![chicken GGswu](img/gallery/ggswu.png)
+
+### maize (Mo17 T2T)
+![maize Mo17](img/gallery/mo17.png)
+
+### mouse (mhaESC T2T)
+![mouse mhaESC](img/gallery/mmT2T.png)

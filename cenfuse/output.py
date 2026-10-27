@@ -54,7 +54,7 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
 
 def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: Path) -> None:
     write_tsv(loci, out / f"{genome}.loci.tsv")
-    kinds = dict(zip(loci.locus, loci.kind))
+    kinds, chrom_of = dict(zip(loci.locus, loci.kind)), dict(zip(loci.locus, loci.chrom))
     with open(out / f"{genome}.features.gff3", "w") as f:
         f.write("##gff-version 3\n")
         for ch, L in chroms.items():
@@ -64,7 +64,7 @@ def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: 
             f.write(f"{r.chrom}\tcenfuse\t{r.kind}\t{r.start}\t{r.end}\t.\t.\t.\t"
                     f"{_attrs(dict(ID=r.locus, lines=r.lines, n_lines=r.n_lines))}\n")
         for k, (lid, (s, e, typ, line, label, extra)) in enumerate(feats, 1):
-            ch = lid.split(":")[1]
+            ch = chrom_of[lid]                               # not parsed from the ID: names may hold ':'
             a = dict(ID=f"{lid}.m{k}", Parent=lid, line=line, label=label, locus_kind=kinds.get(lid))
             a.update({(x if x not in a else f"{line}_{x}"): v for x, v in extra.items()
                       if not isinstance(v, float) or np.isfinite(v)})
@@ -104,12 +104,14 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              te_marker=tel["marker"][0] if tel.get("marker") else ".",
              te_decisive=bool(tel["marker"][2]) if tel.get("marker") else ".",
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
+             telomere_interstitial=len((telo or {}).get("interstitial", [])),
              rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".")
     if hic is not None:
         h = hic["table"]
         d.update(hic_bin=hic["bin_size"], hic_rabl=hic["rabl"]["passed"],
                  hic_gate_pass=int(h.gate_pass.sum()),
-                 hic_gate_untested=int((~h.gate_pass & (h.gate_n < GATE_MIN_REF)).sum()), hic_chromosomes=len(h),
+                 hic_gate_untested=int((~h.gate_pass & (h.gate_n < GATE_MIN_REF)).sum()),
+                 hic_gate_refs=h.gate_refs.iat[0] if "gate_refs" in h and len(h) else ".", hic_chromosomes=len(h),
                  hic_anch_on_seq=int(h.anch_agrees_seq.sum()), hic_denovo_on_seq=int(h.denovo_agrees_seq.sum()),
                  hic_denovo_on_anch=int(h.denovo_agrees_anch.sum()), hic_seq_called=int(h.seq_start.ge(0).sum()),
                  hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".")

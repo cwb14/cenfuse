@@ -24,6 +24,7 @@ from .meth import calibrate, candidates, classes, io, output, params as mp, plot
 from .meth.candidates import sign, signature_match
 from .meth.scan import scan
 from .params import METH_SCORE
+from .sat.te import dante_lineage
 from .util import CenfuseError, log
 
 SUPPORT_COLS = ["chrom", "item", "start", "end", "sample", "bin_start", "value", "with_data", "matched", "score",
@@ -92,10 +93,17 @@ def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
 
 def read_tes(path) -> pd.DataFrame:
     """The methylation engine's LTRquest classes (clade, else superfamily_unclassified; nesting depth) from tes/, with the TE line's
-    type rule: any feature type containing 'LTR_retrotransposon' (as the satellite engine), so EDTA + TEsorter files work as well."""
+    type rule: any feature type containing 'LTR_retrotransposon' (as the satellite engine), so EDTA + TEsorter files work as well.
+    DANTE_LTR elements ('transposable_element' with an LTR Final_Classification) take their lineage and superfamily from
+    that path (sat.te.dante_lineage) and depth 0 (DANTE_LTR reports no nesting)."""
     d = io.read_intervals(path)
-    d = io._need(d[d.type.str.contains("LTR_retrotransposon", na=False)], path, "LTR_retrotransposon features")
+    fc = io.attr(d["attrs"], "Final_Classification")
+    dante = d.type.eq("transposable_element") & fc.str.contains("|LTR|", regex=False)
+    keep = d.type.str.contains("LTR_retrotransposon", na=False) | dante
+    d, dante, fc = io._need(d[keep], path, "LTR_retrotransposon features"), dante[keep], fc[keep]
+    lin = fc[dante].map(dante_lineage)
     clade, sf = io.attr(d["attrs"], "clade"), io.attr(d["attrs"], "superfamily")
+    clade[dante], sf[dante] = lin.str[0], lin.str[1]
     un, sf_un = clade.str.lower().isin(io.UNCLASSIFIED), sf.str.lower().isin(io.UNCLASSIFIED)
     cls = np.where(~un, "LTR:" + clade, np.where(~sf_un, "LTR:" + sf + "_unclassified", "LTR:unclassified"))
     depth = pd.to_numeric(io.attr(d["attrs"], "depth"), errors="coerce").fillna(0).astype(int)

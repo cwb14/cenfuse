@@ -44,7 +44,7 @@ from .util import CenfuseError, gap, log, poisson_binomial_sf
 HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confidence", "partner",
             "anch_peak_start", "anch_peak_end", "anch_core_start", "anch_core_end", "anch_ratio", "anch_boot_in_core",
             "anch_lopo_stable", "anch_null_p", "anch_level", "anch_flags", "anch_strong", "anch_agrees_seq", "chance",
-            "gate_k", "gate_n", "gate_p", "gate_pass", "masked",
+            "gate_k", "gate_n", "gate_p", "gate_pass", "gate_refs", "masked",
             "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end", "denovo_confidence",
             "denovo_flags", "denovo_agrees_seq", "denovo_agrees_anch"]
 
@@ -242,27 +242,45 @@ def _chance(S, bins, good, k: int, s: int, e: int) -> float:
     return float((near & ok).sum() / ok.sum())
 
 
+def clean_peak(flags) -> bool:
+    """An anchored peak without a hub, rDNA or telomeric flag (those attract trans contacts whatever the centromere)."""
+    return not set(str(flags or "").split(",")) & set(NOT_STRONG_FLAGS)
+
+
 def gate(table: pd.DataFrame) -> pd.DataFrame:
     """Leave-one-chromosome-out gate (see module doc). Reference: chromosomes with a high sequence call (plus medium
     when fewer than GATE_MIN_REF are high) and a scored anchored peak. Hi-C must also agree on a majority of the whole
     reference set: with a few references, leaving out one that disagrees can turn 2 of 4 into 2 of 3 (T2T sheep,
-    partners re-paired at random: 2 gate passes; on real Hi-C the rule changed no gate in 14 mammals)."""
+    partners re-paired at random: 2 gate passes; on real Hi-C the rule changed no gate in 14 mammals).
+
+    A genome without any high or medium call (no satellite family dominates, so the satellite engine caps every call:
+    siamang without genes, chicken, EquCab3) has no reference-grade call, and Hi-C could never act where the sequence
+    line is least sure. There the low calls are the references, and an agreement counts only at a clean peak: chromosome
+    ends, hubs and NORs cluster in 3D whatever the centromere, so in a Rabl nucleus wrong calls at the ends would
+    otherwise agree with Hi-C. Two independent lines that agree beyond chance on most chromosomes validate each other;
+    gate_refs records which references were used."""
     t = table.copy()
     scored = t.anch_peak_start.ge(0) & t.chance.notna() & t.seq_start.ge(0)
     ref = t[scored & t.seq_confidence.eq("high")]
     if len(ref) < GATE_MIN_REF + 1:
         ref = t[scored & t.seq_confidence.isin(["high", "medium"])]
-    majority = 2 * int(ref.anch_agrees_seq.sum()) > len(ref)
+    refs, agree = "reference", ref.anch_agrees_seq
+    if not t.seq_confidence.isin(["high", "medium"]).any():
+        ref = t[scored & t.seq_confidence.eq("low")]
+        refs, agree = "low", ref.anch_agrees_seq & ref.anch_flags.map(clean_peak)
+    majority = 2 * int(agree.sum()) > len(ref)
     ks, ns, ps, passed = [], [], [], []
     for c in t.chrom:
-        r = ref[ref.chrom != c]
-        k, n = int(r.anch_agrees_seq.sum()), len(r)
+        r = ref.chrom != c
+        k, n = int(agree[r].sum()), int(r.sum())
+        r = ref[r]
         p = poisson_binomial_sf(k, r.chance.to_numpy()) if n else float("nan")
         ks.append(k)
         ns.append(n)
         ps.append(p)
         passed.append(bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P and majority))
     t["gate_k"], t["gate_n"], t["gate_p"], t["gate_pass"] = ks, ns, ps, passed
+    t["gate_refs"] = refs
     return t
 
 
