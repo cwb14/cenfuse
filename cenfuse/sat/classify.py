@@ -453,12 +453,21 @@ def assign_cen_associated(fams: pd.DataFrame, arrays: pd.DataFrame, regions: dic
     return fams
 
 
+def dispersed_repeat(r) -> bool:
+    """classify's dispersed-repeat test on a families-table row (NaN: not judged, False)."""
+    tf, wf, fold = (getattr(r, k, float("nan")) for k in ("tandem_frac", "whole_frac", "locus_fold"))
+    return bool(tf < TANDEM_FRAC and wf < TANDEM_FRAC and fold < LOCUS_FOLD)
+
+
 def assign_roles(fams: pd.DataFrame, p, borrowed: bool = False) -> pd.DataFrame:
     """One role per family in this genome (ROLES, first match wins), from the tests classify already ran:
     rDNA (5S rRNA by Rfam on the consensus, or 45S spacer: arrays among 45S rRNA genes), centromeric,
     cen_associated (most bp inside centromere calls), subtelomeric (the family_metrics verdict), interstitial (concentrated at one
     locus per chromosome, not the centromere: knobs and other heterochromatic blocks land here; the engine cannot tell
-    them apart), dispersed (spread along chromosomes), minor (< chrom_min_bp in this genome: too little to judge).
+    them apart), dispersed (spread along chromosomes, or a dispersed repeat by classify's own test: neither tandem nor
+    whole units and no dense locus, however concentrated its main cluster), minor (< chrom_min_bp in this genome: too
+    little to judge). An interspersed family classed interstitial chained into chromosome-wide clusters (bonobo: a
+    1.5-kb family, 669 Mb, 7% of its bp in tandem repeats) and made chromosome-scale loci downstream.
     Borrowed genomes (contigs): per-chromosome tests are meaningless, so only rDNA / centromeric / cen_associated
     are assigned and the rest is 'unassessed'."""
     fams = fams.copy()
@@ -471,6 +480,8 @@ def assign_roles(fams: pd.DataFrame, p, borrowed: bool = False) -> pd.DataFrame:
             roles.append(r.cls)
         elif borrowed:
             roles.append("unassessed")
+        elif dispersed_repeat(r):
+            roles.append("dispersed")
         elif bool(getattr(r, "subtelomeric", False)):
             roles.append("subtelomeric")
         elif r.bp < p.chrom_min_bp:

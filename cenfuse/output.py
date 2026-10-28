@@ -10,11 +10,26 @@ from urllib.parse import quote
 import numpy as np
 import pandas as pd
 
-from . import __version__
+from . import __version__, morphology
 from .cdr import DIP_P
 from .params import GATE_MIN_REF
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
+# GFF3 types are Sequence Ontology terms (validators and annotation tools check them); cenfuse's own kind and member
+# type are kept as the kind= and member= attributes, and a member names its locus with locus= (GFF3's Parent= means
+# "part of" in SO, and a satellite block is no part of a centromere). The CpG kinetochore is SO's
+# regional_centromere_central_core, "the region of a modular centromere where the kinetochore is formed".
+SO_KIND = {"centromere": "centromere", "sequence_centromere": "biological_region", "telomere": "telomere",
+           "interstitial_telomeric": "telomeric_repeat", "rDNA": "tandem_repeat", "subtelomeric_block": "satellite_DNA",
+           "interstitial_block": "satellite_DNA", "alt_centromere_candidate": "biological_region",
+           "hic_hub": "biological_region", "hic_peak": "biological_region", "te_core": "repeat_region",
+           "satellite_block": "satellite_DNA", "meth_candidate": "epigenetically_modified_region",
+           "other": "biological_region"}
+SO_MEMBER = {"rdna_array": "tandem_repeat", "rdna5s_array": "tandem_repeat", "telomere_array": "telomeric_repeat",
+             "telomere_interstitial": "telomeric_repeat", "integrated_call": "centromere",
+             "sequence_call": "biological_region", "satellite_cluster": "satellite_DNA", "te_core": "repeat_region",
+             "hic_anchored_core": "biological_region", "hic_denovo_core": "biological_region",
+             "hic_hub": "biological_region", "meth_candidate": "epigenetically_modified_region"}
 
 
 def write_tsv(df: pd.DataFrame, path) -> None:
@@ -47,9 +62,10 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
                      sequence_evidence=r.seq_evidence, main_family=r.main_family, offset_bp=r.offset_bp)
             f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
             if getattr(r, "cpg_kt_start", ".") != ".":           # the CpG line's kinetochore inside the call
-                k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", dip_p=r.cpg_dip_p, kt_meth=r.cpg_kt_meth,
-                         array_meth=r.cpg_array_meth)
-                f.write(f"{r.chrom}\tcenfuse\tkinetochore\t{r.cpg_kt_start}\t{r.cpg_kt_end}\t.\t.\t.\t{_attrs(k)}\n")
+                k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", Name="kinetochore", dip_p=r.cpg_dip_p,
+                         kt_meth=r.cpg_kt_meth, array_meth=r.cpg_array_meth)
+                f.write(f"{r.chrom}\tcenfuse\tregional_centromere_central_core\t{r.cpg_kt_start}\t{r.cpg_kt_end}"
+                        f"\t.\t.\t.\t{_attrs(k)}\n")
 
 
 def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: Path) -> None:
@@ -61,14 +77,16 @@ def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: 
             f.write(f"##sequence-region {ch} 1 {L}\n")
         f.write(f"# cenfuse {__version__} {date.today()} genome={genome}: loci (type = kind) and their members\n")
         for r in loci.itertuples(index=False):
-            f.write(f"{r.chrom}\tcenfuse\t{r.kind}\t{r.start}\t{r.end}\t.\t.\t.\t"
-                    f"{_attrs(dict(ID=r.locus, lines=r.lines, n_lines=r.n_lines))}\n")
+            f.write(f"{r.chrom}\tcenfuse\t{SO_KIND.get(r.kind, 'biological_region')}\t{r.start}\t{r.end}\t.\t.\t.\t"
+                    f"{_attrs(dict(ID=r.locus, Name=r.kind, kind=r.kind, lines=r.lines, n_lines=r.n_lines))}\n")
         for k, (lid, (s, e, typ, line, label, extra)) in enumerate(feats, 1):
             ch = chrom_of[lid]                               # not parsed from the ID: names may hold ':'
-            a = dict(ID=f"{lid}.m{k}", Parent=lid, line=line, label=label, locus_kind=kinds.get(lid))
+            a = dict(ID=f"{lid}.m{k}", locus=lid, Name=f"{typ}:{label}", member=typ, line=line, label=label,
+                     locus_kind=kinds.get(lid))      # locus=, not Parent=: a member lies in the locus, it is no SO part
             a.update({(x if x not in a else f"{line}_{x}"): v for x, v in extra.items()
                       if not isinstance(v, float) or np.isfinite(v)})
-            f.write(f"{ch}\tcenfuse\t{typ}\t{s + 1}\t{e}\t.\t.\t.\t{_attrs(a)}\n")
+            so = SO_MEMBER.get(typ, "biological_region")
+            f.write(f"{ch}\tcenfuse\t{so}\t{s + 1}\t{e}\t.\t.\t.\t{_attrs(a)}\n")
 
 
 def write_bedgraph(S, bins, members, path, title: str) -> None:
@@ -107,6 +125,8 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
              rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".",
              rdna5s_arrays=len(five_s or ()), rdna5s_chromosomes=",".join(sorted({x[0] for x in five_s or ()})) or ".")
+    if "cen_point" in t:
+        d.update(morphology.summary(t))
     if hic is not None:
         h = hic["table"]
         d.update(hic_bin=hic["bin_size"], hic_rabl=hic["rabl"]["passed"],

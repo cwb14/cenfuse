@@ -61,6 +61,43 @@ def test_loci_place_the_other_features(full):
     assert all(len(x.split("\t")) == 9 for x in feats if not x.startswith("#"))
 
 
+def test_morphology_and_completeness(full):
+    """Arms are measured from the integrated call (chr7 moved to 18.75 Mb: short arm at the end); chr4's 50-kb gap
+    sits inside its call; the synthetic sequence holds no telomere arrays."""
+    _, out = full
+    t = _calls(out)
+    r = t.loc["chr4"]
+    assert (r.gaps, r.call_gaps, r.t2t, r.telomeres) == ("1", "1", "no", "none")
+    assert all(t.loc[c, "call_gaps"] == "0" for c in t.index if c != "chr4")
+    r = t.loc["chr7"]
+    p = int(r.cen_point)
+    assert int(r.start) - 1 <= p <= int(r.end) and r.short_arm == "end"
+    assert float(r.ci) == round((fuse_synth.L - p) / fuse_synth.L, 3) and "subtelocentric" in r.morphology
+    r = t.loc["chr3"]                                     # 400 kb of satellite from the middle (12.5 Mb) onwards
+    assert r.morphology == "metacentric" and r.short_arm == "."          # the call spans the middle: arms unordered
+    s = pd.read_csv(out / "cenfuse_summary.tsv", sep="\t").iloc[0]
+    assert s.t2t_chromosomes == "0/10" and s.calls_with_gaps == 1 and s.karyotype.startswith("m:")
+
+
+def test_interpretation_and_report(full):
+    """Every call has a basis; the moved, contested and placed calls say so; the report covers every chromosome."""
+    _, out = full
+    t = _calls(out)
+    assert (t.basis != ".").all() and t.loc["chr1", "caveat"] == "."
+    assert t.loc["chr7", "basis"].startswith("moved ") and "CHG methylation at the peak" in t.loc["chr7", "basis"]
+    assert "the CRM core at the peak" in t.loc["chr8", "basis"]
+    assert t.loc["chr9", "caveat"].startswith("validated Hi-C points elsewhere")
+    assert t.loc["chr10", "basis"].startswith("placed by a strong validated Hi-C peak")
+    assert t.loc["chr4", "caveat"] == "1 assembly gap inside the call"
+    rep = (out / "cenfuse_report.md").read_text()
+    assert "## Syn" in rep and "**10/10 chromosomes called**" in rep and "the validated 3D lines moved 2 and placed 1 calls" in rep and "it moved 2 and placed 1" in rep
+    assert "satellite arrays on 7:" in rep and "1 interstitial, " in rep    # chr1-6, chr9; chr7-8 moved, chr10 placed
+    assert "shifted: P3 chr3" in rep and "Inputs from other plants" in rep and "P2 (meth)" in rep
+    per = rep.split("### Per chromosome")[1]
+    assert {x.split(" | ")[0][2:] for x in per.splitlines() if x.startswith("| chr") and "chromosome" not in x} == \
+        set(fuse_synth.CHROMS)
+
+
 def test_feature_classes_in_3d(full):
     _, out = full
     fc = pd.read_csv(out / "Syn.feature_contacts.tsv", sep="\t").set_index("feature_class")

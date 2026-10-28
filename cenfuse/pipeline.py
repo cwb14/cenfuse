@@ -1,10 +1,10 @@
-"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> genotype -> hic -> fold -> karyotype -> provisional ->
-meth -> fuse -> cpg -> plants -> loci -> output -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> karyotype ->
+provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, rdna5s, genotype, hic, fold,
-karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's
-version and fingerprints of every input they read (including the calls they are anchored on), so a changed input
-recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, rdna5s, gaps, genotype, hic,
+fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by
+cenfuse's version and fingerprints of every input they read (including the calls they are anchored on), so a changed
+input recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, cdr, fold, fuse, hicfuse, inputs, loci, methfuse, output, plants, provenance, rdna, \
-    seqcalls, telomere, teline
+from . import __version__, cdr, fold, fuse, hicfuse, inputs, interpret, loci, methfuse, morphology, output, plants, \
+    provenance, rdna, seqcalls, telomere, teline
 from .hic import params as hp
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
@@ -36,7 +36,7 @@ from .sat.params import Params
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "telomere", "rdna", "rdna5s", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
+STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 _PKG = Path(__file__).parent
 
@@ -223,6 +223,19 @@ class Run:
         if hit is None:
             hit = rdna.detect_5s(g.fasta, g.chroms, self.threads)
             self._store("rdna5s", g.name, fp, hit)
+        return hit
+
+    def stage_gaps(self, g) -> dict:
+        """Assembly gaps (runs of >= GAP_MIN_N N) per chromosome (morphology.scan_gaps), checkpointed by the assembly
+        index and the code: one pass over the chromosomes, seconds per Gb."""
+        fp = dict(version=__version__, code=code_key("morphology.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+                  chroms=obj_fingerprint(g.chroms))
+        hit = self._cached("gaps", g.name, fp)
+        if hit is None:
+            hit = morphology.scan_gaps(g.fasta, g.chroms)
+            self._store("gaps", g.name, fp, hit)
+            n = sum(len(v) for v in hit.values())
+            log.info(f"gaps: {g.name}: {n} assembly gaps on {sum(1 for v in hit.values() if v)} chromosomes")
         return hit
 
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
@@ -499,13 +512,14 @@ class Run:
             for n in g.notes:
                 log.info(f"{g.name}: {n}")
         sat_dir = self.stage_satellite()
-        summary, figs = [], []
+        summary, figs, sections = [], [], []
         for g in self.genomes:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
             tel = teline.te_line(g.tes, g.chroms)
             telo = self.stage_telomere(g)
             nors = self.stage_rdna(g)
             five_s = self.stage_rdna5s(g)
+            gaps = self.stage_gaps(g)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]
             dec_lib = deciding_library(hics, verdicts)
@@ -584,6 +598,9 @@ class Run:
             else:
                 for col in ("plants_shared", "plants_shifted", "plants_absent", "plants_unresolved"):
                     t[col] = "."
+            t = morphology.columns(t, g.chroms, telo, gaps)
+            ictx = interpret.context(seq, tel, bool(g.hic), bool(g.tes), telo)
+            t = interpret.columns(t, ictx)
             output.write_calls(t, g.name, g.chroms, self.out)
             ends = {n: int(np.sum(h["coverage"])) for n, h in hics.items()}
             ptable = provenance.table(verdicts, geno, segments, deciders if meth is not None else [], dec_lib, ends)
@@ -613,6 +630,10 @@ class Run:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
             summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s))
+            try:
+                sections.append(interpret.genome_section(g.name, g, t, summary[-1], lt, fc, ictx))
+            except Exception as e:                   # the report never costs the results
+                log.warning(f"{g.name}: report section failed ({type(e).__name__}: {e}); results are complete")
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
                              plants=ptab, psites=psites, verdicts=verdicts, libraries=others,
                              rdna=dict(nors=list(nors or ()), five_s=list(five_s or ()))))
@@ -624,6 +645,8 @@ class Run:
                 log.info(f"{g.name}: plants: {ptab.plant.nunique()} scored; "
                          + ("; ".join(f"{r.plant} {r.chrom} {r.verdict}" for r in sh.itertuples()) or "no shift"))
         output.write_tsv(pd.DataFrame(summary), self.out / "cenfuse_summary.tsv")
+        if sections:
+            interpret.write_report(sections, self.out, self.gdir)
         try:
             from . import plot
             plot.overview(figs, self.out)

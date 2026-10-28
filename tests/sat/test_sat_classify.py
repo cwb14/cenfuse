@@ -287,6 +287,24 @@ def test_roles_report_what_classify_found():
     assert rb["C"] == "centromeric" and rb["K"] == "unassessed" and rb["S"] == "unassessed"
 
 
+def test_a_dispersed_repeat_is_dispersed_however_concentrated():
+    """The engine's own dispersed-repeat test (neither tandem nor whole units, and no dense locus) decides the role
+    too: an interspersed family is not an interstitial block because its main cluster holds most of its bp (bonobo:
+    a 1.5-kb family, 669 Mb, 7% in tandem repeats, classed interstitial before). Values the test cannot judge (NaN)
+    leave the role as it was; the centromeric classes keep theirs."""
+    from cenfuse.sat.classify import assign_roles
+    row = lambda fam, **k: {**dict(family=fam, bp=500_000, concentration=0.9, cls="other", subtelomeric=False,
+                                  rdna_tag=".", tandem_frac=0.9, whole_frac=0.9, locus_fold=20.0), **k}
+    disp = dict(tandem_frac=0.07, whole_frac=0.1, locus_fold=1.2)
+    fams = pd.DataFrame([row("I", **disp), row("K"), row("S", subtelomeric=True, **disp),
+                         row("N", tandem_frac=float("nan"), whole_frac=float("nan"), locus_fold=float("nan")),
+                         row("F", tandem_frac=0.07, whole_frac=0.1, locus_fold=3.0),
+                         row("A", cls="cen_associated", **disp), row("M", bp=5_000, **disp)])
+    r = dict(zip(fams.family, assign_roles(fams, P).role))
+    assert r == {"I": "dispersed", "K": "interstitial", "S": "dispersed", "N": "interstitial", "F": "interstitial",
+                 "A": "cen_associated", "M": "dispersed"}
+
+
 def test_45s_spacer_tag_and_5s_tag_kept():
     from cenfuse.sat.classify import apply_rdna
     fams = pd.DataFrame([dict(family="N", eligible=True, reason="eligible", rdna_tag="."),

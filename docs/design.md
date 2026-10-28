@@ -23,12 +23,13 @@ with their tests, but get no further work: no new rules, workarounds or benchmar
 ## Stages
 
 ```
-satellite -> telomere -> rdna -> rdna5s -> genotype -> hic -> fold -> karyotype -> provisional -> meth -> fuse -> cpg ->
-plants -> loci -> output -> plot
+satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> karyotype -> provisional -> meth ->
+fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot
 ```
 
-Each stage is checkpointed, keyed on its inputs and code, so a rerun resumes. `genotype`, `karyotype` and `plants`
-handle several plants ([plants.md](plants.md)).
+Each stage is checkpointed, keyed on its inputs and code, so a rerun resumes. Every stage's key includes `params.py`: a
+constant used by one new module lives in that module, so adding it does not recompute every stage. `genotype`,
+`karyotype` and `plants` handle several plants ([plants.md](plants.md)).
 
 ## Lines
 
@@ -42,7 +43,7 @@ Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs an
 
 | rule | test | why |
 |---|---|---|
-| dispersed repeat | tandem_frac < 0.5 **and** whole-unit hits < 0.5 **and** locus fold < 2 → never centromeric | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits. Satellites are tandem; retrotransposon-derived centromeric arrays are concentrated (fold ≥ 2.5) |
+| dispersed repeat | tandem_frac < 0.5 **and** whole-unit hits < 0.5 **and** locus fold < 2 → never centromeric, and role `dispersed` (never a satellite block) whatever its concentration | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits. Satellites are tandem; retrotransposon-derived centromeric arrays are concentrated (fold ≥ 2.5). Before v7 the role ignored the test: one 0.5-1.9-kb family per genome (chimpanzee, bonobo, S. orangutan, rhesus, sheep; 215-719 Mb, 2-14% in tandem) was an `interstitial` block chained along whole chromosomes, making chromosome-scale loci |
 | satellite kind | dominance judged per kind: subfamilies related by sequence are pooled | splitting alpha into 6 subfamilies let a pericentric satellite out-count it |
 | acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival (judged per satellite kind) → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs ~16+ chromosomes. A subfamily at the inner edge of a terminal block is that block, not a rival (T2T mouse: a major-satellite subfamily beyond the 5% end zone had blocked the test) |
 | the call | the cluster holding classify's chosen family (layered families pooled); a decisive CRM core may favor the largest cluster | |
@@ -173,6 +174,29 @@ calls); in any other layout it is not used (warning) and the sample's CG file is
   calls and the gate fails. One line is wrong genome-wide. The fold settles it in Rabl nuclei; otherwise add `tes/`
   or methylation.
 
+## Reading the integration (`morphology.py`, `interpret.py`)
+
+Nothing here changes a call; every statement is read from the tables cenfuse writes.
+
+- **Morphology.** The integrated call fixes where the arms meet. Arms are measured from the CpG kinetochore's
+  midpoint where the CpG line placed one, else from the call's midpoint: centromeric index (short arm / length), arm
+  ratio (long / short), Levan class (Levan, Fredga & Sandberg 1964: metacentric <= 1.7 < submetacentric <= 3 <
+  subtelocentric <= 7 < acrocentric; telocentric falls in the last, a sequence cannot show a missing short arm). A
+  call spanning two classes gets both; `short_arm` is `.` when the call spans the chromosome's middle (CHM13 chr1's p
+  arm is 50 kb the longer by sequence). The summary's karyotype counts `high` and `medium` calls only: a `low` call's
+  class is a guess. Sequence classes are not cytogenetic descriptors: by sequence, CHM13's acrocentric chr21 and chr22
+  are submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb).
+- **Completeness.** Telomere arrays at the ends (telomere.py), assembly gaps (runs of >= 10 N, the satellite
+  engine's rule) on the chromosome and inside the call; `t2t` = both telomeres and no gap.
+- **basis / caveat.** One sentence each per call: the sequence evidence and its size in the call, a move and its
+  second line, every agreeing line, the kinetochore; then every flag that lowered the call, every opposing line with
+  where it points, gaps in the call, and the input that would decide where cenfuse's own tests say one can (two arrays
+  of one satellite: CENP-A/CENH3 data, since Hi-C needs mappable DNA between them and CpG methylation was tested and
+  does not choose; satellite-free or capped calls: Hi-C or a CRM core when not given).
+- **Report** (`cenfuse_report.md`): per genome, the lines and their tests, the calls by confidence and what they stand
+  on, the calls that are not `high` with their caveats, morphology and completeness, the other features with their
+  satellite share and 3D association. A failing report section is a warning; the results stay complete.
+
 ## Loci (`loci.py`)
 
 Every candidate interval becomes a locus member:
@@ -210,6 +234,7 @@ first kind that matches:
 | CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
 | CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
 | 5S (`rdna.py`): FIVE_S_E, FIVE_S_UNIT_MAX, MIN_UNITS | 1e-5, 20 kb, 3 | the satellite engine's nhmmer E; twice the longest 5S-bearing unit (9.1-kb yeast rDNA); a tandem array |
+| morphology (`morphology.py`): LEVAN, GAP_MIN_N | 1.7 / 3 / 7, 10 N | Levan et al. 1964 (convention); the satellite engine's gap rule (assemblers write gaps as >= 10 N) |
 
 ## Decisions and alternatives tried
 
@@ -238,6 +263,9 @@ first kind that matches:
 | pyhmmer search pipelines (memory) | one per thread, reused (`annotate.search_one`) | a new pipeline per search (pyhmmer's `nhmmer()`): each sits in a reference cycle and its workspace waits for Python's full collection (chicken 277 GB). glibc `malloc_trim` after each search: 229 GB. Model-major job order: 125 GB. Smaller pyhmmer blocks: less memory, but hits change |
 | MAFFT threads (reproducibility) | `--thread N --threadit 0` | `--thread N` alone: the multithreaded refinement gave a different alignment on every run (4 runs, 4 HMMs). `--thread 1`: reproducible but 2.5× slower MAFFT |
 | TE marker among several qualifying clades | most concentrated (median core share) | chromosomes with a core first: picked Retand over Tekay in *Arabidopsis* (DANTE_LTR), but agreed less with the satellite calls over the 185-genome batch (te_discordant 111 → 129) |
+| centromeric region (call + satellite clusters chained through gaps <= 500 kb) and a `pericentromeric_block` kind | not adopted | held out (HG002 CenSat, 5 ape centromeric regions): apes median precision 0.07 (an interspersed 1.5-kb family classed `interstitial` chains whole chromosomes), HG002 median recall 0.60 (0.5-0.7-Mb non-satellite stretches stop the chain); a longer gap would be fitted to this truth |
+| chromosome-scale loci from an interspersed family classed as a satellite | the family's role follows classify's own dispersed-repeat test (`dispersed`) | loci members that are mostly satellite (sparse clusters split into dense runs): removed the chromosome-scale loci of 5 genomes but made thousands of small loci of the same family (chimpanzee +5,757); dropping sparse clusters would erase diffuse real satellites (barley subtelomeric, 108/156 clusters) |
+| GFF3 feature types | Sequence Ontology terms; cenfuse's kind as `kind=`, members linked by `locus=` | cenfuse's own kinds as types (`interstitial_block`, `hic_hub`): no SO validator or annotation pipeline accepts them. `Parent=` for members: GFF3's Parent means SO part_of, and a satellite block is no part of a centromere (gt gff3validator rejects it) |
 | CpG choosing among satellite clusters | not done | least-methylated window anywhere: on the CDR 3/23 (CHM13). Most prominent valley across clusters: wrong cluster on 8-10/25 (orangutans). A cluster with half the call's valley floor: 6 changes in 7 primates, 1 right (B. orangutan), 2 wrong (CHM13) |
 
 ## Known risks
@@ -261,10 +289,16 @@ first kind that matches:
 - The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
 - Satellite-search memory: about one pyhmmer workspace per thread (model length × the 256-kb search block, up to ~2.4
   GB for 2-kb units): chicken 58 GB at 24 threads (277 GB before v5), *Arabidopsis* 4.8 GB at 8.
+- Satellite outputs made before v7 (`--satellite-dir`) keep the old roles: there an interspersed family classed
+  `interstitial` (one 0.5-1.9-kb family each in chimpanzee, bonobo, S. orangutan, rhesus and sheep) chains into
+  chromosome-wide clusters and chromosome-scale loci. Rerun the satellite engine from classify (`--force classify`) to
+  apply the v7 role rule. Calls are not affected; the report gives each block class's satellite share.
+- Morphology is only as right as the call: a wrong call gives a wrong class (`low` calls are kept out of the summary's
+  karyotype). An incomplete chromosome (a missing telomere, gaps) shifts the index.
 
 ## Tests
 
-`pytest -q -n 8`: 509 tests on small synthetic fixtures.
+`pytest -q -n 8`: 538 tests on small synthetic fixtures.
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three
@@ -275,3 +309,5 @@ first kind that matches:
   call.
 - Inputs: `.gff`/`.gtf` annotations, two gene files for one genome, and a `.hic` or BAM in `hic/` (stops with the
   conversion recipe).
+- Reading: Levan classes at their bounds, arms from the kinetochore, gaps across scan chunks; one sentence test per
+  relation and flag; the synthetic run's report (every chromosome, the moved, contested and placed calls).

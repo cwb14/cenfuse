@@ -17,7 +17,7 @@ each call.*
 | | |
 |---|---|
 | **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, methylation (CpG from ONT or PacBio HiFi; CHG from ONT), genes |
-| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it; with CpG methylation, the kinetochore inside it; telomeres (also interstitial ones), 45S and 5S rDNA arrays, knobs and other repeat blocks on the same map |
+| **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it, also in words (what the call stands on, why it may be wrong, which input would decide); with CpG methylation, the kinetochore inside it; each chromosome's morphology (centromeric index, Levan class) and completeness (telomeres at both ends, assembly gaps); telomeres (also interstitial ones), 45S and 5S rDNA arrays, knobs and other repeat blocks on the same map; a report that reads it all out |
 | **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
 | **Runtime** | the satellite search dominates and grows with satellite content (T2T mammals, 2.6-3.5 Gb: 1.5-7 h at 12 threads; mouse, ~6% satellite: 12 h at 16; maize, 2.2 Gb: 40 min at 16); Hi-C and fusion take minutes; reruns resume |
 | **Memory** | the satellite search holds about one search workspace (≤ ~2.4 GB) per thread: chicken 58 GB at 24 threads, giraffe 17 GB at 12, *Arabidopsis* 5 GB at 8 |
@@ -80,6 +80,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
 | Rejects interspersed repeats and finds the centromeric end of acrocentric karyotypes without annotation (goat 30/30 on the satellome locus; mouse 20/20 at the right end) | Acrocentric detection needs ≥ ~16 chromosomes. Where a larger pericentric satellite shares that end (mouse), the call is `low` on it and the CENP-A satellite is the reported alternative |
 | With `tes/`, CRM retrotransposon cores sit on CENH3 (rice 8/8, potato 6/7, maize 10/10) and place satellite-free centromeres (potato 2 → 6/11 right) | Only CRM may decide: another centromeric lineage only flags (moss Bryco cores on CENH3 25/26, calls 16/26; with Hi-C 22/26), and REXdb gives fungal elements no lineage (*Cryptococcus*: no call) |
+| Morphology from the integrated call: acrocentric vs bi-armed as in the literature karyotype on 118/119 right calls (mouse 20/20, goat 30/30, horse 30/30, pig 13/13, sheep 25/26); assembly gaps counted exactly (4,084 in 3 assemblies) | Morphology is by sequence length, not cytogenetic appearance: CHM13's acrocentric chr21 and chr22 come out submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb); a wrong call gives a wrong class (`low` calls stay out of the karyotype) |
 
 ## Install
 
@@ -87,7 +88,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 509 tests, ~3 min
+pytest -q -n 8          # optional: 538 tests, ~3 min
 ```
 
 ## Quick start
@@ -97,7 +98,8 @@ mkdir mygenome && cp asm.fa mygenome/ && samtools faidx mygenome/asm.fa
 cenfuse run mygenome -t 32
 ```
 
-Read `mygenome/cenfuse/asm.centromeres.tsv` (one row per chromosome), and look at `cenfuse_overview.pdf`.
+Read `mygenome/cenfuse/cenfuse_report.md` (what was found, in words), `asm.centromeres.tsv` (one row per chromosome)
+and `cenfuse_overview.pdf`.
 
 ## Inputs
 
@@ -206,10 +208,11 @@ gene on some chromosomes, matches them.
 
 | file | content |
 |---|---|
-| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, and the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `kinetochore`) |
+| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `regional_centromere_central_core`, Name=kinetochore), the call in words (`basis`, `caveat`), and the chromosome's morphology and completeness |
+| **`cenfuse_report.md`** | per genome, in words: what each line found and whether it passed its test, what the centromeres are made of, the calls that are not `high` and what would settle them, morphology and completeness, the other features and their 3D association |
 | `cenfuse_overview.pdf` | the figure above |
 | `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C and CpG passed their tests, warnings |
-| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, interstitial telomeric arrays, 45S and 5S rDNA arrays, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there |
+| `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, interstitial telomeric arrays, 45S and 5S rDNA arrays, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there. GFF3 types are Sequence Ontology terms (`gt gff3validator -typecheck so` passes); cenfuse's kind is the `kind=` attribute; each member names its locus (`locus=`) and type (`member=`) |
 | `asm.hic_anchored.bedgraph` | the Hi-C centromere score per bin, for a browser |
 | `asm.provenance.tsv`, `asm.plants.tsv` | with several plants: which plant each input comes from; each plant's centromere |
 | `satellite/`, `hic/`, `methylation/` | each line's detailed outputs |
@@ -251,6 +254,17 @@ no confident call anywhere, so against the `low` calls at clean peaks), `fold_ga
 | `cpg_dip_p` | the dip is longer than in the call's own 5-kb bins shuffled |
 | `cpg_pos_p` | the dip is longer than methylation from elsewhere on the chromosome makes on the same bins (the gate counts these) |
 | `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore and median over the array |
+
+| column | meaning |
+|---|---|
+| `basis` | what the call stands on, in words: the satellite family and its unit, the centromeric satellite in the call, a move or placement and its second line, each agreeing line, the kinetochore |
+| `caveat` | why the call may be wrong: each flag that lowered it, each opposing line (with where it points), gaps in the call; after `->`, the input that would decide, where cenfuse's tests say one can (two arrays of one satellite: CENP-A/CENH3 data; neither Hi-C nor CpG methylation chooses between them). `.` = nothing known against the call |
+| `cen_point`, `short_arm`, `ci`, `arm_ratio`, `morphology` | the arms, measured from the CpG kinetochore's midpoint where there is one, else the call's: centromeric index (short arm / length), arm ratio (long / short), Levan class (metacentric <= 1.7 < submetacentric <= 3 < subtelocentric <= 7 < acrocentric; two classes when the call spans both); `short_arm` = the sequence end nearer the centromere (`.` when the call spans the middle) |
+| `telomeres`, `gaps`, `call_gaps`, `t2t` | telomere arrays at `both` ends, one (`start`, `end`) or `none`; assembly gaps (runs of >= 10 N) on the chromosome and inside the call; `t2t` = `yes` with telomere arrays at both ends and no gap |
+
+`cenfuse_summary.tsv` adds `karyotype` (Levan classes of the `high` and `medium` calls; `low` calls and chromosomes
+without a call counted apart), `t2t_chromosomes`, `calls_with_gaps` and `short_arm_at_end` (`high`/`medium` calls, not
+metacentric, short arm last: the cytogenetic convention puts it first).
 
 ## Options
 

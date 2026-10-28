@@ -4,7 +4,8 @@ Every number here comes from criteria fixed before the run they score: plants 20
 [`docs/benchmark.md` at 961a23d](https://github.com/cwb14/cenfuse/blob/961a23d/docs/benchmark.md)), mammals
 2026-10-21, v4 2026-10-26 (CpG kinetochores, hard genomes, no-harm reruns: sections 6-8; the CpG criteria are
 not blind, section 6), v5 2026-10-26 with dated amendments (memory, reproducibility, telomeres, new genomes:
-section 9). Rules changed after a result was seen are listed in
+section 9), v6 2026-10-27 (section 10), v7 2026-10-28 (morphology, the call in words, SO-typed GFF3,
+dispersed-repeat roles: section 11). Rules changed after a result was seen are listed in
 [section 5](#5-rules-changed-after-seeing-a-result).
 
 **Scoring.**
@@ -191,6 +192,9 @@ Each change has a reason independent of the case that prompted it, and was reche
 | 2026-10-26 | telomeres: ≥ 100 bp counts when the array reaches the sequence end | *Neurospora* 0/14, *P. falciparum* 25/28 | 14 T2T mammals and mouse (no end lost or moved), 28 genomes |
 | 2026-10-26 | Hi-C gate: `low` calls are references when no call is `high`/`medium` (clean peaks only) | siamang without genes (gate untestable) | 4 randomized Hi-C runs, chicken, EquCab3 |
 | 2026-10-27 | acrocentric test: interior rival judged per satellite kind; a second unrelated acrocentric satellite competes with the call | T2T mouse (0/20; the v3 prediction failed) | the 72 earlier satellite runs (goat, the other all-acrocentric genome, among them) and 9 other v5 genomes: no change |
+| 2026-10-28 | `short_arm` is `.` when the call spans the chromosome's middle (morphology, no call changes) | CHM13 chr1 (p arm 50 kb longer by sequence) | K1 verdict unchanged; the 30 regression runs |
+| 2026-10-28 | the karyotype and the short-arm list count `high`/`medium` calls only | the *C. elegans* report (holocentric; short arms from `low` calls) | 47 breadth reports |
+| 2026-10-28 | a family meeting the dispersed-repeat test gets role `dispersed` (no call changes) | bonobo's chromosome-scale loci (tracks L, D) | 72-job replay, 220 genomes: only the 5 interspersed families changed role, calls identical |
 
 ## 6. Kinetochores from CpG methylation (v4)
 
@@ -624,3 +628,80 @@ replay instead (above). Rerun with the final code, the maize, moss and *Chlamydo
 with the code they were scored with; rice and potato were checked by satellite replay (rice identical; potato chr11
 moves onto CENH3 by the weak-array rule).
 
+
+## 11. v7: what the integration says (morphology, completeness, the call in words, a report, SO-typed GFF3, dispersed-repeat roles)
+
+Criteria: `v7/PLAN.md` (2026-10-28, written before any v7 edit or run; dated amendments). Nothing in v7 changes a call.
+
+### Morphology and completeness (track K)
+
+The integrated call (or the CpG kinetochore inside it) fixes each chromosome's arms: centromeric index, arm ratio,
+Levan class; with the telomere arrays and assembly gaps, whether the chromosome and its call are completely assembled.
+
+| criterion | result | numbers |
+|---|---|---|
+| K1 convention check (CHM13, two regression runs) | PASS | chr1, 3, 16, 19, 20 metacentric; chr13, 14, 15 subtelocentric or acrocentric; short arm at the sequence start 23/24 (chr1: its call spans the middle, `.`) |
+| K2 acrocentric vs bi-armed, literature karyotypes, right calls (within 1 Mb of truth) | PASS | 118/119: mouse 20/20, goat 30/30, horse T2T 30/30, pig 13/13, sheep 25/26 (OAR26: a `low` call at CI 0.24, on the satellome locus too) |
+| K3 gaps | PASS | equal to an independent scan on EquCab3, barley MorexV3 and potato DM (4,084 gaps); gaps in calls equal the satellite engine's |
+| K4 telomere ends | PASS | 660/660 chromosomes agree with the telomere stage |
+| K5 no harm | PASS | 30 regression runs: every existing column identical to v6 |
+
+By sequence length, human acrocentrics with T2T p arms are not all "acrocentric": chr13-15 come out subtelocentric
+(CI 0.15-0.16), chr14 subtelocentric/acrocentric (0.11), chr21 and chr22 submetacentric/subtelocentric (0.25-0.27; 11-15
+Mb p arms with the rDNA). The class is a sequence measurement, not the cytogenetic descriptor.
+
+### The call in words and the report (track I)
+
+| criterion | result | numbers |
+|---|---|---|
+| I1 a sentence test per relation and flag | PASS | 12 unit tests + the synthetic run (moved, contested, placed, gapped calls; plants) |
+| I2 report vs tables, every run | PASS | 30/30 regression runs and 47/47 breadth runs: calls line, per-chromosome table, not-high table, satellite-call and block counts, Hi-C gate, karyotype; every support line in `basis`, every opposing line and lowering flag in `caveat` |
+| I3 read-through | PASS after fixes | 16 reports read against their tables (CHM13, rice, barley, potato with and without `tes/`, horse EquCab3, pig, *Poa*, gorilla with CpG, *C. elegans*, *Arabidopsis* with CHG/CpG, chicken, yeast, moss with `tes/` and with Hi-C, HG002 ONT); 10 faults fixed before adoption: barley's report said Hi-C changed no call (its arm fold moved 6); mammal caveats suggested `tes/`; the ITS count used loci (15) not arrays (16); one call counted twice ("opposes" and "contests"); a reused variable printed "satellite arrays on 6" for every genome (now checked by I2); C. elegans listed short arms from `low` calls; "1 45S array (NORs)"; failed CpG/CHG tests read as results; a lower call moved with a CRM core did not name the core; the LTR marker's core sitting in the competing cluster was stated as "elsewhere" (moss: on all 5 such chromosomes CENH3 is on that cluster) |
+| I4 no harm | PASS | as K5 |
+
+### Sequence Ontology types in GFF3 (track G)
+
+| criterion | result | numbers |
+|---|---|---|
+| G1 `gt gff3validator -typecheck so` (GenomeTools 1.6.6) | PASS | 64/64 files of the 30 regression runs and 94/94 of the 47 breadth runs (v6: every features.gff3 failed, e.g. type `interstitial_block`) |
+| G2 former types kept | PASS | `kind=` on loci, `member=` and `locus=` on members (members are no SO part of a locus, so not `Parent=`) |
+| G3 no harm | PASS | TSVs identical |
+
+### Dispersed repeats are dispersed (track R, satellite engine)
+
+The engine's dispersed-repeat test (tandem fraction, whole-unit hits, locus fold) already kept interspersed families
+from centromere calls, but the family's role ignored it: a family whose main cluster held most of its bp was
+`interstitial`. In five T2T genomes one interspersed family (chimpanzee 719 Mb, bonobo 669, rhesus 519, S. orangutan
+277, sheep 215; 2-14% of its bp in tandem repeats) was an "interstitial block" chained along every chromosome, which
+merged centromere, telomere and ITS loci into chromosome-scale loci (bonobo: 41 loci > 20 Mb, `centromere` loci a
+median 54 Mb long). Now a family meeting the test is `dispersed`.
+
+| criterion | result | numbers |
+|---|---|---|
+| R1 unit test | PASS | the rule, NaN values left alone, the centromeric classes kept |
+| R2 72-job satellite replay (220 genomes) | PASS | calls identical in every genome; roles changed only for those 5 families (each in two runs), all `interstitial` -> `dispersed` |
+| R3/R4 the 5 genomes, engine rerun from classify, against the same rerun with the v6 code | PASS (4/5; rhesus pending) | calls and summaries identical; the only role change is the interspersed family; loci > 20 Mb: bonobo 41 -> 0 (`centromere` loci median 54 -> 3.0 Mb), chimpanzee 37 -> 0, S. orangutan 50 -> 1 (a 20-Mb centromere call, 98% satellite), sheep 48 -> 0; every changed locus holds that family |
+
+Satellite outputs from earlier engine versions (`--satellite-dir`) keep their roles; the regression runs, which read
+them, are therefore unchanged by R.
+
+### Not adopted
+
+- **The centromeric region** (L: the call plus satellite clusters chained through gaps <= 500 kb; a
+  `pericentromeric_block` kind). Held out, per set: apes median precision 0.07 (an interspersed 1.5-kb family classed
+  `interstitial` chains whole chromosomes in bonobo, chimpanzee and S. orangutan), HG002 median recall 0.60 (0.5-0.7-Mb
+  non-satellite stretches stop the chain; CHM13 0.57). Pooled the criterion would pass (1.00 / 0.94); it was not read
+  that way. Maize knobs stayed arm blocks (0.3% reclassified).
+- **Loci members that are mostly satellite** (D, a fix for a defect found through L: chromosome-scale loci in
+  chimpanzee, bonobo, S. orangutan, rhesus and sheep, where one interspersed 0.5-1.9-kb family of 200-650 Mb is classed
+  `interstitial`). Splitting sparse clusters into dense runs removed them but added thousands of small loci (chimpanzee
+  +5,757); dropping sparse clusters would erase diffuse real satellites (barley subtelomeric: 108/156 clusters).
+  Fixed at the root instead (R, above).
+
+### No harm (v7 code)
+
+The 30 regression runs: centromeres, loci and summaries identical to v6 on every shared column; new columns only.
+The 47 breadth runs (v4-v6 arms: CpG primates, holocentrics, *Arabidopsis*, chicken, yeasts, *Plasmodium*,
+*Neurospora*, moss, *Chlamydomonas*, HG002 ONT/PacBio, *Brachypodium*, tomato, the crop LTR arms) against the same
+runs with the v6 code: calls, loci and summaries identical on every shared column (47/47 runs complete). The gap
+scan adds about a minute per 3 Gb (checkpointed).
