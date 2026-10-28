@@ -680,7 +680,7 @@ median 54 Mb long). Now a family meeting the test is `dispersed`.
 |---|---|---|
 | R1 unit test | PASS | the rule, NaN values left alone, the centromeric classes kept |
 | R2 72-job satellite replay (220 genomes) | PASS | calls identical in every genome; roles changed only for those 5 families (each in two runs), all `interstitial` -> `dispersed` |
-| R3/R4 the 5 genomes, engine rerun from classify, against the same rerun with the v6 code | PASS (4/5; rhesus pending) | calls and summaries identical; the only role change is the interspersed family; loci > 20 Mb: bonobo 41 -> 0 (`centromere` loci median 54 -> 3.0 Mb), chimpanzee 37 -> 0, S. orangutan 50 -> 1 (a 20-Mb centromere call, 98% satellite), sheep 48 -> 0; every changed locus holds that family |
+| R3/R4 the 5 genomes, engine rerun from classify, against the same rerun with the v6 code | PASS (5/5) | calls and summaries identical; the only role change is the interspersed family; loci > 20 Mb: bonobo 41 -> 0 (`centromere` loci median 54 -> 3.0 Mb), chimpanzee 37 -> 0, S. orangutan 50 -> 1 (a 20-Mb centromere call, 98% satellite), rhesus 45 -> 1 (a 22-Mb centromere call, mostly satellite; `centromere` loci median 22.5 -> 11.5 Mb, max 117 -> 22 Mb), sheep 48 -> 0; every changed locus holds that family |
 
 Satellite outputs from earlier engine versions (`--satellite-dir`) keep their roles; the regression runs, which read
 them, are therefore unchanged by R.
