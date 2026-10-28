@@ -27,9 +27,10 @@ mammals); the dip locates the kinetochore inside it (tens to hundreds of kb).
   not adopted: choosing among satellite clusters by their dips (docs/design.md).
 
 Inputs: the CG files of the deciding methylation samples (provenance, docs/plants.md): modkit bedMethyl (5mC + 5hmC
-counted methylated; sites with >= MIN_CALLS_SITE calls) or a 4-column bedGraph of the methylated fraction (0-1 or
-0-100: public tracks without coverage), tabix-indexed. Several samples are pooled site by site. Malformed rows are
-skipped and counted."""
+counted methylated), ENCODE bedMethyl (coverage and percent methylated: WGBS pipelines, Megalodon) or a 4-column
+bedGraph of the methylated fraction (0-1 or 0-100: public tracks without coverage), tabix-indexed. A bin's methylation pools its sites' calls (methylated over valid calls, every site with a call), the
+binomial estimate at any coverage; a bedGraph site counts as one call of its fraction. Several samples are pooled site
+by site. Malformed rows are skipped and counted."""
 from __future__ import annotations
 
 import io
@@ -40,7 +41,7 @@ import pysam
 from scipy.signal import find_peaks
 from scipy.stats import binom
 
-from .meth.params import MIN_CALLS_SITE
+from .meth.io import ENCODE_COLS, MODKIT_COLS
 from .params import GATE_MIN_REF, GATE_P
 from .util import log
 
@@ -56,13 +57,14 @@ CEN_ROLES = ("centromeric", "cen_associated")
 
 
 class Track:
-    """One CG file: modkit bedMethyl (>= 11 columns) or a bedGraph of methylated fraction (4 columns)."""
+    """One CG file: modkit bedMethyl (>= 18 columns), ENCODE bedMethyl (11-17: coverage and percent methylated in
+    columns 10-11, modkit's own first 11) or a bedGraph of methylated fraction (4 columns)."""
 
     def __init__(self, path):
         self.path = str(path)
         self.tb = pysam.TabixFile(self.path)
         self.contigs = set(self.tb.contigs)
-        self.kind, self.scale, self.bad = "bedgraph", 1.0, 0
+        self.kind, self.scale, self.bad, self.read = "bedgraph", 1.0, 0, 0
         first = []
         for c in self.tb.contigs:
             for row in self.tb.fetch(c):
@@ -72,36 +74,46 @@ class Track:
             if len(first) >= 1000:
                 break
         self.ncol = max(4, pd.Series([len(p) for p in first]).mode().iat[0]) if first else 4
-        if first and self.ncol >= 11:
-            self.kind = "bedmethyl"
+        if first and self.ncol >= ENCODE_COLS:
+            self.kind = "bedmethyl" if self.ncol >= MODKIT_COLS else "encode"
         elif first:
             vals = pd.to_numeric(pd.Series([p[3] if len(p) >= 4 else "" for p in first]), errors="coerce")
             self.scale = 100.0 if vals.max() > 1.0 else 1.0
 
     def sites(self, chrom: str, s: int | None = None, e: int | None = None):
-        """(positions, methylated fraction) of the CpG rows of chrom (in [s, e) when given), sorted by position."""
-        empty = np.zeros(0, np.int64), np.zeros(0)
+        """(positions, methylated calls, valid calls) of the CpG rows of chrom (in [s, e) when given), sorted by
+        position. modkit bedMethyl: 5mC + 5hmC calls of each 'm' row with a call; ENCODE bedMethyl: coverage x percent
+        / 100 of coverage; bedGraph: the fraction as one call."""
+        empty = np.zeros(0, np.int64), np.zeros(0), np.zeros(0)
         if chrom not in self.contigs:
             return empty
         lines = list(self.tb.fetch(chrom, s, e)) if s is not None else list(self.tb.fetch(chrom))
         if not lines:
             return empty
-        cols = [1, 3, 9, 11, 13] if self.kind == "bedmethyl" else [1, 3]
+        cols = {"bedmethyl": [1, 3, 9, 11, 13], "encode": [1, 9, 10]}.get(self.kind, [1, 3])
         c, parsed = self._columns(lines, cols)
         p = c[1]
         if self.kind == "bedmethyl":                     # 5hmC ('h') rows: their counts are the 'm' row's N_other_mod
             n, m, h = c[9], c[11], c[13]
             ok = np.isfinite(p) & np.isfinite(n) & np.isfinite(m) & np.isfinite(h)
             self.bad += len(lines) - parsed + int((~ok).sum())
-            ok &= (c[3] != "h") & (n >= MIN_CALLS_SITE)
-            pos, frac = p[ok].astype(np.int64), (m[ok] + h[ok]) / n[ok]
+            ok &= (c[3] != "h") & (n >= 1)
+            pos, meth, cov = p[ok].astype(np.int64), m[ok] + h[ok], n[ok]
+        elif self.kind == "encode":
+            n, pct = c[9], c[10]
+            ok = np.isfinite(p) & np.isfinite(n) & np.isfinite(pct) & (pct >= 0) & (pct <= 100)
+            self.bad += len(lines) - parsed + int((~ok).sum())
+            ok &= n >= 1
+            pos, meth, cov = p[ok].astype(np.int64), n[ok] * pct[ok] / 100, n[ok]
         else:
             v = c[3]
             ok = np.isfinite(p) & np.isfinite(v)
             self.bad += len(lines) - parsed + int((~ok).sum())
-            pos, frac = p[ok].astype(np.int64), v[ok] / self.scale
+            pos, meth = p[ok].astype(np.int64), v[ok] / self.scale
+            cov = np.ones(len(pos))
+        self.read += len(pos)
         o = np.argsort(pos, kind="stable")
-        return pos[o], frac[o]
+        return pos[o], meth[o], cov[o]
 
     def _columns(self, lines: list, cols: list):
         """({column: values}, rows parsed): numeric columns as float (NaN where not a number), column 3 as text for
@@ -178,9 +190,11 @@ class Binned:
         self.cnt = np.bincount(self.j, minlength=self.nb)
         self.ok = (self.cnt >= MIN_SITES) & (cover >= ARRAY_COVER)
 
-    def profile(self, vals: np.ndarray) -> np.ndarray:
-        sm = np.bincount(self.j, weights=vals, minlength=self.nb)
-        return np.where(self.ok, sm / np.maximum(self.cnt, 1), np.nan)
+    def profile(self, meth: np.ndarray, cov: np.ndarray) -> np.ndarray:
+        """Pooled methylated fraction per bin (NaN where the bin does not count)."""
+        sm = np.bincount(self.j, weights=meth, minlength=self.nb)
+        sn = np.bincount(self.j, weights=cov, minlength=self.nb)
+        return np.where(self.ok, sm / np.maximum(sn, 1e-12), np.nan)
 
 
 def best_valley(y: np.ndarray):
@@ -233,16 +247,16 @@ def dip_test(y: np.ndarray, rng) -> dict:
     return dict(p=(1 + ge) / (1 + N_PERM), run=run, lo=lo, hi=hi, bins=len(fin))
 
 
-def positional_p(binned: Binned, vals: np.ndarray, i0: int, i1: int, run: int, rng) -> float:
+def positional_p(binned: Binned, meth: np.ndarray, cov: np.ndarray, i0: int, i1: int, run: int, rng) -> float:
     """P that methylation from elsewhere on the chromosome makes a dip at least `run` bins long in this call: the
-    chromosome's site values rotated by N_ROT random offsets onto the call's sites i0..i1 (offsets that bring back the
+    chromosome's site calls rotated by N_ROT random offsets onto the call's sites i0..i1 (offsets that bring back the
     call's own values are excluded when the chromosome is long enough)."""
-    n, m = len(vals), i1 - i0
+    n, m = len(meth), i1 - i0
     if run == 0 or n < 2:
         return 1.0
     offs = rng.integers(m, n - m + 1, N_ROT) if n > 3 * m else rng.integers(1, n, N_ROT)
     idx = np.arange(i0, i1)
-    ge = sum(dip(binned.profile(vals[(idx + o) % n]))[0] >= run for o in offs)
+    ge = sum(dip(binned.profile(meth[(idx + o) % n], cov[(idx + o) % n]))[0] >= run for o in offs)
     return (1 + ge) / (1 + N_ROT)
 
 
@@ -284,23 +298,28 @@ def run(files: list, calls: dict, arrays: pd.DataFrame) -> dict:
                 continue
             got = [t.sites(c) for t in tracks]
             pos = np.concatenate([g[0] for g in got])
-            vals = np.concatenate([g[1] for g in got])
+            meth = np.concatenate([g[1] for g in got])
+            cov = np.concatenate([g[2] for g in got])
             o = np.argsort(pos, kind="stable")
-            pos, vals = pos[o], vals[o]
+            pos, meth, cov = pos[o], meth[o], cov[o]
             i0, i1 = np.searchsorted(pos, s), np.searchsorted(pos, e)
             b = Binned(pos[i0:i1], s, array_cover(cen[(cen.chrom == c) & (cen.end > s) & (cen.start < e)], s, e))
-            y = b.profile(vals[i0:i1])
+            y = b.profile(meth[i0:i1], cov[i0:i1])
             d = dip_test(y, rng)
             r.update(dip_p=d["p"], dip_bins=d["run"], tested_bins=d["bins"])
             if np.isfinite(d["p"]):
-                r["pos_p"] = positional_p(b, vals, i0, i1, d["run"], rng)
+                r["pos_p"] = positional_p(b, meth, cov, i0, i1, d["run"], rng)
             if d["run"]:
                 r.update(kt_start=s + d["lo"] * BIN, kt_end=min(e, s + (d["hi"] + 1) * BIN),
                          array_meth=float(np.nanmedian(y)), kt_meth=float(np.nanmean(y[d["lo"]:d["hi"] + 1])))
     finally:
         bad = sum(t.bad for t in tracks)
+        unread = [t for t in tracks if t.bad and not t.read]
         for t in tracks:
             t.close()
+    for t in unread:                                     # a format problem, not a few malformed rows
+        log.warning(f"CpG: {t.path}: no row could be read ({t.ncol} columns); CpG is read from modkit bedMethyl (18 "
+                    f"columns), ENCODE bedMethyl (11: coverage, percent methylated) or a 4-column bedGraph")
     if bad:
         log.warning(f"CpG: {bad:,} malformed rows skipped")
     t = gate(pd.DataFrame(rows))

@@ -8,7 +8,8 @@ Members are:
 - per-plant methylation candidates that are centromere_like (leave-one-out signature) or plant-specific;
 - the sequence call and the integrated call.
 
-- telomere arrays at the chromosome ends, and interstitial arrays of the telomere unit (cenfuse.telomere).
+- telomere arrays at the chromosome ends, and interstitial arrays of the telomere unit (cenfuse.telomere);
+- 45S arrays (NORs) and 5S arrays (cenfuse.rdna).
 
 Satellite families that are dispersed or minor in this genome are background, not features, and are not members
 (their 3D association is still tested per family). Members that overlap form one locus; Hi-C members are padded by
@@ -47,12 +48,15 @@ def _runs(mask: np.ndarray):
 
 
 def members(chrom: str, L: int, fused: dict, clusters: pd.DataFrame, tel: dict, hic: dict | None,
-            meth: dict | None, telo: dict | None = None, nors=()) -> list:
+            meth: dict | None, telo: dict | None = None, nors=(), five_s=()) -> list:
     """[(start, end, type, line, label, extra)] candidate features on one chromosome."""
     out = []
     for c, s, e, n, unit in nors or ():
         if c == chrom:
             out.append((s, e, "rdna_array", "satellite", f"45S x{n}", dict(units=n, unit_bp=unit)))
+    for c, s, e, n, unit in five_s or ():
+        if c == chrom:
+            out.append((s, e, "rdna5s_array", "satellite", f"5S x{n}", dict(units=n, unit_bp=unit)))
     for c, side, s, e, bp, gap_end in (telo or {}).get("ends", []):
         if c == chrom:
             out.append((s, e, "telomere_array", "telomere", telo["unit"], dict(side=side, bp=bp, gap_to_end=gap_end)))
@@ -126,7 +130,7 @@ def kind(group: list) -> str:
         return "telomere"
     if "telomere_interstitial" in types:
         return "interstitial_telomeric"
-    if rdna or "rDNA" in roles or "rdna_array" in types:
+    if rdna or "rDNA" in roles or types & {"rdna_array", "rdna5s_array"}:
         return "rDNA"
     if "subtelomeric" in roles:
         return "subtelomeric_block"
@@ -168,8 +172,8 @@ def locus_values(chrom, s, e, group, seq, tel, hic, meth, genes, chrom_len, fa) 
                                                                        "interstitial", "subtelomeric", "dispersed"))
     v["rdna"] = ",".join(sorted({m[5]["rdna"] for m in group if m[2] == "satellite_cluster"
                                  and m[5].get("rdna", ".") not in (".", "")}
-                                | {f"45S_array:{m[5]['units']}x{m[5]['unit_bp']}" for m in group
-                                   if m[2] == "rdna_array"})) or "."
+                                | {f"{'45S' if m[2] == 'rdna_array' else '5S'}_array:{m[5]['units']}x{m[5]['unit_bp']}"
+                                   for m in group if m[2] in ("rdna_array", "rdna5s_array")})) or "."
     v["te_clades"] = ",".join(sorted({m[4] for m in group if m[2] == "te_core"})) or "."
     v["telomere_bp"] = sum(m[5]["bp"] for m in group if m[2] in ("telomere_array", "telomere_interstitial"))
     dens = tel.get("density", {}).get(chrom)
@@ -217,13 +221,13 @@ def locus_values(chrom, s, e, group, seq, tel, hic, meth, genes, chrom_len, fa) 
 
 
 def table(genome: str, chroms: dict, fused: dict, seq, clusters, tel, hic, meth, genes, fasta, telo=None,
-          nors=()) -> tuple:
+          nors=(), five_s=()) -> tuple:
     """(loci DataFrame, members list) for one genome. fused: {chrom: dict(call, seq, relation, seq_evidence)}."""
     rows, feats = [], []
     tol = HIC_TOL_BINS * hic["bins"].size if hic is not None else 0
     with pysam.FastaFile(str(fasta)) as fa:
         for c, L in chroms.items():
-            mem = members(c, L, fused.get(c, {}), clusters, tel, hic, meth, telo, nors)
+            mem = members(c, L, fused.get(c, {}), clusters, tel, hic, meth, telo, nors, five_s)
             call = fused.get(c, {}).get("call")
             for i, grp in enumerate(merge(mem, tol), 1):
                 s, e = min(m[0] for m in grp), max(m[1] for m in grp)

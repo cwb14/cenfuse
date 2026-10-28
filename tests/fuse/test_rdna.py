@@ -35,3 +35,24 @@ def test_peak_beside_an_unmappable_nor_cannot_oppose():
     assert far.anch_strong.iat[0]
     merged = hicfuse.add_nors({"c": (np.array([1]), np.array([2]))}, nors)
     assert list(merged["c"][0]) == [1, 2_100_000]
+
+
+def test_5s_arrays_are_tandem_runs_of_whole_genes(tmp_path):
+    """A tandem run of whole 5S genes is an array; a lone gene and a tandem run of half genes (pseudogene / SINE
+    fragments) are not."""
+    rnd = random.Random(2)
+    bg = lambda n: "".join(rnd.choice("ACGT") for _ in range(n))
+    gene = rdna.five_s_hmm().consensus.upper()
+    assert len(gene) == 120
+    rc = gene.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    spacer = bg(380)
+    seq = (bg(300_000) + (gene + spacer) * 6 + bg(400_000) + rc + bg(400_000) + (gene[:60] + bg(440)) * 6
+           + bg(300_000))
+    fa = tmp_path / "g.fa"
+    fa.write_text(">c\n" + seq + "\n")
+    pysam.faidx(str(fa))
+    pos = rdna.genes_5s(fa, {"c": len(seq)}, 2)
+    assert len(pos["c"]) == 7                                # 6 tandem + 1 lone reverse-strand gene; halves not
+    arr = rdna.detect_5s(fa, {"c": len(seq)}, 2)
+    assert len(arr) == 1 and arr[0][3] == 6 and arr[0][4] == 500
+    assert arr[0][1] <= 300_000 < 300_000 + 6 * 500 <= arr[0][2]

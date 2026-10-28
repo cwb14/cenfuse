@@ -1,5 +1,5 @@
-"""GENOME_DIR discovery: one FASTA per genome plus optional genes/, tes/, hic/ and meth/ inputs, and
-the chromosome set every evidence line uses.
+"""GENOME_DIR discovery: one FASTA per genome plus optional genes/ (GFF3 or GTF), tes/ (GFF3), hic/ and meth/ inputs,
+and the chromosome set every evidence line uses.
 
 The chromosome set: an assembly also holds unplaced scaffolds, and every line needs whole chromosomes (the satellite
 engine's prevalence tests count chromosomes; Hi-C and methylation need chromosome-scale sequences). cenfuse takes the
@@ -18,11 +18,22 @@ from pathlib import Path
 import pandas as pd
 
 from .meth.track import chromosome_count
-from .sat.genomes import _fasta_name, load_fai
+from .sat.genomes import GENE_EXT, _fasta_name, load_fai
+from .sat.te import TE_EXT
 from .sat.util import SatelliteError
 from .util import CenfuseError, log
 
 HIC_EXT = (".pairs.gz", ".pairs", ".mcool", ".cool")
+# Hi-C files cenfuse does not read, and how to make one it does (README recipe): better a clear stop than a silent run
+# without the Hi-C the user gave
+HIC_CONVERT = {".hic": "convert it: hictk convert {f} {stem}.mcool (or hic2cool convert {f} {stem}.mcool)",
+               ".bam": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
+               ".cram": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
+               ".sam": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
+               ".merged_nodups.txt": "convert it to 4DN pairs (columns chrom1 pos1 chrom2 pos2), or use the .hic "
+                                     "Juicer made from it (hictk convert)",
+               ".merged_nodups.txt.gz": "convert it to 4DN pairs (columns chrom1 pos1 chrom2 pos2), or use the .hic "
+                                        "Juicer made from it (hictk convert)"}
 
 
 @dataclass
@@ -62,6 +73,12 @@ def hic_libraries(folder: Path, name: str) -> list:
     table = folder / f"{name}.tsv"
     if not table.exists():
         lone = _one(folder, name, HIC_EXT)
+        if lone is None:
+            for ext, how in HIC_CONVERT.items():
+                f = folder / f"{name}{ext}"
+                if f.exists():
+                    raise CenfuseError(f"{f}: cenfuse reads Hi-C as .pairs[.gz], .cool or .mcool; "
+                                       f"{how.format(f=f, stem=name)}")
         return [HicLibrary("hic", lone)] if lone else []
     try:
         d = pd.read_csv(table, sep="\t", dtype=str).fillna("")
@@ -120,8 +137,8 @@ def discover(genome_dir) -> list[GenomeInputs]:
         except SatelliteError as e:
             raise CenfuseError(str(e)) from None
         g = GenomeInputs(name, f, fai, chromosome_set(fai))
-        g.genes = _one(gdir / "genes", name, (".gff3", ".gff3.gz"))
-        g.tes = _one(gdir / "tes", name, (".gff3", ".gff3.gz"))
+        g.genes = _one(gdir / "genes", name, GENE_EXT)
+        g.tes = _one(gdir / "tes", name, TE_EXT)
         g.hic = hic_libraries(gdir / "hic", name)
         g.meth = _one(gdir / "meth", name, (".tsv",))
         g.exclude = _one(gdir / "meth", name, (".exclude.bed",))

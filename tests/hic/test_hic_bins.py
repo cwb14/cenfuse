@@ -135,3 +135,4 @@ def test_choose_bin_size_no_callable_chromosomes_gives_none():
     size, table = choose_bin_size(_uniform_get(10, 2.0), (100, 200))
     assert size is None and (table.n_callable == 0).all()
     assert not table.chosen.any() and not table.meets_rule.any()
+

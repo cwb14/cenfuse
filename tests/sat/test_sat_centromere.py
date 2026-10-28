@@ -132,3 +132,47 @@ def test_without_a_dominant_satellite_or_te_evidence_calls_are_capped_low(tmp_pa
         conc = finalize("c1", 200_000, weak, h, None, None, p, te_flag="te_concordant")
     assert conc["confidence"] == "medium" and "te_concordant" in conc["flags"]          # was low on its own
 
+
+
+def test_a_flags_only_marker_lifts_the_cap_only_for_calls_it_supports(tmp_path):
+    """No dominant satellite: the cap holds unless retrotransposon evidence speaks for the call. A non-decisive marker
+    (Athila, Tekay: flags only) supports only te_concordant calls; a call it contradicts (te_discordant) or does not
+    reach keeps the cap. A decisive (CRM) marker lifts it genome-wide, as before."""
+    from cenfuse.sat.centromere import honesty_cap
+    assert honesty_cap(None, False, True, False) and not honesty_cap(None, False, True, True)       # no TE evidence
+    assert honesty_cap(("Athila", {}, False), False, True, False)                                     # flags only
+    assert not honesty_cap(("CRM", {}, True), False, True, False)                                     # decisive
+    assert not honesty_cap(None, True, True, False) and not honesty_cap(None, False, False, False)
+    g, _ = _contigs(tmp_path)
+    call = dict(cen_start=60_000, cen_end=120_000, evidence="satellite", main_family="A", main_family_bp=60_000,
+                sat_bp=60_000, second_cluster_bp=0, cen_families="A")
+    with pysam.FastaFile(str(g.fasta)) as h:
+        p = Params(low_sat_bp=10_000)
+        kw = dict(capped=True, te_decisive=False)
+        conc = finalize("c1", 200_000, call, h, None, None, p, te_flag="te_concordant", **kw)
+        disc = finalize("c1", 200_000, call, h, None, None, p, te_flag="te_discordant", **kw)
+        none = finalize("c1", 200_000, call, h, None, None, p, **kw)
+    assert conc["confidence"] == "high" and "no_dominant_satellite" not in conc["flags"]
+    assert disc["confidence"] == "low" and "no_dominant_satellite" in disc["flags"] and "te_discordant" in disc["flags"]
+    assert none["confidence"] == "low" and none["flags"] == "no_dominant_satellite"
+
+
+def test_a_decisive_core_replaces_a_weak_array_beside_it(tmp_path, monkeypatch):
+    """A weak satellite call that agrees with a decisive (CRM) core without overlapping it is replaced by the core
+    (S. verrucosum chr01, Ae. geniculata chr07U, potato chr11: the core on CENH3, the weak array 0.8-5 Mb away). A
+    strong array beside the core is kept (te_concordant), and a flags-only marker replaces nothing."""
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    g, arrays = _contigs(tmp_path)
+    monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
+    cores = {"c1": dict(start=70_000, end=100_000), "c2": dict(start=70_000, end=120_000)}
+    trf = pd.DataFrame(columns=COLS)
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
+                                      te=("CRM", cores, True))
+    assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
+    assert rows["c2"]["evidence"] == "retrotransposon" and "weak_satellite_beside_core" in rows["c2"]["flags"]
+    assert (rows["c2"]["cen_start"], rows["c2"]["cen_end"]) == (70_000, 120_000) and rows["c2"]["confidence"] == "medium"
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
+                                      te=("Athila", cores, False))
+    assert rows["c2"]["evidence"] == "weak_satellite" and "te_concordant" in rows["c2"]["flags"]
+

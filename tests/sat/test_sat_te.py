@@ -52,10 +52,13 @@ def test_dante_ltr_elements_take_their_lineage(tmp_path):
     assert dante_lineage("Class_I|LTR|Ty3/gypsy|chromovirus") == ("", "Gypsy")        # classified to a rank only
     gff = tmp_path / "d.gff3"
     gff.write_text(DANTE)
-    t = load_te_gff(gff, {"c1": 20_000})                       # parent elements only; the unresolved one is left out
-    assert {c: v["c1"].tolist() for c, v in t.items()} == {"CRM": [150], "Athila": [1500], "Ivana": [5500]}
+    t = load_te_gff(gff, {"c1": 20_000})        # parent elements only; the unresolved one and the rank-D Athila (protein
+    assert {c: v["c1"].tolist() for c, v in t.items()} == {"CRM": [150], "Ivana": [5500]}    # domains, no LTRs) left out
     s, e, cl = load_te_intervals(gff, {"c1": 20_000})["c1"]
-    assert s.tolist() == [100, 1000, 5000] and cl == ["CRM", "Athila", "Ivana"]
+    assert s.tolist() == [100, 5000] and cl == ["CRM", "Ivana"]
+    dl = tmp_path / "dl.gff3"
+    dl.write_text(DANTE.replace("Athila;Rank=D", "Athila;Rank=DL"))
+    assert load_te_gff(dl, {"c1": 20_000})["Athila"]["c1"].tolist() == [1500]
     m = read_tes(gff)                                         # the CHG line's classes: lineage, else superfamily
     assert m.cls.tolist() == ["LTR:CRM", "LTR:Athila", "LTR:Gypsy_unclassified", "LTR:Ivana"]
     assert m.depth.tolist() == [0, 0, 0, 0]
@@ -120,3 +123,69 @@ def test_ltr_overlap_reports_tandem_repeats_inside_retrotransposons(tmp_path):
                                family=["T", "T", "S"]))
     ov = ltr_overlap(arrays, iv, longest=8000)
     assert ov["T"] == (1.0, "SIRE") and ov["S"] == (0.0, ".")
+
+
+def test_census_tells_unclassified_and_misnamed_te_files(tmp_path):
+    """An EDTA GFF3 without TEsorter lineages, or a file for another naming, gives no clade: the census says why."""
+    from cenfuse.sat.te import te_census
+    gff = tmp_path / "edta.gff3"
+    gff.write_text(
+        "##gff-version 3\n"
+        "c1\tEDTA\tGypsy_LTR_retrotransposon\t1001\t2000\t.\t-\t.\tID=b;Classification=LTR/Gypsy\n"
+        "c1\tEDTA\tLTR_retrotransposon\t3001\t4000\t.\t-\t.\tID=c;Classification=LTR/unknown\n"
+        "c1\tEDTA\tlong_terminal_repeat\t3001\t3100\t.\t-\t.\tParent=c\n"
+        "Chr2\tEDTA\tCopia_LTR_retrotransposon\t5001\t6000\t.\t-\t.\tID=d;clade=Ale\n"
+        "c1\tEDTA\thelitron\t7001\t8000\t.\t-\t.\tID=e\n")
+    assert te_census(gff, {"c1": 20_000, "c2": 20_000}) == dict(ltr=2, classified=0, foreign=1)
+
+
+def test_te_line_warns_when_no_element_has_a_lineage(tmp_path):
+    import io
+    import logging
+    from cenfuse.teline import te_line
+    gff = tmp_path / "edta.gff3"
+    gff.write_text("c1\tEDTA\tGypsy_LTR_retrotransposon\t1001\t2000\t.\t-\t.\tID=b;Classification=LTR/Gypsy\n")
+    buf, lg = io.StringIO(), logging.getLogger("cenfuse")
+    h = logging.StreamHandler(buf)
+    lg.addHandler(h)
+    try:
+        out = te_line(gff, {"c1": 20_000})
+    finally:
+        lg.removeHandler(h)
+    assert out["marker"] is None and "none classified to a lineage" in buf.getvalue()
+
+
+def test_te_annotation_named_gff_is_found(tmp_path):
+    from cenfuse.sat.te import te_gff
+    (tmp_path / "tes").mkdir()
+    (tmp_path / "tes" / "g.gff").write_text("c1\tx\tLTR_retrotransposon\t1\t100\t.\t+\t.\tID=a;clade=CRM\n")
+    assert te_gff(tmp_path, "g").name == "g.gff"
+
+
+def test_crm_cores_take_precedence_on_their_chromosomes():
+    """With a less sensitive annotation CRM concentrates on only some chromosomes (DANTE_LTR rice: 5/12, all on
+    CENH3) while a pericentromeric lineage qualifies on most (Tekay 11/12, all off CENH3). The marker stays Tekay, but on
+    the chromosomes where CRM has a significant core, that core is used (flags only); a CRM majority stays decisive."""
+    from cenfuse.sat.te import candidate_clades, choose_marker
+    rng = np.random.default_rng(3)
+    chroms = {f"c{i:02d}": L for i in range(12)}
+    peak = lambda a: np.sort(np.concatenate([rng.integers(a, a + 300_000, 40), rng.integers(0, L, 20)]))
+    tekay = {c: peak(6_000_000) for c in chroms}                         # pericentromeric, every chromosome
+    crm3 = {c: (peak(3_000_000) if i < 3 else np.sort(rng.integers(0, L, 30))) for i, c in enumerate(chroms)}
+    tes = {"Tekay": tekay, "CRM": crm3}
+    cands = candidate_clades(tes, chroms)
+    assert [c for c, _ in cands] == ["Tekay"]                            # CRM fails the majority rule
+    m = choose_marker(tes, chroms, cands)
+    assert m[0] == "Tekay" and not m[2] and len(m[1]) == 12
+    assert [c for c, x in m[1].items() if x.get("clade") == "CRM"] == ["c00", "c01", "c02"]
+    assert all(m[1][c]["start"] < 3_300_000 and m[1][c]["end"] > 3_000_000 for c in ("c00", "c01", "c02"))
+    assert all(m[1][c]["start"] < 6_300_000 and m[1][c]["end"] > 6_000_000 for c in ("c03", "c11"))
+    crm_all = {c: peak(3_000_000) for c in chroms}
+    t2 = {"Tekay": tekay, "CRM": crm_all}
+    m = choose_marker(t2, chroms, candidate_clades(t2, chroms))
+    assert m[0] == "CRM" and m[2] and len(m[1]) == 12 and not any("clade" in x for x in m[1].values())
+    only = {"CRM": crm3}                                                 # no clade qualifies: the CRM cores alone
+    m = choose_marker(only, chroms, candidate_clades(only, chroms))
+    assert m[0] == "CRM" and not m[2] and sorted(m[1]) == ["c00", "c01", "c02"]
+    assert choose_marker({"Tekay": tekay}, chroms, candidate_clades({"Tekay": tekay}, chroms))[0] == "Tekay"
+    assert choose_marker({}, chroms, []) is None

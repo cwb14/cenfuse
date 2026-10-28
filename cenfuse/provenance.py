@@ -128,20 +128,22 @@ def _strand_state(pos: np.ndarray, cov: np.ndarray, q: np.ndarray):
     return present, spanned
 
 
-def _rows(tb, chrom: str, s: int, e: int):
-    """{strand: (positions, reads)} of 5mC rows in [s, e); reads = N_valid + N_delete + N_fail + N_diff."""
+def _rows(tb, chrom: str, s: int, e: int, encode: bool = False):
+    """{strand: (positions, reads)} of 5mC rows in [s, e); reads = N_valid + N_delete + N_fail + N_diff. encode: ENCODE
+    bedMethyl rows (11-16 columns) count too, reads = their coverage (the motif check needs positions and strands only;
+    the genotype needs modkit's counts)."""
     acc = {"+": ([], []), "-": ([], []), ".": ([], [])}
     bad = 0
     for line in tb.fetch(chrom, s, e):
         p = line.split()
-        if len(p) < 17:
+        if len(p) < 17 and not (encode and len(p) >= 11):
             bad += 1
             continue
-        if p[3] == "h" or p[5] not in acc:               # 5hmC rows repeat the 5mC row's reads
+        if (len(p) >= 17 and p[3] == "h") or p[5] not in acc:    # 5hmC rows repeat the 5mC row's reads
             continue
         try:
             acc[p[5]][0].append(int(p[1]))
-            acc[p[5]][1].append(int(p[9]) + int(p[14]) + int(p[15]) + int(p[16]))
+            acc[p[5]][1].append(int(p[9]) + (int(p[14]) + int(p[15]) + int(p[16]) if len(p) >= 17 else 0))
         except ValueError:
             bad += 1
     return {k: (np.array(v[0], np.int64), np.array(v[1], float)) for k, v in acc.items()}, bad
@@ -192,12 +194,28 @@ def motif_share(path, context: str, fasta, windows: list, max_rows: int = 20_000
             e = min(e, s + MOTIF_SPAN)
             o = max(0, s - 2)
             seq = fa.fetch(c, o, e + 2).upper()
-            r, _ = _rows(tb, c, s, e)
+            r, _ = _rows(tb, c, s, e, encode=True)
             for strand, (p, _) in r.items():
                 p = p[: max_rows - n]
                 hits += int(on_motif(seq, o, p, np.full(len(p), strand), context).sum())
                 n += len(p)
     return (hits / n if n else float("nan")), n
+
+
+def drop_non_modkit_chg(samples: list) -> tuple[list, list]:
+    """(samples, [(sample name, CHG file, what it is)]) with every CHG file that is not modkit bedMethyl removed: the
+    CHG genotype reads modkit's counts of failed and differing calls, which an ENCODE bedMethyl lacks. A sample left
+    without any file is dropped; its other files (CG) are kept."""
+    from .meth.io import table_layout
+    dropped = []
+    for s in samples:
+        f = s.files.get("CHG")
+        lay, n = table_layout(f) if f is not None else ("modkit", 0)
+        if lay != "modkit":
+            dropped.append((s.name, f, "ENCODE bedMethyl (coverage, percent)" if lay == "encode"
+                            else f"a table of {n} columns"))
+            del s.files["CHG"]
+    return [s for s in samples if s.files], dropped
 
 
 def check_assembly(samples, fasta, windows) -> list:

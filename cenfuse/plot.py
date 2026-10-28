@@ -109,6 +109,7 @@ def _nan_runs(x, y, min_run=2):
 
 def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
     seq, tel, hic, meth = f["seq"], f["tel"], f["hic"], f["meth"]
+    rdna = f.get("rdna") or {}
     arrays = seq.arrays
     min_w = Lmax * 0.0012                                   # sub-pixel arrays drawn at this width (legend)
     n = len(rows)
@@ -169,6 +170,11 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
             if tc == c:
                 ax.plot((ts + te_) / 2, y0 + fh + 0.06, marker="v", ms=3.0, color="black", mew=0, zorder=5,
                         clip_on=False)
+        for arr, face in ((rdna.get("nors", ()), ROLE_COLOR["rDNA"]), (rdna.get("five_s", ()), "white")):
+            for rc, rs, re_, *_ in arr:                          # 45S filled, 5S open
+                if rc == c:
+                    ax.plot((rs + re_) / 2, y0 + fh + 0.06, marker="D", ms=2.6, mew=0.6, mec=ROLE_COLOR["rDNA"],
+                            mfc=face, ls="", zorder=5, clip_on=False)
         if has_hic:
             hl, hh = lanes["hic"]
             ax.plot([0, L], [y0 + hl] * 2, color="#D0D0D0", lw=0.3, zorder=1)
@@ -293,7 +299,7 @@ def _overlay(ax, rows, hic, flank=10e6):
         ax.spines[sp].set_visible(False)
 
 
-def _key(fig, y, has_hic, has_meth, roles):
+def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False)):
     items = [Patch(fc=ROLE_COLOR[r], ec="none", label=f"{r.replace('_', '-')} satellite") for r in ROLE_COLOR
              if r in roles]
     items.append(Patch(fc=OTHER, ec="none", label="other satellite"))
@@ -308,6 +314,10 @@ def _key(fig, y, has_hic, has_meth, roles):
         items.append(Line2D([], [], color=METH, lw=0.6, label="adjusted CHG (down = loss)"))
     items.append(Line2D([], [], ls="", marker=">", ms=3.4, color="black", label="telomere array"))
     items.append(Line2D([], [], ls="", marker="v", ms=3.4, color="black", label="interstitial telomeric array"))
+    for has, face, label in zip(rdna, (ROLE_COLOR["rDNA"], "white"), ("45S rDNA array (NOR)", "5S rDNA array")):
+        if has:
+            items.append(Line2D([], [], ls="", marker="D", ms=3.0, mew=0.6, mec=ROLE_COLOR["rDNA"], mfc=face,
+                                label=label))
     items += [Line2D([], [], ls="", marker="o", ms=3.4, color="black", label="line supports the call"),
               Line2D([], [], ls="", marker="x", ms=3.4, mew=0.9, color="#D55E00", label="line opposes the call"),
               Patch(fc="none", ec="#C8C8C8", hatch="////", lw=0, label="no data")]
@@ -332,6 +342,8 @@ def _pages(f):
                            or [np.full(1, 0.1)])
         scale["meth"] = max(float(np.nanpercentile(v, 99.5)), 0.02) if np.isfinite(v).any() else 0.1
     roles = set(f["seq"].arrays.role)
+    rd = f.get("rdna") or {}
+    rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
     fold = any("fold" in (r["support"] | r["against"]) for r in rows)   # a fold column only where the fold acted
     f["lines"] = LINES[:3] + (["fold"] if fold else []) + LINES[3:]
@@ -352,7 +364,7 @@ def _pages(f):
         ax = fig.add_axes([0.11, 1 - (gtop + gal_mm) / H, 0.66, gal_mm / H])
         axb = fig.add_axes([0.785, 1 - (gtop + gal_mm) / H, 0.2, gal_mm / H])
         _gallery(ax, axb, chunk, f, scale, has_hic, has_meth, Lmax)
-        _key(fig, 1 - 2 / H, has_hic, has_meth, roles)
+        _key(fig, 1 - 2 / H, has_hic, has_meth, roles, rdna)
         fig.text(0.01, 1 - 21 / H, "A", fontsize=9, fontweight="bold", va="bottom")
         fig.text(0.765, 1 - 21 / H, "B", fontsize=9, fontweight="bold", va="bottom")
         if last:
@@ -625,6 +637,10 @@ def legends(f) -> tuple[str, str]:
               f"{2 * n} chromosome ends); {its}.")
     else:
         a += " No telomere unit was enriched in tandem arrays at the chromosome ends."
+    rd = f.get("rdna") or {}
+    n45, n5 = len(rd.get("nors", ())), len(rd.get("five_s", ()))
+    a += (f" Green diamonds: rDNA arrays, {n45} of 45S (filled; the 18S motif in tandem) and {n5} of 5S (open; whole "
+          f"5S genes in tandem)." if n45 or n5 else " No 45S or 5S rDNA array was found.")
     a += " Hatching: no data (masked or uncovered bins). Bands: integrated calls; arrows: sequence call to moved call."
     long.append(a)
     long.append("B, One column per evidence line: filled circle, the line supports the integrated call (satellite: "

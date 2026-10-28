@@ -34,8 +34,11 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 #          centromeres: competing clusters reported (alt_start/alt_end) and low (T2T mammal benchmark).
 # 0.10.1 = classify: the acrocentric test's interior rival is judged per satellite kind; centromeres: a second
 #          acrocentric satellite unrelated to the call competes with it (T2T mouse).
-STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.1",
-                 "centromeres": "0.10.1", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
+# 0.10.2 = centromeres: a flags-only (non-CRM) LTR marker lifts the no-dominant cap only for calls it supports.
+# 0.10.3 = centromeres: a decisive core replaces a weak satellite call beside it (weak_satellite_beside_core).
+# 0.10.4 = centromeres: a significant CRM core replaces a flags-only marker's core on its chromosome.
+STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.4",
+                 "centromeres": "0.10.4", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
@@ -276,17 +279,24 @@ class Pipeline:
     def _te_evidence(self, g):
         gff = te.te_gff(self.cdir, g.name)
         if gff is None:
-            log.info(f"{g.name}: no tes/{g.name}.gff3[.gz]; satellite evidence only")
+            log.info(f"{g.name}: no tes/{g.name}.gff3 or .gff [.gz]; satellite evidence only")
             return None
-        cands = te.candidate_clades(te.load_te_gff(gff, g.chroms), g.chroms)
-        if not cands:
+        tes = te.load_te_gff(gff, g.chroms)
+        if not tes:
+            n = te.te_census(gff, g.chroms)
+            log.warning(f"{g.name}: tes/{gff.name}: no LTR retrotransposon with a lineage on these sequences "
+                        f"({n['ltr']:,} without one, {n['foreign']:,} on other sequence names); satellite evidence only")
+            return None
+        cands = te.candidate_clades(tes, g.chroms)
+        m = te.choose_marker(tes, g.chroms, cands)
+        if m is None:
             log.info(f"{g.name}: no LTR clade concentrated at one locus on most chromosomes; "
                      f"satellite evidence only")
             return None
-        m = te.marker(cands)
+        crm = sum(1 for x in m[1].values() if "clade" in x)
         log.info(f"{g.name}: LTR clades concentrated at one locus per sequence: "
-                 f"{', '.join(f'{c} ({len(x)}/{len(g.chroms)})' for c, x in cands)}; marker {m[0]}"
-                 f"{' (decisive)' if m[2] else ' (flags only)'}")
+                 f"{', '.join(f'{c} ({len(x)}/{len(g.chroms)})' for c, x in cands) or 'none'}; marker {m[0]}"
+                 f"{' (decisive)' if m[2] else ' (flags only)'}" + (f"; CRM cores on {crm} sequences" if crm else ""))
         return m
 
     def stage_centromeres(self):
@@ -297,7 +307,7 @@ class Pipeline:
             borrowed = g.name in self.borrow
             tev = None if borrowed else self.te_evidence(g)
             dominant = fams["dominant"].astype(str).eq("True").any() if "dominant" in fams else True
-            capped = tev is None and not borrowed and bool(primary) and not dominant
+            capped = centromere.honesty_cap(tev, borrowed, bool(primary), dominant)
 
             acro = frozenset(fams.family[fams["acrocentric"].astype(str).eq("True")]) if "acrocentric" in fams \
                 else frozenset()
@@ -320,8 +330,8 @@ class Pipeline:
                 if r.get("main_family") in te_fams:
                     r["flags"] = "te_derived" if r["flags"] in (".", "") else r["flags"] + ",te_derived"
             if capped:
-                log.info(f"centromeres: {g.name}: no dominant satellite and no retrotransposon evidence; "
-                         f"calls capped at low confidence")
+                log.info(f"centromeres: {g.name}: no dominant satellite and no decisive retrotransposon evidence; "
+                         f"calls capped at low confidence" + (f" unless the {tev[0]} cores support them" if tev else ""))
             fams = classify.assign_cen_associated(fams, arrays, rows, self.p)
             fams = classify.assign_roles(fams, self.p, borrowed)
             n = fams.role.value_counts()

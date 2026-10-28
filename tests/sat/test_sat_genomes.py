@@ -128,3 +128,65 @@ def test_discover_reads_fasta_and_fna_names(tmp_path):
         (tmp_path / f"{n}.fai").write_text("c1\t4\t4\t4\t5\n")
     (tmp_path / "notes.txt").write_text("x")
     assert [g.name for g in discover_genomes(tmp_path)] == ["A", "B", "C"]
+
+
+def test_gene_annotation_names_gff_and_gtf(tmp_path):
+    """genes/<genome>.gff and GTF files are read too (GTF attributes are `key "value"`); GENCODE's gene_type is a
+    biotype like gene_biotype."""
+    from cenfuse.sat.genomes import gene_gff
+    (tmp_path / "genes").mkdir()
+    (tmp_path / "genes" / "Sp_A.gtf").write_text(
+        'chr1\tEnsembl\tgene\t11\t20\t.\t+\t.\tgene_id "g1"; gene_biotype "protein_coding";\n'
+        'chr1\tEnsembl\ttranscript\t11\t20\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tEnsembl\tgene\t101\t110\t.\t+\t.\tgene_id "g2"; gene_biotype "lncRNA";\n')
+    assert gene_gff(tmp_path, "Sp_A").name == "Sp_A.gtf"
+    assert load_genes(tmp_path, "Sp_A", {"chr1": 1000})["chr1"].tolist() == [15]
+    (tmp_path / "genes" / "Sp_B.gff").write_text(
+        "chr1\tHAVANA\tgene\t11\t20\t.\t+\t.\tID=g1;gene_type=protein_coding\n"
+        "chr1\tHAVANA\tgene\t101\t110\t.\t+\t.\tID=g2;gene_type=lncRNA\n")
+    assert load_genes(tmp_path, "Sp_B", {"chr1": 1000})["chr1"].tolist() == [15]
+
+
+def test_gene_loci_from_transcripts_when_a_gff_has_no_gene_lines(tmp_path):
+    """Spud DB potato DM v6.1: mRNA lines whose Parent gene is never defined. One locus per Parent (the span of its
+    transcripts); a file with gene lines keeps using them only."""
+    (tmp_path / "genes").mkdir()
+    (tmp_path / "genes" / "Sp_A.gff3").write_text(
+        "chr1\tx\tmRNA\t101\t200\t.\t+\t.\tID=g1.1;Parent=g1\n"
+        "chr1\tx\tmRNA\t101\t300\t.\t+\t.\tID=g1.2;Parent=g1\n"
+        "chr1\tx\texon\t101\t150\t.\t+\t.\tParent=g1.1\n"
+        "chr1\tx\tmRNA\t1001\t1100\t.\t-\t.\tID=g2.1;Parent=g2\n"
+        "chr1\tx\ttranscript\t2001\t2100\t.\t-\t.\tID=t9\n"
+        "scaf\tx\tmRNA\t1\t10\t.\t+\t.\tID=g3.1;Parent=g3\n")
+    g = load_genes(tmp_path, "Sp_A", {"chr1": 5000})
+    assert g["chr1"].tolist() == [200, 1050, 2050]
+
+
+def _genes_log(tmp_path, gff_text, chroms):
+    import io
+    import logging
+    (tmp_path / "genes").mkdir(exist_ok=True)
+    (tmp_path / "genes" / "Sp_A.gff3").write_text(gff_text)
+    buf, lg = io.StringIO(), logging.getLogger("cenfuse-sat")
+    h = logging.StreamHandler(buf)
+    lg.addHandler(h)
+    try:
+        g = load_genes(tmp_path, "Sp_A", chroms)
+    finally:
+        lg.removeHandler(h)
+    return g, buf.getvalue()
+
+
+def test_gene_names_that_match_only_some_chromosomes_are_reported(tmp_path):
+    """chr1..chr12 genes on a chr01..chr12 FASTA match chr10-chr12 only: the other chromosomes would read as gene-free
+    (and lower the genome's gene density), so the mismatch is reported with the chromosomes concerned. Foreign
+    scaffolds alone, or a chromosome without genes in a file with no foreign names, are not a mismatch."""
+    gff = "".join(f"chr{i}\tx\tgene\t11\t20\t.\t+\t.\tID=g{i}\n" for i in range(1, 13))
+    chroms = {f"chr{i:02d}": 1000 for i in range(1, 13)}
+    g, msg = _genes_log(tmp_path, gff, chroms)
+    assert set(g) == {"chr10", "chr11", "chr12"}
+    assert "9 of 12 chromosomes have no gene" in msg and "chr01" in msg and "9 genes" in msg
+    _, msg = _genes_log(tmp_path, gff + "scaf9\tx\tgene\t1\t10\t.\t+\t.\tID=s\n", {f"chr{i}": 1000 for i in range(1, 13)})
+    assert "no gene" not in msg
+    _, msg = _genes_log(tmp_path, "chr1\tx\tgene\t11\t20\t.\t+\t.\tID=a\n", {"chr1": 1000, "chrB": 1000})
+    assert "no gene" not in msg

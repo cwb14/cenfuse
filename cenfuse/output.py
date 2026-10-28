@@ -90,7 +90,7 @@ def write_bedgraph(S, bins, members, path, title: str) -> None:
 
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
-                nors=(), cpg: dict | None = None) -> dict:
+                nors=(), cpg: dict | None = None, five_s=()) -> dict:
     """One genome: what each line found, whether it was validated, calls by relation and confidence, the inputs'
     provenance and the plants' verdicts."""
     called = t[t.start != "."]
@@ -105,7 +105,8 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              te_decisive=bool(tel["marker"][2]) if tel.get("marker") else ".",
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
-             rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".")
+             rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".",
+             rdna5s_arrays=len(five_s or ()), rdna5s_chromosomes=",".join(sorted({x[0] for x in five_s or ()})) or ".")
     if hic is not None:
         h = hic["table"]
         d.update(hic_bin=hic["bin_size"], hic_rabl=hic["rabl"]["passed"],

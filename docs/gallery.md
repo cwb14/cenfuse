@@ -1,13 +1,14 @@
 # Gallery: cenfuse's overview figure for every benchmark genome
 
 Each image is the first page of `cenfuse_overview.pdf` from a default run on the benchmark inputs, unedited
-(the *Poa annua* one is in the [README](../README.md)). Numbers: [benchmark.md](benchmark.md).
+(the *Poa annua* one is in the [README](../README.md)). Numbers: [benchmark.md](benchmark.md). The *Arabidopsis*,
+chicken, maize and mouse images come from earlier runs, made before the rDNA markers were drawn.
 
 **How to read one** (panel letters as in the images):
 
 | panel | shows |
 |---|---|
-| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside the chromosome (▼) |
+| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside the chromosome (▼); 45S (◆) and 5S (◇) rDNA arrays |
 | **B** | which evidence lines support (●) or oppose (×) each final call, then its relation and confidence (a `fold` column appears only where the arm fold acted: barley) |
 | **C** | where each line puts the centromere, relative to the satellite call |
 | **D** | Hi-C score around every final call: a peak at 0 means the calls sit where centromeres meet in the nucleus |

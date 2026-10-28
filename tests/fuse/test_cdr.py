@@ -59,15 +59,35 @@ def test_both_formats_read(tmp_path):
     bg = _tabix(tmp_path / "a.bedgraph.gz", [("c1", 100, 102, 80.0), ("c1", 200, 202, 20.0)])
     t = cdr.Track(bg)
     assert t.kind == "bedgraph" and t.scale == 100.0
-    assert np.allclose(t.sites("c1", 0, 1000)[1], [0.8, 0.2])
+    p, m, n = t.sites("c1", 0, 1000)
+    assert np.allclose(m, [0.8, 0.2]) and np.allclose(n, [1, 1])                    # a bedGraph site = one call
     bm = _tabix(tmp_path / "b.bed.gz", [
         ("c1", 100, 101, "m", 10, "+", 100, 101, "0,0,0", 10, 60.0, 5, 4, 1, 0, 0, 0, 0),
         ("c1", 100, 101, "h", 10, "+", 100, 101, "0,0,0", 10, 10.0, 1, 4, 5, 0, 0, 0, 0),   # 5hmC row: skipped
-        ("c1", 300, 301, "m", 2, "+", 300, 301, "0,0,0", 2, 50.0, 1, 1, 0, 0, 0, 0, 0)])    # < MIN_CALLS_SITE
+        ("c1", 300, 301, "m", 2, "+", 300, 301, "0,0,0", 2, 50.0, 1, 1, 0, 0, 0, 0, 0),     # 2 calls: kept
+        ("c1", 400, 401, "m", 0, "+", 400, 401, "0,0,0", 0, 0.0, 0, 0, 0, 0, 0, 0, 0)])     # no call: dropped
     t = cdr.Track(bm)
-    p, f = t.sites("c1", 0, 1000)
-    assert t.kind == "bedmethyl" and list(p) == [100] and np.allclose(f, [0.6])
+    p, m, n = t.sites("c1", 0, 1000)
+    assert t.kind == "bedmethyl" and list(p) == [100, 300] and np.allclose(m, [6, 1]) and np.allclose(n, [10, 2])
     assert len(t.sites("nochrom", 0, 10)[0]) == 0
+
+
+def test_encode_bedmethyl_reads_like_modkit(tmp_path):
+    """ENCODE bedMethyl (11 columns: coverage, percent) gives the calls of the modkit rows above."""
+    en = _tabix(tmp_path / "e.bed.gz", [("c1", 100, 101, ".", 10, "+", 100, 101, "0,0,0", 10, 60),
+                                        ("c1", 300, 301, ".", 2, "+", 300, 301, "0,0,0", 2, 50),
+                                        ("c1", 400, 401, ".", 0, "+", 400, 401, "0,0,0", 0, 0)])
+    t = cdr.Track(en)
+    p, m, n = t.sites("c1", 0, 1000)
+    assert t.kind == "encode" and list(p) == [100, 300] and np.allclose(m, [6, 1]) and np.allclose(n, [10, 2])
+
+
+def test_unreadable_table_is_named(tmp_path, caplog):
+    cx = _tabix(tmp_path / "cx.bed.gz", [("c1", 100 + i, 101 + i, "+", 3, 2, "CG") for i in range(20)])
+    arrays = pd.DataFrame(dict(chrom=["c1"], start=[0], end=[1000], role=["centromeric"]))
+    with caplog.at_level("WARNING"):
+        cdr.run([cx], {"c1": (0, 1000, "high")}, arrays)
+    assert any("no row could be read" in r.message and str(cx) in r.message for r in caplog.records)
 
 
 def test_cg_only_samples_table(tmp_path):
@@ -148,7 +168,7 @@ def test_dips_everywhere_are_not_positional(tmp_path):
 def test_malformed_rows_are_skipped(tmp_path):
     f = _tabix(tmp_path / "m.bedgraph.gz", [("c1", 100, 102, 0.5), ("c1", 200, 202, "x"), ("c1", 300, 302, 0.7)])
     t = cdr.Track(f)
-    p, v = t.sites("c1")
+    p, m, n = t.sites("c1")
     assert list(p) == [100, 300] and t.bad == 1
 
 
@@ -216,3 +236,27 @@ def test_a_malformed_first_row_loses_only_itself(tmp_path):
     f = _tabix(tmp_path / "f.bedgraph.gz", [("c1", 100, 102, ""), ("c1", 200, 202, 0.5), ("c1", 300, 302, 0.7)])
     t = cdr.Track(f)
     assert list(t.sites("c1")[0]) == [200, 300] and t.bad == 1
+
+
+def test_low_coverage_dip_is_found_by_pooling_calls(tmp_path):
+    """About one ONT call per CpG (MMU8 thinned to 1/16). Per-site fractions with a 3-call floor keep almost no site;
+    pooling each bin's calls (methylated over valid) still shows the 100-kb dip at 1.4 Mb, on every chromosome."""
+    rng = np.random.default_rng(5)
+    rows, arrays, calls = [], [], {}
+    for i in range(8):
+        c = f"c{i}"
+        pos = np.arange(50, L, 100)
+        frac = np.full(len(pos), 0.3)
+        sat = ((pos >= CALL[0]) & (pos < CALL[1])) | ((pos >= NULLS[0]) & (pos < NULLS[1]))
+        frac[sat] = 0.8
+        frac[(pos >= 1_400_000) & (pos < 1_500_000)] = 0.15
+        n = rng.poisson(1.0, len(pos))
+        m = rng.binomial(n, frac)
+        keep = n > 0
+        rows += [(c, int(a), int(a) + 1, "m", int(k), "+", int(a), int(a) + 1, "0,0,0", int(k), round(100 * x / k, 2),
+                  int(x), int(k - x), 0, 0, 0, 0, 0) for a, k, x in zip(pos[keep], n[keep], m[keep])]
+        arrays += [(c, CALL[0], CALL[1], "centromeric"), (c, NULLS[0], NULLS[1], "interstitial")]
+        calls[c] = (CALL[0], CALL[1], "high")
+    f = _tabix(tmp_path / "low.bed.gz", rows)
+    t = cdr.run([f], calls, pd.DataFrame(arrays, columns=["chrom", "start", "end", "role"]))["table"].set_index("chrom")
+    assert t.gate_pass.all() and ((t.kt_start - 1_400_000).abs() <= 2 * B).all() and ((t.kt_end - 1_500_000).abs() <= 2 * B).all()

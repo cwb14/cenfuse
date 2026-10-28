@@ -1,10 +1,10 @@
-"""Stage orchestration: satellite -> telomere -> rdna -> genotype -> hic -> fold -> karyotype -> provisional -> meth ->
-fuse -> cpg -> plants -> loci -> output -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> genotype -> hic -> fold -> karyotype -> provisional ->
+meth -> fuse -> cpg -> plants -> loci -> output -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, genotype, hic, fold, karyotype,
-meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's version and
-fingerprints of every input they read (including the calls they are anchored on), so a changed input recomputes them
-and an unchanged rerun resumes. The later stages are cheap and always rerun.
+The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, rdna5s, genotype, hic, fold,
+karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by cenfuse's
+version and fingerprints of every input they read (including the calls they are anchored on), so a changed input
+recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -36,7 +36,7 @@ from .sat.params import Params
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "telomere", "rdna", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
+STAGES = ["satellite", "telomere", "rdna", "rdna5s", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 _PKG = Path(__file__).parent
 
@@ -214,6 +214,17 @@ class Run:
         self._nors[g.name] = hit
         return hit
 
+    def stage_rdna5s(self, g) -> list:
+        """5S rDNA arrays from the Rfam 5S model (rdna.detect_5s), checkpointed by the assembly index and the code. They
+        are features only: unlike NORs, 5S arrays do not gather in the nucleolus, so Hi-C does not use them."""
+        fp = dict(version=__version__, code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+                  chroms=obj_fingerprint(g.chroms))
+        hit = self._cached("rdna5s", g.name, fp)
+        if hit is None:
+            hit = rdna.detect_5s(g.fasta, g.chroms, self.threads)
+            self._store("rdna5s", g.name, fp, hit)
+        return hit
+
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
         """Fixed differences of every methylation sample and the private-difference tests (provenance)."""
         files = sorted(str(f) for s in samples for f in s.files.values())
@@ -354,7 +365,7 @@ class Run:
         """The CpG line (cdr.py): a kinetochore inside each final call where CpG dips are validated genome-wide.
         Checkpointed by its CG files, the final calls and the arrays."""
         arr = seq.arrays[["chrom", "start", "end", "role"]]
-        fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py"),
+        fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py", "meth/io.py"),
                   files=[file_fingerprint(f) for f in files], calls=obj_fingerprint(calls),
                   arrays=obj_fingerprint(arr.values.tolist()))
         hit = self._cached("cpg", g.name, fp)
@@ -418,6 +429,11 @@ class Run:
                 log.warning(f"{g.name}: methylation line skipped: {e}")
                 g.notes.append(f"methylation skipped: {e}")
                 g.meth = None
+        samples, dropped = provenance.drop_non_modkit_chg(samples)
+        for name, f, what in dropped:
+            log.warning(f"{g.name}: methylation {name} CHG ({f}) is {what}: the CHG line needs modkit bedMethyl (its "
+                        f"provenance test reads modkit's counts of failed and differing calls); CHG not used")
+            g.notes.append(f"methylation {name}: CHG not modkit bedMethyl, not used")
         chg = [s for s in samples if "CHG" in s.files]
         self._chg_ok[g.name] = bool(g.tes and samples and len(chg) == len(samples))
         if samples and g.tes and not self._chg_ok[g.name]:       # without tes/ the input note says it already
@@ -489,6 +505,7 @@ class Run:
             tel = teline.te_line(g.tes, g.chroms)
             telo = self.stage_telomere(g)
             nors = self.stage_rdna(g)
+            five_s = self.stage_rdna5s(g)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]
             dec_lib = deciding_library(hics, verdicts)
@@ -589,15 +606,16 @@ class Run:
                                       f"cenfuse {g.name} anchored Hi-C score (x chromosome median)")
             genes = load_gene_gff(g.genes, g.chroms)[0] if g.genes else None
             lt, feats = loci.table(g.name, g.chroms, fused, seq, seqcalls.satellite_clusters(seq.arrays), tel, hic_l,
-                                   meth, genes, g.fasta, telo, nors)
+                                   meth, genes, g.fasta, telo, nors, five_s)
             output.write_loci(lt, feats, g.name, g.chroms, self.out)
             fc = hic["classes"] if hic is not None else None
             if fc is not None:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
-            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg))
+            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s))
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
-                             plants=ptab, psites=psites, verdicts=verdicts, libraries=others))
+                             plants=ptab, psites=psites, verdicts=verdicts, libraries=others,
+                             rdna=dict(nors=list(nors or ()), five_s=list(five_s or ()))))
             log.info(f"{g.name}: {len(t[t.start != '.'])}/{len(t)} chromosomes called; relations "
                      f"{t.relation.value_counts().to_dict()}; confidence "
                      f"{t[t.start != '.'].confidence.value_counts().to_dict()}")

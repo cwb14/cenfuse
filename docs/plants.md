@@ -20,7 +20,7 @@ Not goals: mapping calls between assemblies, genotyping Hi-C from BAMs, CENH3 Ch
 | step | rule |
 |---|---|
 | right assembly? (fail fast) | methylation CHG rows must sit on reference CHG motifs: < 50% stops the run, < 99% warns |
-| genotype (methylation) | at symmetric CHG sites read on both strands (≥ 3 reads each), a fixed genetic difference removes both strands' rows; read errors remove one. A difference sample j has and sample k lacks, beyond its noise (Poisson, P ≤ 0.01, Bonferroni), makes j **not** the reference plant. Sites: two 2-Mb windows per chromosome on the arms |
+| genotype (methylation) | at symmetric CHG sites read on both strands (≥ 3 reads each), a fixed genetic difference removes both strands' rows; read errors remove one. A difference sample j has and sample k lacks, beyond its noise (Poisson, P ≤ 0.01, Bonferroni), makes j **not** the reference plant. Sites: two 2-Mb windows per chromosome on the arms. CHG files must be modkit bedMethyl (the genotype reads its counts of differing and failed calls); one in another layout is left out with a warning, and the sample's CG file is kept |
 | reference plant | no such excess against any sample, another sample shown different, and ≥ 95% power. With one sample: always `unknown` (assembly errors and another plant look alike) |
 | karyotype (any input with coverage) | a **missing segment** = ≥ 3 windows below 0.1× the input's median while a same-type input has ≥ 0.5× (windows over calls, gaps, mostly-satellite windows, ends and pile-ups are not judged). A missing segment means another plant |
 | verdict | `other` (genotype or karyotype evidence), `reference` (genotype), else `unknown`; an unknown input takes a same-named input's verdict |

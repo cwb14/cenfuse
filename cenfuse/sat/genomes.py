@@ -61,48 +61,85 @@ def discover_genomes(complex_dir) -> list:
     return [Genome(n, f, load_fai(f)) for n, f in seen.items()]
 
 
+GENE_EXT = (".gff3", ".gff3.gz", ".gff", ".gff.gz", ".gtf", ".gtf.gz")   # gene lines are read from GFF3 or GTF
+
+
 def gene_gff(complex_dir, genome: str):
-    for ext in (".gff3", ".gff3.gz"):
+    for ext in GENE_EXT:
         f = Path(complex_dir) / "genes" / f"{genome}{ext}"
         if f.exists():
             return f
     return None
 
 
+def gene_attrs(col: str) -> dict:
+    """Column 9 of a GFF3 (key=value) or GTF (key "value") line."""
+    out = {}
+    for kv in col.strip().split(";"):
+        kv = kv.strip()
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+        elif " " in kv:
+            k, v = kv.split(" ", 1)
+            v = v.strip().strip('"')
+        else:
+            continue
+        out[k.strip()] = v
+    return out
+
+
+TRANSCRIPT_TYPES = ("mRNA", "transcript")
+
+
 def load_gene_gff(gff, chroms=None) -> tuple:
-    """One midpoint per gene locus from `gene` lines (isoforms counted once). Non-coding loci are skipped: a
-    locus_type other than coding, or a gene_biotype/biotype other than protein_coding (NCBI/Ensembl `gene` lines
-    include tRNA, ncRNA and pseudogene loci). Returns ({chrom: sorted midpoints}, gene lines on sequences not in
-    chroms)."""
-    mids, foreign = {}, 0
+    """One midpoint per gene locus from `gene` lines of a GFF3 or GTF (isoforms counted once). Non-coding loci are
+    skipped: a locus_type other than coding, or a gene_biotype/biotype/gene_type (GENCODE) other than protein_coding
+    (NCBI/Ensembl/GENCODE `gene` lines include tRNA, ncRNA and pseudogene loci). A file without any `gene` line
+    (Spud DB potato DM v6.1: mRNA lines whose Parent gene is never defined) gives one locus per transcript Parent, at
+    the middle of its transcripts' span (a transcript without a Parent is its own locus). Returns ({chrom: sorted
+    midpoints}, gene lines on sequences not in chroms)."""
+    mids, foreign, spans = {}, 0, {}
     with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
         for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue
             p = line.rstrip("\r\n").split("\t")
-            if len(p) < 9 or p[2] != "gene":
+            if len(p) < 9 or p[2] not in ("gene",) + TRANSCRIPT_TYPES:
                 continue
             if chroms is not None and p[0] not in chroms:
-                foreign += 1
+                foreign += p[2] == "gene"
                 continue
-            attrs = dict(kv.split("=", 1) for kv in p[8].split(";") if "=" in kv)
+            attrs = gene_attrs(p[8])
+            if p[2] != "gene":                       # kept until we know whether the file has gene lines
+                if not mids:
+                    try:
+                        key = (p[0], attrs.get("Parent", attrs.get("gene_id", attrs.get("ID", f"line{n}"))))
+                        s0, e0 = spans.get(key, (int(p[3]) - 1, int(p[4])))
+                        spans[key] = (min(s0, int(p[3]) - 1), max(e0, int(p[4])))
+                    except ValueError:
+                        raise SatelliteError(f"{gff}:{n}: bad coordinates {p[3]!r}..{p[4]!r}") from None
+                continue
             if attrs.get("locus_type", "coding") != "coding":
                 continue
-            if attrs.get("gene_biotype", attrs.get("biotype", "protein_coding")) != "protein_coding":
+            if attrs.get("gene_biotype", attrs.get("biotype", attrs.get("gene_type", "protein_coding"))) \
+                    != "protein_coding":
                 continue
             try:
                 mids.setdefault(p[0], []).append((int(p[3]) - 1 + int(p[4])) // 2)
             except ValueError:
                 raise SatelliteError(f"{gff}:{n}: bad gene coordinates {p[3]!r}..{p[4]!r}") from None
+    if not mids and not foreign:                    # no gene line at all: transcripts grouped by their Parent
+        for (c, _), (s0, e0) in spans.items():
+            mids.setdefault(c, []).append((s0 + e0) // 2)
     return {c: np.sort(np.array(v, dtype=np.int64)) for c, v in mids.items()}, foreign
 
 
 def load_genes(complex_dir, genome: str, chroms=None):
     """{chrom: sorted np.int64 array of gene midpoints (0-based)}, or None without gene evidence.
-    Source: <complex>/genes/<genome>.gff3[.gz] (gene lines, native seqids; only chroms when given)."""
+    Source: <complex>/genes/<genome>.gff3|.gff|.gtf[.gz] (gene lines, native seqids; only chroms when given)."""
     gff = gene_gff(complex_dir, genome)
     if gff is None:
-        log.warning(f"{genome}: no genes/{genome}.gff3[.gz]; gene evidence off (no_genes)")
+        log.warning(f"{genome}: no genes/{genome}.gff3, .gff or .gtf [.gz]; gene evidence off (no_genes)")
         return None
     mids, foreign = load_gene_gff(gff, chroms)
     if not mids:
@@ -111,6 +148,12 @@ def load_genes(complex_dir, genome: str, chroms=None):
         return None
     if foreign:
         log.info(f"{genome}: {foreign} genes in {gff.name} on sequences not in the FASTA ignored")
+        empty = [c for c in chroms or () if c not in mids]
+        if empty:                                   # names that match only some chromosomes (chr1 vs chr01)
+            log.warning(f"{genome}: {len(empty)} of {len(chroms)} chromosomes have no gene in {gff.name} "
+                        f"({', '.join(empty[:5])}{', ...' if len(empty) > 5 else ''}) while {foreign} genes sit on "
+                        f"other sequence names: check that the annotation uses the FASTA's names (gene-free "
+                        f"chromosomes lower the gene density the gene tests compare against)")
     return mids
 
 

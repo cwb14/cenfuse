@@ -71,6 +71,44 @@ def test_another_assembly_stops_the_run(tmp_path):
         provenance.check_assembly([smp("bad", bad)], fa, [("c1", 0, 300_000)])
 
 
+def _encode(tmp: Path, name: str, rows: list) -> Path:
+    """ENCODE bedMethyl (11 columns: coverage, percent)."""
+    path = tmp / f"{name}.encode.bed"
+    with open(path, "w") as f:
+        for x, strand in sorted(rows):
+            f.write(f"c1\t{x}\t{x + 1}\t.\t10\t{strand}\t{x}\t{x + 1}\t0,0,0\t10\t50\n")
+    pysam.tabix_index(str(path), preset="bed", force=True)
+    return Path(f"{path}.gz")
+
+
+def test_encode_cg_files_are_checked_against_the_assembly(tmp_path):
+    rng = np.random.default_rng(3)
+    seq = np.where(rng.random(300_000) < 0.5, ord("A"), ord("T")).astype(np.uint8)
+    pos = np.arange(50, 299_990, STEP)
+    seq[pos], seq[pos + 1] = ord("C"), ord("G")
+    fa = tmp_path / "cg.fa"
+    fa.write_bytes(b">c1\n" + seq.tobytes() + b"\n")
+    pysam.faidx(str(fa))
+    smp = lambda n, p: SimpleNamespace(name=n, files={"CG": p})
+    good = _encode(tmp_path, "good", [(int(p), "+") for p in pos])
+    bad = _encode(tmp_path, "bad", [(int(p) + 2, "+") for p in pos])
+    assert provenance.check_assembly([smp("good", good)], fa, [("c1", 0, 300_000)]) == []
+    with pytest.raises(CenfuseError, match="another assembly"):          # before: no row read, the check passed over
+        provenance.check_assembly([smp("bad", bad)], fa, [("c1", 0, 300_000)])
+
+
+def test_chg_files_must_be_modkit(tmp_path):
+    fa, pos = _genome(tmp_path)
+    mk = _bedmethyl(tmp_path, "mk", [(int(p), "+") for p in pos[:20]])
+    en = _encode(tmp_path, "en", [(int(p), "+") for p in pos[:20]])
+    s1, s2, s3 = (SimpleNamespace(name="s1", files={"CHG": mk}), SimpleNamespace(name="s2", files={"CHG": en, "CG": en}),
+                  SimpleNamespace(name="s3", files={"CHG": en}))
+    kept, dropped = provenance.drop_non_modkit_chg([s1, s2, s3])
+    assert [s.name for s in kept] == ["s1", "s2"] and s2.files == {"CG": en} and s1.files == {"CHG": mk}
+    assert [(n, w) for n, _, w in dropped] == [("s2", "ENCODE bedMethyl (coverage, percent)"),
+                                               ("s3", "ENCODE bedMethyl (coverage, percent)")]
+
+
 def _gt(name, tested, fixed, loss=450):          # 450 single-strand losses in 100,000 sites: ~2 both-missing by chance
     return provenance.Genotype(name, 0, 1.0, np.array(sorted(tested)), np.array(sorted(fixed)), loss, loss)
 

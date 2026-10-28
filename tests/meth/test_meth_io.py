@@ -31,6 +31,25 @@ def test_bedmethyl_tab_and_space_columns_skip_h_rows(tmp_path, space):
     assert bad == 0
 
 
+def test_encode_bedmethyl_reads_like_modkit(tmp_path):
+    """ENCODE bedMethyl (coverage, percent methylated; no 'h' rows) gives the modkit fixture's sites and calls."""
+    with open(tmp_path / "e.bed", "w") as f:
+        for c, p, code, nv, nm, nh in ROWS:
+            if code == "m":
+                f.write(f"{c}\t{p}\t{p + 1}\t.\t{nv}\t+\t{p}\t{p + 1}\t0,0,0\t{nv}\t{100 * (nm + nh) / nv:.0f}\n")
+    pysam.tabix_index(str(tmp_path / "e.bed"), preset="bed", force=True)
+    with pysam.TabixFile(f"{tmp_path / 'e.bed'}.gz") as tb:
+        pos, v, m, bad = io.read_bedmethyl(tb, "c1", 0, 100, 3)
+    assert pos.tolist() == [10, 30] and v.tolist() == [5, 4] and m.tolist() == [3, 0] and bad == 0
+
+
+def test_other_tables_stop_with_the_formats_read(tmp_path):
+    (tmp_path / "cx.bed").write_text("c1\t10\t11\t+\t3\t2\tCG\n")       # e.g. a Bismark CX report
+    pysam.tabix_index(str(tmp_path / "cx.bed"), preset="bed", force=True)
+    with pysam.TabixFile(f"{tmp_path / 'cx.bed'}.gz") as tb, pytest.raises(io.InputError, match="ENCODE bedMethyl"):
+        io.read_bedmethyl(tb, "c1", 0, 100, 3)
+
+
 def test_bedmethyl_region_is_half_open(tmp_path):
     f = _bedmethyl(tmp_path / "x.bed", ROWS)
     with pysam.TabixFile(f) as tb:

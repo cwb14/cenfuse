@@ -404,3 +404,223 @@ fails; no call changed. The satellite search on the same families gives byte-ide
 call stages were replayed on all 72 earlier satellite runs (the 14 T2T mammals with and without genes, 6 plant runs,
 38 polyploid complexes of the 185-genome batch: 3,134 chromosomes) and on the other 9 genomes of this round (104
 chromosomes): no call, confidence or flag changed.
+
+## 10. v6: the LTR and gene lines on CENH3 crops, 5S rDNA, new lineages
+
+Criteria: `v6/PLAN.md` (2026-10-27, written before any v6 edit or new-input run; dated amendments).
+
+### The LTR-RT and gene lines on crops with CENH3 truth
+
+Before v6 every CENH3 crop row was FASTA (+ Hi-C). `tes/` = LTRquest 1.0.1 with `--detect-args ltr-timeout=300`;
+genes = RefSeq (rice), Spud DB (potato), Ensembl Plants (barley), MaizeGDB (maize). Right = within 4 Hi-C bins (1 Mb;
+barley 8 Mb). Right / confidently wrong:
+
+| genome | FASTA | + genes | + `tes/` | + `tes/` + genes | + `tes/` + Hi-C | CRM core alone |
+|---|---|---|---|---|---|---|
+| rice | 12 / 0 | 12 / 0 | 12 / 0 (all `high`) | 12 / 0 | 12 / 0 | 8/8 cores on CENH3 |
+| potato | 2 / 2 | 4 / 2 | **6 / 2** | 6 / 2 | 6 / 2 (Hi-C gate fails) | 6/7 |
+| maize | 9 / 1 | 9 / 1 | 9 / 1 (all `high`) | 9 / 1 | (no Hi-C) | 10/10 within 1 Mb (9 overlap) |
+| barley | 0 / 3 | 0 / **0** | **4 / 1** | 4 / 1 | 6 / 0 (as Hi-C alone) | 4/5 within 8 Mb |
+
+- CRM is the decisive marker in rice (cores on 8/12 chromosomes), potato (7/12), maize (10/10) and barley (5/7), as in
+  the batch's *Solanum*. Barley: `tes/` alone takes the FASTA calls from 0 to 4/7 (confidently wrong 3 -> 1); with Hi-C
+  the fold already gives 6/7 and `tes/` keeps it. Calibration (`high` calls of the `tes/` arms right) 37/42 = 88%,
+  short of the pre-registered 90% (potato 4/8).
+- Maize: every call agrees with its CRM core, but the cores are wide (median 3.0 Mb); chr5's (4.8 Mb) spans both the
+  CentC call and CENH3 2 Mb away, so the TE line cannot move that call (still the one confident miss).
+- Potato: `tes/` places chr10's satellite-free centromere from the CRM core alone; genes move chr01 and chr03 onto
+  CENH3 by vetoing gene-rich 178/179-bp families (a third call, chr04, moves and stays wrong).
+- The LTRquest cap: uncapped, LTRharvest ran > 20 min on rice's chr3 centromere; capped runs (FastLTR rescue) gave
+  CRM cores on 8 rice chromosomes vs 7, and the same calls.
+
+### 5S rDNA arrays (new feature)
+
+Tandem runs of whole 5S genes (Rfam 5S profile HMM). Every array lies on a chromosome known to carry 5S rDNA:
+
+| genome | 5S arrays (copies, unit) | known 5S locus |
+|---|---|---|
+| CHM13 | chr1 227.7-228.0 Mb (126 x 2.24 kb) | 1q42 (RNA5S1-17) |
+| chimp, gorilla, both orangutans, siamang, macaque | chromosome 1 (HSA1) homolog, 84-216 copies | 1q42; 18-26 of the 27 genes beside the human array shared |
+| horse, pig | ECA1; SSC14 | at HSA1q42.2 genes (EGLN1, DISC1, TRIM67) / beside HSA1q43 genes (CHRM3, FMN2) |
+| mouse | chr8 (87 x 1.7 kb) | chr8 |
+| chicken | chr9 (22 x 2.2 kb) | chr9 |
+| *Arabidopsis* Col-CC | chr3, chr4, chr5 (+ 3-7 copies on chr1, chr2) | chr3, chr4, chr5 |
+| rice; maize; potato | chr11; chr2L; chr01 | chr11; 2L; chr1 |
+| barley | 2H, 4H, 7H (+ 3H, 5H small) | 2H, 3H, 4H, 7H |
+| *S. pombe*; budding yeast | none (36 dispersed genes); chrXII rDNA | dispersed; inside the rDNA unit |
+
+The satellite engine had tagged 5S only in mouse, maize and *Arabidopsis* (and missed 2 of 3 *Arabidopsis* loci,
+merged into centromere loci): 5S units of mammals and birds (2.2 kb) are longer than its 2-kb seeds. CHM13 scan: 24 s.
+The overview plot marks 45S (filled) and 5S (open) arrays with green diamonds (CHM13: 45S on the five acrocentrics,
+5S at 1q42); the gallery and README images were redrawn from the final regression runs.
+
+### New lineages (functional truth on the same assembly)
+
+| genome | centromeres | truth | FASTA | + `tes/` |
+|---|---|---|---|---|
+| moss *Physcomitrium patens* V6 | clusters of the Copia RLC5 (Bryco), no satellite | CENH3 ChIP (Bi et al. 2024) | 16/26, all `low` | 16/26; base code: 4 confident wrong; v6: 0 confident wrong, 11 confident right |
+| *Chlamydomonas reinhardtii* UL-1690 | ZeppL LINE-1 clusters | CENH3 CUT&Tag (Liu et al. 2025) | 6/17 (P 0.03), all `low` | same (no LTR clade concentrates) |
+| *Cryptococcus neoformans* H99, *C. deneoformans* JEC21 | Tcn LTR-rich regional centromeres | CENP-A ChIP (Yadav et al. 2018) | 0/14 and 1/14 (`low`) calls | same: REXdb gives their elements no lineage |
+
+- Moss: Bryco is the only clade concentrated at one locus per chromosome; its cores sit on CENH3 on 25/26 (median
+  201 kb), better than the satellite line (16/26), but a non-CRM marker cannot replace a satellite call (lead in
+  `v6/dead_ends.md`). With the base code, giving `tes/` made 4 wrong calls confident: a flags-only marker lifted the
+  no-dominant cap for calls it contradicted (fixed in v6, below). With Hi-C as well: 22/26 (Input robustness, below).
+- *Cryptococcus*: 89% (H99) and 94% (JEC21) of LTRquest's elements lie in the CENP-A domains, but without a lineage.
+  Pooling them (with 20-kb TE bins) found JEC21's centromeres (10/14) and the hybrid's D subgenome (10/13, truth carried
+  by flank mapping), all `low` and none wrong, but changed calls or flags in 9 fish genomes and *Oryza*, also with a
+  guard against tandem-array artifacts and no cap lifting; not adopted (`v6/dead_ends.md`).
+
+### HG002: a diploid T2T assembly, and CpG methylation from PacBio HiFi
+
+HG002 v1.0.1 (both haplotypes in one FASTA, 46 chromosomes): FASTA-only calls overlap the CenSat active array on 46/46
+(45 `high`); telomere arrays at 92/92 ends; NORs on the acrocentric haplotypes; one 5S array per haplotype (chr1:
+105 and 70 copies). CpG line with the ONT R10 and the PacBio Revio 5mC tracks of the same assembly (no CENP-A data
+exist for HG002):
+
+| criterion | ONT | PacBio HiFi |
+|---|---|---|
+| CpG gate | passes on 46/46 | passes on 46/46 |
+| kinetochores | 40 (median 38 kb) | 43 (median 25 kb) |
+| inside the active array | 40/40 | 43/43 |
+| calls changed | 0 | 0 |
+
+Where both technologies place a kinetochore (39 chromosomes) they lie within 50 kb on 31 (15 overlap); the other 8 are
+55-195 kb apart inside the same array. PacBio tracks need no code change: they enter as bedGraphs.
+
+### Input robustness: Hi-C depth and MAPQ floor, CpG depth, LTR annotation (criteria in `v6/PLAN.md`, overnight program)
+
+**Hi-C depth.** Each genome's pairs randomly thinned (nested) and rerun; calls scored against truth. Chromosomes on which
+the Hi-C gate passes, by share of the uniquely mapped pairs kept:
+
+| genome | pairs (100%) | 100% | 50% | 25% | 10% | 5% | 2% |
+|---|---|---|---|---|---|---|---|
+| CHM13 | 71 M | 24 | 24 | 24 | 24 | 24 | 0 |
+| chimpanzee | 74 M | 25 | 25 | 25 | 25 | 25 | 0 |
+| gorilla | 55 M | 25 | 25 | 25 | 0 | 0 | 0 |
+| S. orangutan; B. orangutan | 71 M; 67 M | 25; 25 | 0; 0 | 0; 0 | 0; 0 | 0; 0 | 0; 0 |
+| crab-eating macaque | 70 M | 22 | 22 | 22 | 22 | 22 | 22 |
+| pig | 54 M | 0 | 0 | 20 | 20 | 0 | 0 |
+| horse (T2T); potato | 64 M; 66 M | 0 | 0 | 0 | 0 | 0 | 0 |
+| rice | 53 M | 12 | 12 | 0 | 0 | 0 | 0 |
+| barley (arm fold) | 9.2 M | pass | fail | fail | fail | fail | fail |
+
+No depth made a call confidently wrong in a mammal, and no right call was lost (the satellite line decides there).
+Where Hi-C works only near its threshold it flips with depth: both orangutans fail at half depth (35 M pairs, where the
+bin doubles to 500 kb), the pig gate passes only at 25% and 10%, and barley's fold rescue (0 -> 6/7) needs all 9.2 M
+pairs (fold P 0.013 at half depth), below which barley returns to its FASTA-only calls (3 confidently wrong).
+
+**Hi-C MAPQ floor.** The same 100 M read pairs remapped with the recipe at pairtools' default floor (`--min-mapq 1`)
+instead of 30. With the MAPQ columns kept, cenfuse applies MAPQ >= 30 itself; without them it can only warn. Calls
+right (confidently wrong), and Hi-C gate passes or the arm fold:
+
+| genome | pairs, recipe | at MAPQ >= 1 | recipe | MAPQ >= 1, columns kept | MAPQ >= 1, no columns |
+|---|---|---|---|---|---|
+| CHM13 | 71.3 M | 77.3 M (1.08x) | 23/23 (0), gate 24 | 23/23 (0), 24 | 23/23 (0), 24 |
+| Sumatran orangutan | 70.8 M | 77.1 M (1.09x) | 8/8 (0), gate 25 | 8/8 (0), 25 | 8/8 (0), 25 |
+| rice | 53.2 M | 64.0 M (1.20x) | 12/12 (0), gate 12 | 12/12 (0), 12 | 12/12 (0), 12 |
+| moss, + `tes/`; FASTA only | 46.3 M | 55.4 M (1.19x) | 22/26 (0), gate 26; 16/26 (0), 0 | the same | the same |
+| barley | 9.2 M | 17.9 M (1.94x) | 6/7 (0), fold pass | 7/7 (0), pass | 6/7 (0), pass |
+
+No gate or fold result changed and no call became confidently wrong. Without the columns the apes' calls changed only
+in relation or confidence (CHM13 7, orangutan 10 chromosomes; 2 confidences up), and barley's extra pairs allowed
+1-Mb bins: calls 1-3 Mb wide instead of 6-18 Mb, still 6/7 right (one gained, one lost to a `low` call). With the
+columns, cenfuse's filter comes after pairtools' deduplication, so 1-2% fewer pairs survive than with the recipe (barley
+7.6%); barley's one changed call moved onto CENH3. The extra pairs did not bring Hi-C into the alpha-satellite arrays
+(anchored peak a median 1.8 and 2.1 Mb from CENP-A, 2.3 and 1.7 Mb before): near-identical repeat copies map at MAPQ
+0, which pairtools drops at any floor.
+
+**CpG depth.** The two CpG tables with read counts binomially thinned (3 seeds). Kinetochores within 50 kb of the full-depth
+ones (of 21), before and after pooling the calls of each bin:
+
+| genome (calls per CpG strand) | 1/2 | 1/4 | 1/8 | 1/16 |
+|---|---|---|---|---|
+| rhesus MMU8 (~15), per-CpG floor of 3 calls | 21 | 20.7 | 15.3 | 0 (gate fails) |
+| rhesus MMU8, pooled calls (v6) | 21 | 21 | 21 | 21 |
+| crab-eating MFA8 (~38), per-CpG floor | 21 | 21 | 21 | 14.3 |
+| crab-eating MFA8, pooled calls (v6) | 21 | 21 | 21 | 21 |
+
+No call changed at any depth. At full depth pooling gives the same gate (22/22 both), the same kinetochores within 50 kb
+(21/21 both) and the same 12/15 MFA8 kinetochores inside its ChIP domain; a bedGraph (no counts) is unchanged.
+
+**LTR annotation.** The TE line on the CENH3 crops with three annotators, and with LTRquest's elements thinned at random
+(final code). Right = within 1 Mb of CENH3 (moss 100 kb):
+
+| genome | annotation | marker | TE line alone (right / cores) | calls right (confidently wrong) |
+|---|---|---|---|---|
+| rice | LTRquest | CRM, decisive | 8/8 | 12/12 (0) |
+| rice | EDTA intact + TEsorter | CRM cores on 4 chromosomes | 4/4 | 12/12 (0) |
+| rice | DANTE_LTR | Tekay, CRM cores on 2 | 3/8 | 12/12 (0) |
+| rice | LTRquest at 50 / 25 / 10 / 5% | CRM cores on 3 / 1 / 1 / 0 | 3/3, 1/1, 1/1, - | 12/12 (0) |
+| potato | LTRquest | CRM, decisive (7/12) | 6/7 | 6/11 (2) |
+| potato | EDTA intact + TEsorter; DANTE_LTR | CRM cores on 2; on 1 | 2/2; 1/1 | 2/11 (2) |
+| potato | LTRquest at 50 / 25% | CRM cores on 3 / 1 | 3/3, 1/1 | 2/11 (2) |
+| maize | LTRquest, and at 50 / 25 / 10% | CRM, decisive | 10/10, 10/10, 10/10, 8/8 | 9/10 (1) |
+| maize | LTRquest at 5% | CRM cores on 5 | 5/5 | 9/10 (1) |
+| moss | LTRquest; at 50% | Bryco | 25/25; 22/22 | 16/26 (0) |
+
+The decisive CRM test counts chromosomes with a significant core and needs most of them: potato's 214 LTRquest CRM
+elements give 7/12, exactly a majority, and any less sensitive annotation loses the potato gain from `tes/` (6 -> 2/11).
+Every CRM core short of the majority still lay on CENH3 (24/24 over 8 arms of rice, potato, maize and *Brachypodium*;
+also 5/5 in the DANTE_LTR rice arm that prompted the rule), every rice Tekay core off it. With DANTE_LTR, elements of
+rank D (domains, no LTRs: 195 of potato's 223 CRM) had made CRM decisive with cores up to 15 Mb off CENH3 (6
+confidently wrong calls); they are now ignored. EDTA's own `*.LTR.intact.raw.fa` held 7 of 2,533 rice elements: cut
+the sequences from the genome before TEsorter. These are the last benchmarks of other annotators: further work on the
+LTR line uses LTRquest only ([design.md](design.md#principles)).
+
+**New genomes with CENH3 truth.** Barley `tes/` (LTRquest): 0 -> 4/7 right, confidently wrong 3 -> 1; with Hi-C 6/7, 0
+(as Hi-C alone). *Brachypodium distachyon* Bd21 (CENH3 ChIP of the same line; truth on 3/5 chromosomes): 3/3 from the
+FASTA (`high`), the same with `tes/` (CRM decisive, cores 3/3 on CENH3). Tomato Heinz 1706: CENH3 ChIP 2.2-3.4x, below
+the truth rule (not scored).
+
+**Moss with Hi-C.** The README recipe, unchanged, on the V6 project's own Hi-C (SRR24296040, 99.6 M read pairs) gave
+46.3 M pairs (1 h 38 min on 32 threads). FASTA + Hi-C: the gate fails on all 26 chromosomes and the calls stay the
+FASTA-only ones (16/26, `low`), with the `hic_sequence_conflict` warning. Every sequence call is `low`, so only
+agreements at clean peaks count, and 11 of the 26 CENH3 domains lie within 8 bins (2 Mb) of a chromosome end, where
+peaks are flagged `telomeric`. FASTA + `tes/` + Hi-C: the calls the Bryco line raised are the references (9 of 11
+agree), the gate passes on 26/26, and 22/26 calls are right (P 4e-26), all `medium` or `high`, none confidently wrong
+(`tes/` alone: 16/26, 11 confident). Hi-C chose the competing cluster on 4 chromosomes and moved 2 calls, all onto
+CENH3. The 4 misses are telomeric-flagged peaks on CENH3 with the Bryco core there too. Elsewhere the flag is right:
+all 10 telomeric-flagged peaks in the other truth genomes (rice 4, barley 4, CHM13 1, Sumatran orangutan 1) are
+wrong, and at reduced Hi-C depth plant telomeric peaks were right 0/27 (other peaks 27/120). A narrow exemption (such
+a peak counts when the LTR marker's core lies within 4 bins of it) takes moss to 26/26, all confident, and acts in no
+other run; moss alone prompted it, so it stays a lead (`v6/dead_ends.md`).
+
+### Fixes
+
+- **Flags-only TE markers and the no-dominant cap.** Before v6 any TE marker lifted the cap for every call; now a
+  flags-only marker lifts it only for the calls it supports (`te_concordant`). 72-job replay: 22 genomes, 118 calls,
+  all as predicted (66 confident -> `low`); moss: 4 confident wrong -> 0.
+- **A weak satellite call beside a decisive core** is replaced by the core (`weak_satellite_beside_core`): potato chr11,
+  *S. verrucosum* chr01 and *Ae. geniculata* chr07U move onto CENH3; 72-job replay: 14 calls in 13 CRM genomes, nothing
+  else; rice, maize, barley, *Brachypodium*: no case.
+- **CRM cores short of a majority** replace the flags-only marker's core on their chromosomes (and are the marker when no
+  clade qualifies): rice TE line with DANTE_LTR 1 -> 6/12 right (all ranks), with EDTA 0 -> 4/4, thinned LTRquest 0 ->
+  3/3 (50%); replay: 142 chromosomes in 41 genomes, all with a CRM core, one confidence decrease; calls on truth genomes
+  unchanged. Giving CRM the whole genome instead (tested, rejected): in TAIR10 one CRM core displaced Athila and two
+  right `high` calls fell to `low`.
+- **DANTE_LTR rank-D elements** (domains without LTRs) are not counted: DANTE potato 6 -> 2 confidently wrong (5 -> 2
+  right); rice, *Arabidopsis*, *Brachypodium* calls unchanged.
+- **CpG calls pooled per bin** (bedMethyl): kinetochores at 1/16 of the reads (table above).
+- **Inputs:** `.gff`/`.gtf` gene and TE files; GENCODE `gene_type`; GFF3 without `gene` lines (potato); a `tes/` file
+  without lineages or with other sequence names is reported with the reason, and so is a gene file whose names match
+  only some chromosomes (none of the 23 benchmark gene files triggers it); a Juicer `.hic` or a BAM in `hic/` stops
+  with the conversion recipe (rice: `.hic` -> `hictk convert` -> `.mcool` gives the same calls as the pairs).
+- **ENCODE-style bedMethyl** (11 columns: coverage, percent methylated; bisulfite pipelines, Megalodon) is read as
+  counts by the CpG line and checked against the assembly (13,002 rows of the MFA8 table, all on reference CpGs):
+  before, every row counted as malformed and the line ran without data. MFA8 and MMU8 rewritten that way: the same
+  gate (22/22), calls unchanged, kinetochores within 50 kb of the modkit table's on 21/21 (41/42 identical). A CHG
+  file in that layout, which had stopped the run on a pandas error, is now left out with the reason (the provenance
+  test needs modkit's counts of failed and differing calls); an unreadable CG file is named with the formats read.
+  modkit tables and bedGraphs read as before (identical runs).
+- One chromosome alone runs and gives the whole-genome call (rice chr12).
+
+### No harm (v6 code)
+
+The 30 earlier benchmark runs with the final code: calls, confidence, relation, support, against, flags and summaries
+identical to v5 on every shared column; loci gain only 5S rDNA loci or members; overview images change only by the
+rDNA markers. The satellite-engine changes (the cap rule, the weak array beside a core) were checked on the 72-job
+replay instead (above). Rerun with the final code, the maize, moss and *Chlamydomonas* `tes/` arms give the same calls as
+with the code they were scored with; rice and potato were checked by satellite replay (rice identical; potato chr11
+moves onto CENH3 by the weak-array rule).
+

@@ -17,6 +17,10 @@ log = logging.getLogger("cenfuse-meth")
 CONTEXTS = ("CHG", "CG", "CHH")
 UNCLASSIFIED = {"", ".", "na", "unknown", "mixture", "none"}
 EDTA_SKIP = {"repeat_region", "long_terminal_repeat", "target_site_duplication"}
+MODKIT_COLS = 18          # modkit pileup bedMethyl: N_valid (column 10), N_mod (12), N_other_mod (14)
+ENCODE_COLS = 11          # ENCODE bedMethyl (WGBS pipelines, Megalodon): coverage (10), percent methylated (11); modkit's
+                          # first 11 columns are the same layout
+FORMATS = "modkit bedMethyl (18 columns) or ENCODE bedMethyl (11: coverage, percent methylated)"
 
 
 class InputError(Exception):
@@ -91,17 +95,52 @@ def tabix_contigs(path) -> list[str]:
         return list(tb.contigs)
 
 
+def bedmethyl_layout(ncol: int) -> str:
+    """'modkit' (>= MODKIT_COLS columns), 'encode' (ENCODE_COLS up to modkit's), else 'other'."""
+    return "modkit" if ncol >= MODKIT_COLS else "encode" if ncol >= ENCODE_COLS else "other"
+
+
+def usual_ncol(lines: list) -> int:
+    """The field count of most of the first 100 rows (whitespace-separated), so one malformed row cannot decide it."""
+    return int(pd.Series([len(x.split()) for x in lines[:100]]).mode().iat[0]) if lines else 0
+
+
+def table_layout(path) -> tuple[str, int]:
+    """(bedmethyl_layout, columns) of a tabixed methylation table, from the first rows that hold data."""
+    with pysam.TabixFile(str(path)) as tb:
+        for c in tb.contigs:
+            lines = [r for _, r in zip(range(100), tb.fetch(c))]
+            if lines:
+                n = usual_ncol(lines)
+                return bedmethyl_layout(n), n
+    return "other", 0
+
+
 def read_bedmethyl(tb: pysam.TabixFile, chrom: str, start: int, end: int, min_calls: int):
     """Cytosines of chrom in [start, end) with N_valid >= min_calls from an open tabix file ->
-    (pos, n_valid, n_methylated, n_malformed). Methylated = N_mod + N_other_mod (5mC + 5hmC). Rows with modification
-    code 'h' are skipped: their counts are already in the 'm' row's N_other_mod. Tab- and space-separated modkit
-    columns both parse."""
+    (pos, n_valid, n_methylated, n_malformed). modkit: methylated = N_mod + N_other_mod (5mC + 5hmC); rows with
+    modification code 'h' are skipped (their counts are already in the 'm' row's N_other_mod); tab- and space-separated
+    columns both parse. ENCODE: valid = coverage, methylated = coverage x percent / 100 (rounded). Other tables stop
+    with the formats read (InputError)."""
     empty = (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, np.int64), 0)
     if chrom not in tb.contigs:
         return empty
     lines = list(tb.fetch(chrom, start, end))
     if not lines:
         return empty
+    ncol = usual_ncol(lines)
+    layout = bedmethyl_layout(ncol)
+    if layout == "other":
+        name = tb.filename.decode() if isinstance(tb.filename, bytes) else str(tb.filename)
+        raise InputError(f"{name}: rows of {ncol} columns; methylation is read from {FORMATS}")
+    if layout == "encode":
+        d = pd.read_csv(_io.StringIO("\n".join(lines)), sep=r"\s+", header=None, names=range(ncol),
+                        usecols=[1, 9, 10], dtype=float, on_bad_lines="skip")
+        ok = (d.notna().all(axis=1) & d[10].between(0, 100)).to_numpy()
+        bad = int((~ok).sum()) + (len(lines) - len(d))
+        d = d[ok & (d[9] >= min_calls).to_numpy()]
+        n = d[9].to_numpy(np.int64)
+        return d[1].to_numpy(np.int64), n, np.rint(n * d[10].to_numpy() / 100).astype(np.int64), bad
     d = pd.read_csv(_io.StringIO("\n".join(lines)), sep=r"\s+", header=None, usecols=[1, 3, 9, 11, 13],
                     dtype={1: float, 3: str, 9: float, 11: float, 13: float}, on_bad_lines="skip")
     ok = d.notna().all(axis=1).to_numpy()

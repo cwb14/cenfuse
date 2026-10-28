@@ -26,10 +26,14 @@ def dante_lineage(path: str) -> tuple:
 def _clade(ftype: str, attrs: dict) -> str:
     """The clade of one GFF3 feature that is a classified LTR retrotransposon, else ''. Two formats: a type holding
     'LTR_retrotransposon' with clade= (LTRquest; EDTA + TEsorter), or a DANTE_LTR 'transposable_element' whose
-    Final_Classification is an LTR path (dante_lineage). Keys are lower-cased."""
+    Final_Classification is an LTR path (dante_lineage) and whose Rank holds L (LTRs found: a rank-D domain cluster is
+    a fragment, not an element; potato: 195 of DANTE_LTR's 223 CRM, with cores up to 15 Mb off CENH3). Keys are
+    lower-cased."""
     if "LTR_retrotransposon" in ftype:
         clade = attrs.get("clade", "")
     elif ftype == "transposable_element" and "|LTR|" in attrs.get("final_classification", ""):
+        if "L" not in attrs.get("rank", "DL"):          # DANTE_LTR rank D: protein domains, no LTRs found
+            return ""
         clade = dante_lineage(attrs["final_classification"])[0]
     else:
         return ""
@@ -50,8 +54,36 @@ def _te_rows(gff, chroms: dict):
                 yield p[0], int(p[3]) - 1, int(p[4]), clade
 
 
+def te_census(gff, chroms: dict) -> dict:
+    """Counts of a tes/ file's LTR retrotransposon features (types holding 'LTR_retrotransposon', DANTE_LTR elements of
+    an LTR path): on the genome's sequences (ltr), those with a lineage there (classified, as _clade reads them), and
+    on other sequence names (foreign). Tells an unclassified file (EDTA without TEsorter: superfamily only) or one for
+    another naming from one whose clades are merely not concentrated."""
+    n = dict(ltr=0, classified=0, foreign=0)
+    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            p = line.rstrip("\r\n").split("\t")
+            if len(p) < 9:
+                continue
+            attrs = {k.lower(): v for k, _, v in (kv.partition("=") for kv in p[8].split(";")) if v}
+            if not ("LTR_retrotransposon" in p[2] or (p[2] == "transposable_element"
+                                                      and "|LTR|" in attrs.get("final_classification", ""))):
+                continue
+            if p[0] not in chroms:
+                n["foreign"] += 1
+                continue
+            n["ltr"] += 1
+            n["classified"] += bool(_clade(p[2], attrs))
+    return n
+
+
+TE_EXT = (".gff3", ".gff3.gz", ".gff", ".gff.gz")
+
+
 def te_gff(complex_dir, genome: str):
-    for ext in (".gff3", ".gff3.gz"):
+    for ext in TE_EXT:
         f = Path(complex_dir) / "tes" / f"{genome}{ext}"
         if f.exists():
             return f
@@ -181,6 +213,27 @@ def marker(cands: list):
         if clade.lower() == TE_CENTROMERIC_CLADE.lower():
             return clade, cores, True
     return (cands[0][0], cands[0][1], False) if cands else None
+
+
+def choose_marker(tes: dict, chroms: dict, cands: list):
+    """The marker among the candidate clades (marker), with CRM cores taking precedence chromosome by chromosome: when the
+    decisive marker is not CRM, a significant core of a CRM clade replaces the marker's core on its chromosome (core
+    'clade' = CRM; flags only). CRM is the prior centromere-specific lineage, so its own significant concentration on a
+    chromosome outranks another clade's there (DANTE_LTR rice: CRM cores on 5/12 chromosomes, all on CENH3, short of the
+    majority; the marker Tekay's cores on 11/12, all 0.2-6.2 Mb away). Without any qualifying clade, the CRM cores alone
+    are the (flags-only) marker."""
+    m = marker(cands)
+    if m is not None and m[2]:
+        return m
+    for clade, d in tes.items():
+        if clade.lower() != TE_CENTROMERIC_CLADE.lower():
+            continue
+        cores = {c: core(d[c], L) for c, L in chroms.items() if c in d}
+        sig = {c: dict(x, clade=clade) for c, x in cores.items() if x and x["significant"]}
+        if sig:
+            log.debug(f"te: {clade} significant on {len(sig)}/{len(chroms)} sequences: its cores there")
+            return (m[0], {**m[1], **sig}, False) if m is not None else (clade, sig, False)
+    return m
 
 
 def centromeric_clade(tes: dict, chroms: dict):
