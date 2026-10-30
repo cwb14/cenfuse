@@ -21,15 +21,17 @@ says so and why). Rules changed after a result was seen are listed in
 
 ![benchmark overview](img/benchmark_overview.png)
 
-*Scope: the 2026-10-24 benchmark (sections 1-2): 9 T2T mammals with CENP-A truth, and rice, barley, potato and horse
-EquCab3 with ChIP truth; panel I adds the 5 mammals without functional truth and both Poa species. Genomes
-benchmarked later are in sections 7 and 9 (Arabidopsis, chicken, maize and mouse also in the [gallery](gallery.md)).
-[PDF with legends](img/benchmark_overview.pdf). **A** every chromosome with a mapped centromere: the call (box,
-colored by outcome) against CENP-A/CENH3 (black bar); open boxes and arrows = barley calls moved by Hi-C. **B-F**
-one chromosome per kind of outcome: right (B); uncertain, two similar satellite clusters (C); confidently wrong,
-CENP-A on a small array (D); moved by the Hi-C arm fold (E, barley, with its contact map); no line has signal (F,
-potato). **G** every chromosome as one square; black tick = chance. **H** each evidence line alone vs the fused
-call. **I** the Hi-C test on real vs randomized Hi-C, and the arm-fold test.*
+*Scope: the 2026-10-24 benchmark (sections 1-2), drawn before the v8 rerun (section 12 has the current numbers: pig
+from the FASTA alone 8/17, horse T2T with all inputs 29/32; panels A and H and the legend counts shift slightly): 9
+T2T mammals with CENP-A truth, and rice, barley, potato and horse EquCab3 with ChIP truth; panel I adds the 5 mammals
+without functional truth and both Poa species. Genomes benchmarked later are in sections 7 and 9 (Arabidopsis,
+chicken, maize and mouse also in the [gallery](gallery.md)). [PDF with legends](img/benchmark_overview.pdf). **A**
+every chromosome with a mapped centromere: the call (box, colored by outcome) against CENP-A/CENH3 (black bar); open
+boxes and arrows = barley calls moved by Hi-C. **B-F** one chromosome per kind of outcome: right (B); uncertain, two
+similar satellite clusters (C); confidently wrong, CENP-A on a small array (D); moved by the Hi-C arm fold (E, barley,
+with its contact map); no line has signal (F, potato). **G** every chromosome as one square; black tick = chance.
+**H** each evidence line alone vs the fused call. **I** the Hi-C test on real vs randomized Hi-C, and the arm-fold
+test.*
 
 ## 1. T2T mammals (14 genomes)
 

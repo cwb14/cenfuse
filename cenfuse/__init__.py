@@ -6,4 +6,4 @@ import os
 # depend on it. Must be set before numpy is first imported; a value the user set is kept.
 os.environ.setdefault("NUMPY_MADVISE_HUGEPAGE", "0")
 
-__version__ = "0.1.0"
+__version__ = "0.8.0"

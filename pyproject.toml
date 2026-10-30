@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cenfuse"
-version = "0.1.0"
+version = "0.8.0"
 description = "Centromeres from satellite arrays, LTR retrotransposons, Hi-C and methylation, cross-validated and co-localized"
 requires-python = ">=3.10"
 dependencies = ["numpy", "scipy", "pandas", "pysam", "pyhmmer>=0.12", "pyabpoa>=1.5", "matplotlib", "h5py"]
