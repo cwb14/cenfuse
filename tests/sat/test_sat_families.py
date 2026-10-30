@@ -291,3 +291,14 @@ def test_mafft_alignment_does_not_depend_on_threads(tmp_path):
         seqs.append(s[:cut] + s[cut + int(rng.integers(0, 20)):])          # a deletion per copy
     a = mafft(seqs, tmp_path / "t1", 1)
     assert all(mafft(seqs, tmp_path / f"t16_{i}", 16) == a for i in range(2))
+
+
+def test_only_clusters_with_an_array_seed_found_families():
+    """>= min_array_monomers copies (LEN_TOL short allowed: 2.85 of 3) in one seed at least; two-copy duplications
+    alone do not found a satellite family (T2T sheep: four such families, all dispersed, took 93% of the search)."""
+    import pandas as pd
+    from cenfuse.sat.families import arrayed
+    from cenfuse.sat.params import Params
+    seeds = pd.DataFrame({"rep": ["r1", "r1", "r2", "r2", "r3"], "copies": [2.0, 2.7, 2.0, 2.86, 40.0]})
+    assert arrayed(seeds, Params()) == {"r2", "r3"}
+    assert arrayed(seeds, Params(min_array_monomers=2)) == {"r1", "r2", "r3"}

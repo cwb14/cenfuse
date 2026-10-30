@@ -52,6 +52,14 @@ def select_seeds(tables: dict, p) -> pd.DataFrame:
     return s
 
 
+def arrayed(seeds: pd.DataFrame, p) -> set:
+    """Seed clusters (rep) with a seed that is an array by annotate's rule (>= min_array_monomers copies, LEN_TOL short
+    allowed). A satellite family is founded on a satellite array, not on two-copy duplications only: every such
+    family of the 216-genome replay set was dispersed or absent, and in T2T sheep four of them took 93% of the
+    genome-wide search (without them: calls and roles unchanged in siamang, 1.9x faster)."""
+    return set(seeds.rep[seeds.copies >= p.min_array_monomers * (1 - LEN_TOL)])
+
+
 def base_unit(mem: pd.DataFrame, fastas: dict):
     """The sequence a family model is founded on: one whole monomer. Multimers have periods near k x the monomer
     (k >= 2), so the monomer class is every seed with a period below 1.5 x the shortest; within it the largest-span
@@ -484,8 +492,14 @@ def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) 
         spans = {}
         for (rep, g), d in seeds.groupby(["rep", "genome"]):
             spans.setdefault(rep, {})[g] = sum(union_bp(zip(x.start, x.end)) for _, x in d.groupby("chrom"))
+        founded = arrayed(seeds, p)
         cand = sorted(((max(v.values()), r) for r, v in spans.items() if max(v.values()) >= p.min_fam_span),
                       reverse=True)
+        duplic = [(mx, r) for mx, r in cand if r not in founded]
+        cand = [(mx, r) for mx, r in cand if r in founded]
+        if duplic:
+            log.info(f"families: {len(duplic)} cluster(s) >= min_fam_span founded on two-copy seeds only (no array of "
+                     f">= {p.min_array_monomers} copies): not satellite families (largest {duplic[0][0]} bp)")
         top, dropped = cand[:p.max_families], cand[p.max_families:]
         log.info(f"families: {len(seeds)} seeds -> {len(set(assign.values()))} clusters; "
                  f"{len(top)} carried forward" + (f"; {len(dropped)} more >= min_fam_span dropped by max_families "

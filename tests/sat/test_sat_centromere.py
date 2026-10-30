@@ -176,3 +176,55 @@ def test_a_decisive_core_replaces_a_weak_array_beside_it(tmp_path, monkeypatch):
                                       te=("Athila", cores, False))
     assert rows["c2"]["evidence"] == "weak_satellite" and "te_concordant" in rows["c2"]["flags"]
 
+
+
+def test_a_decisive_core_replaces_a_confident_call_only_if_the_clade_marks_it_more(tmp_path, monkeypatch):
+    """A distant decisive (CRM) core replaces a confident satellite call only when the clade's elements sit in the
+    core significantly more often than in the call (te.contradicts); otherwise the call stays, te_discordant, one
+    level lower (B. rapa CC1/CC2 A09 and soybean X26 chr1/chr6: CENH3 on the satellite, the core window in a broad
+    CRM plateau; P. annua Pa1A and Ae. geniculata 7M/2U: the core on the centromere)."""
+    import numpy as np
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    from cenfuse.sat.te import Mids
+    g, arrays = _contigs(tmp_path)
+    monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
+    trf = pd.DataFrame(columns=COLS)
+    in_call = list(np.linspace(5_000, 55_000, 10).astype(int))
+    alone = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t0", 1, Params())[0]["c1"]["confidence"]
+    level = {"high": "medium", "medium": "low", "low": "low"}
+    plateau = dict(start=150_000, end=170_000, k=12, mids=Mids(sorted(in_call + list(range(151_000, 170_000, 1_600))), 22))
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
+                                      te=("CRM", {"c1": plateau}, True))
+    assert rows["c1"]["evidence"] == "satellite" and "te_discordant" in rows["c1"]["flags"]
+    assert rows["c1"]["confidence"] == level[alone]
+    marked = dict(start=150_000, end=170_000, k=40, mids=Mids(sorted(in_call[:2] + list(range(150_200, 170_000, 500))), 42))
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
+                                      te=("CRM", {"c1": marked}, True))
+    assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_away_from_core" in rows["c1"]["flags"]
+    assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (150_000, 170_000)
+
+
+def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_the_core(tmp_path, monkeypatch):
+    """A strong satellite call that agrees with a decisive (CRM) core without overlapping it moves to the core when
+    the clade's elements sit there significantly more (satellite_beside_core; Ae. tauschii Chr2/Chr4: 332 vs 11 and
+    292 vs 6 CRM elements, CENH3 inside the core); otherwise it stays, te_concordant (B. rapa A06: 21-23 vs 43-51)."""
+    import numpy as np
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    from cenfuse.sat.te import Mids
+    g, arrays = _contigs(tmp_path)
+    monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
+    trf = pd.DataFrame(columns=COLS)
+    in_call = list(np.linspace(5_000, 55_000, 10).astype(int))
+    plain = dict(start=70_000, end=100_000, k=12,
+                 mids=Mids(sorted(in_call + list(np.linspace(71_000, 99_000, 12).astype(int))), 22))
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
+                                      te=("CRM", {"c1": plain}, True))
+    assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
+    rich = dict(start=70_000, end=100_000, k=60,
+                mids=Mids(sorted(in_call[:2] + list(np.linspace(70_500, 99_500, 60).astype(int))), 62))
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
+                                      te=("CRM", {"c1": rich}, True))
+    assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_beside_core" in rows["c1"]["flags"]
+    assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (70_000, 100_000)

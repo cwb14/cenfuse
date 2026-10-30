@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from cenfuse.sat.te import agrees, binom_sf, centromeric_clade, core, load_te_gff, marker
+from cenfuse.sat.te import Mids, agrees, binom_sf, centromeric_clade, contradicts, core, load_te_gff, marker
 
 L = 10_000_000
 
@@ -71,10 +71,41 @@ def test_core_finds_a_concentrated_cluster_and_ignores_uniform_spread():
     assert c["significant"] and c["start"] <= 4_200_000 <= c["end"] and c["end"] - c["start"] <= 1_000_000
     assert c["k"] >= 55
     assert not core(np.sort(rng.integers(0, L, 100)), L)["significant"]
-    assert core(clustered[:4], L) is None                               # too few elements to estimate a peak
+    assert core(clustered[:2], L) is None                               # too few sites to estimate a peak
     # Sphagnum-like: 8 of 9 elements of a clade in one 0.2-Mb cluster (moss genomes carry few intact LTR-RTs)
     sparse = np.sort(np.concatenate([rng.integers(6_000_000, 6_200_000, 8), [1_000_000]]))
     assert core(sparse, L)["significant"]
+
+
+
+def test_core_floor_counts_independent_insertion_sites(tmp_path):
+    """Nested (overlapping) elements are one insertion site: one nested cluster cannot make a core on its own, three
+    independent insertions at one locus can (Chlorella NS4-2: 2-8 Osser elements per chromosome, all at CENH3)."""
+    gff = tmp_path / "g.gff3"
+    rows = [(5_000_000 + i * 50, 5_008_000 + i * 50) for i in range(6)] + [(1_000_000, 1_005_000)]
+    gff.write_text("##gff-version 3\n" + "".join(
+        f"c1\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID=e{i};clade=Osser\n" for i, (s, e) in enumerate(rows)))
+    m = load_te_gff(gff, {"c1": L})["Osser"]["c1"]
+    assert isinstance(m, Mids) and len(m) == 7 and m.sites == 2
+    assert core(m, L) is None                                           # 7 elements but 2 sites: below the floor
+    c = core(Mids([5_000_000, 5_020_000, 5_040_000], 3), L)             # 3 independent insertions at one locus
+    assert c is not None and c["start"] <= 5_020_000 <= c["end"] and c["k"] == 3
+    assert core(np.array([5_000_000, 5_020_000]), L) is None            # plain arrays: elements count
+
+
+def test_a_core_contradicts_a_call_only_if_the_clade_marks_it_significantly_more():
+    """Elements in the core vs in the call, binomial at 1/2: B. rapa A09-like (core window 18, call 16) is no
+    contradiction; P. annua Pa1A-like (core 62, call on a second cluster of 19) is; no element list: as before."""
+    call = (40_000_000, 45_000_000)
+    inside = list(np.linspace(40_100_000, 44_900_000, 16).astype(int))
+    a09 = dict(start=25_000_000, end=26_000_000, k=18,
+               mids=Mids(sorted(inside + list(np.linspace(25_050_000, 25_950_000, 18).astype(int))), 34))
+    assert not contradicts(*call, a09)
+    inside = list(np.linspace(40_100_000, 44_900_000, 19).astype(int))
+    pa1a = dict(start=60_000_000, end=66_000_000, k=62,
+                mids=Mids(sorted(inside + list(np.linspace(60_100_000, 65_900_000, 62).astype(int))), 81))
+    assert contradicts(*call, pa1a)
+    assert contradicts(*call, {k: v for k, v in a09.items() if k != "mids"})
 
 
 def test_centromeric_clade_is_the_concentrated_one_on_most_chromosomes():

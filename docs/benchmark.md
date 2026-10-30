@@ -5,7 +5,9 @@ Every number here comes from criteria fixed before the run they score: plants 20
 2026-10-21, v4 2026-10-26 (CpG kinetochores, hard genomes, no-harm reruns: sections 6-8; the CpG criteria are
 not blind, section 6), v5 2026-10-26 with dated amendments (memory, reproducibility, telomeres, new genomes:
 section 9), v6 2026-10-27 (section 10), v7 2026-10-28 (morphology, the call in words, SO-typed GFF3,
-dispersed-repeat roles: section 11). Rules changed after a result was seen are listed in
+dispersed-repeat roles: section 11), v8 2026-10-28 with dated amendments (a from-scratch rerun of every benchmark
+arm, new functional truths, a faster search: section 12; where its numbers differ from the sections above, section 12
+says so and why). Rules changed after a result was seen are listed in
 [section 5](#5-rules-changed-after-seeing-a-result).
 
 **Scoring.**
@@ -705,3 +707,60 @@ The 47 breadth runs (v4-v6 arms: CpG primates, holocentrics, *Arabidopsis*, chic
 *Neurospora*, moss, *Chlamydomonas*, HG002 ONT/PacBio, *Brachypodium*, tomato, the crop LTR arms) against the same
 runs with the v6 code: calls, loci and summaries identical on every shared column (47/47 runs complete). The gap
 scan adds about a minute per 3 Gb (checkpointed).
+
+## 12. v8: a from-scratch rerun, new functional truths, a faster satellite search
+
+Criteria and dated amendments: `v8/PLAN.md`; run record `v8/memo.md`; report `v8/REPORT.md`.
+
+### Every benchmark arm from scratch (156 runs, the delivered code)
+
+Earlier versions scored the satellite engine's outputs of the v3 engine through later code. v8 reran every arm from
+the FASTA (satellite engine included) with the delivered code. First it found that two fresh runs of the same input
+differed: FasTAN 0.8 cuts arrays depending on memory layout (one moss 5-Mb chunk, 5 runs: 17 of 982 arrays cut
+differently), so families and some call boundaries varied (moss: 5). FasTAN now runs with address-space randomization
+off (`setarch -R`); two fresh moss runs gave 307 identical output files. The README tables are from this rerun.
+Every row reproduced except:
+- **9 T2T mammals, FASTA only**: 143 right, 1 confidently wrong, 13 low/none (was 148/5/4). All in pig: in this run
+  the 73-bp satellite takes the sequence of a former 83-bp subtelomeric family (that family is not formed), becomes
+  the largest cluster on pig's 6 acrocentric ends, and with a 50-bp family on 4 more chromosomes the 336-bp family
+  loses genome-wide dominance. The related-family preference then lapses and the honesty cap makes every pig call
+  `low`: 5 right `medium` calls at the acrocentric ends became `low` calls 0.6-2.7 Mb inside. How a fresh run splits
+  satellites into families decides this; with genes and Hi-C pig is 13/17 as before.
+- **+ genes + Hi-C**: 148/4/5 (was 149/4/4): horse T2T CM128050.1, a `low` call 2.7 Mb from CENP-A.
+- **CpG kinetochores**: median width 55 kb (was 60); 62/63 on curated CDRs (S. orangutan CM054694.2 now off).
+- The moss `tes/` arm reproduces the README (16 right, 11 `high`/`medium`, 0 confidently wrong); the v7 delivered run
+  of that arm had read a satellite folder made before rule RT4 and showed 4 confidently wrong calls.
+
+### New functional truths
+
+Same-line CENH3 ChIP mapped and called with the frozen v2 rule (100-kb bins, ChIP/input, 3-bin mean, half-maximum run,
+>= 4x); the domains overlap the authors' published centromeres where a table exists (*B. rapa* 89/90, one MIZ1
+domain 420 kb away; *Chlorella* 10/10; tomato 12/12). Scores are in the README table: *B. rapa* (11 accessions; TU1
+and CX1 with too weak a ChIP, 1.9-2.5x, scored on the published table),
+soybean X26, sorghum BTx623 (ChIP of line V9), *Ae. tauschii* AL8/78, *Chlorella sorokiniana* NS4-2, tomato Heinz
+1706 (a stronger ChIP than before: 12/12 domains, 6.8-21.5x). What they showed:
+- *Chlorella*: centromeres of 2-7 Osser (Copia) insertions (53 of the genome's 54 inside the published CENH3
+  centromeres; 2-8 per chromosome), below the TE line's floor of 5 elements; the floor now counts independent
+  insertion sites (>= 3): 0 → 8/10 with `tes/` (all `low`).
+- *B. rapa* A09 and soybean chr1/chr6 with `tes/`: the densest window of a broad CRM plateau replaced a `high`
+  satellite call on CENH3. A core now overrules a confident satellite call only where the clade's elements sit
+  significantly more in the core than in the call (binomial at 1/2, P <= 0.01): *B. rapa* 9/10 → 10/10 in 3
+  accessions, soybean 17/20 → 19/20; P. annua Pa1A (satellite on a smaller second CRM cluster) unchanged.
+- *Ae. tauschii*: satellite arrays beside CRM cores that hold CENH3 on all 7 chromosomes; the same test now applies
+  to a confident call beside the core: 3/7 → 5/7 with `tes/` (Chr5/Chr7: calls at the core's edge remain). Replay:
+  Ae. geniculata chr02M wrong → right.
+- tomato: 11/12 CENH3 domains hold no satellite array; the dominant 53-bp satellite and a 181-bp one sit 3-42 Mb
+  away; no LTR clade marks the domains, and 43 M Hi-C pairs (Heinz 1706, CRR1296445) gave prior-free peaks 1-37 Mb
+  off on all 12. A reported failure.
+
+### A faster satellite search
+
+- A sample screen for dispersed families (each chromosome's end chunks + every 5th chunk; skip a family that the
+  sample shows to be dispersed at P <= 0.01 if dropping it changes no other family's arrays) skipped no family on
+  sheep, mouse, S. orangutan, moss or *Brachypodium*: dispersed families overlap each other on the same
+  retrotransposon copies and touch small families (mouse: the minor and major satellites). Not adopted.
+- Seed clusters founded on two-copy duplications only (no array of >= 3 copies) are not families. All 12 such
+  families in the 216-genome replay were dispersed or absent. At equal machine load: sheep 11.7x less search CPU,
+  siamang 2.0x, B. orangutan 1.3x, barley 1.16x; calls and roles identical (siamang, barley, B. orangutan: one
+  reported alternative locus end +106 bp). Mouse's cost is in array-founded L1-like families: unchanged.
+

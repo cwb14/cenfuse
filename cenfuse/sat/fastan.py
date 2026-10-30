@@ -2,8 +2,11 @@
 the cuts between copies. FasTAN reports no unit sequence, so a seed's consensus is the partial-order alignment (abPOA)
 of its copies."""
 import os
+import platform
 import random
 import shutil
+import subprocess
+import sys
 import tempfile
 
 import numpy as np
@@ -14,9 +17,31 @@ from .util import SatelliteError, log, run
 
 TOOLS = ["FAtoGDB", "FasTAN", "ONEview"]
 DUP_TOL = LEN_TOL   # a unit is a mean over the copies aligned, so the same array seen from two chunks can differ
-KEY = ["fastan", 1, FASTAN_ARGS, CONS_UNITS, RELATED_LEN_TOL, SEED_MAX_PERIOD, DUP_TOL]   # cache key; bump 1 if rows change
+KEY = ["fastan", 2, FASTAN_ARGS, CONS_UNITS, RELATED_LEN_TOL, SEED_MAX_PERIOD, DUP_TOL]   # cache key; bump 2 if rows change
 NAN = float("nan")
 _POA = None
+_FIXED = None     # the prefix that runs FasTAN with address-space randomization off (fixed_layout)
+
+
+def fixed_layout() -> list:
+    """['setarch', <arch>, '-R'] where it works, else []. FasTAN 0.8's copy cuts depend on the process's memory layout:
+    with address-space randomization, ~1% of arrays get other cuts on each run (T2T moss, one 5-Mb chunk: 17 of 982,
+    13 of them inside the array; four runs, four outputs; with randomization off, four identical outputs), so unit
+    consensuses, families and calls shifted between runs. With a fixed layout reruns are identical on one system."""
+    global _FIXED
+    if _FIXED is None:
+        _FIXED = []
+        cmd = ["setarch", platform.machine(), "-R"]
+        if sys.platform.startswith("linux") and shutil.which("setarch"):
+            try:
+                if subprocess.run(cmd + ["true"], capture_output=True).returncode == 0:
+                    _FIXED = cmd
+            except OSError:
+                pass
+        if not _FIXED:
+            log.warning("seeds: cannot run FasTAN with address randomization off (setarch -R); FasTAN 0.8 then cuts "
+                        "~1% of arrays differently on each run, so satellite families can differ between reruns")
+    return _FIXED
 
 
 def parse_ano(text: str) -> list:
@@ -48,7 +73,7 @@ def run_fastan(seq: str, tmpdir) -> str:
         with open(os.path.join(work, "s.fa"), "w") as f:
             f.write(f">s\n{seq}\n")
         run(["FAtoGDB", "s.fa"], cwd=work)
-        run(["FasTAN", *FASTAN_ARGS, "s.1gdb"], cwd=work)
+        run([*fixed_layout(), "FasTAN", *FASTAN_ARGS, "s.1gdb"], cwd=work)
         return run(["ONEview", "-h", "s.1ano"], cwd=work).stdout
     finally:
         shutil.rmtree(work, ignore_errors=True)

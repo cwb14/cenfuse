@@ -7,8 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .params import TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_MIN_BIN, TE_MIN_ELEMENTS, TE_SMOOTH
-from .util import log
+from .params import (TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_CONTRA_ALPHA, TE_MIN_BIN, TE_MIN_SITES,
+                     TE_SMOOTH)
+from .util import log, merge_intervals
 
 IGNORED_CLADES = {"unknown", "mixture", "na", "none", "."}
 # DANTE_LTR (REXdb) classification ranks above the lineage: an element classified only this far has no clade
@@ -90,12 +91,27 @@ def te_gff(complex_dir, genome: str):
     return None
 
 
+class Mids(np.ndarray):
+    """Sorted element midpoints of one clade on one chromosome; .sites = independent insertion sites they make
+    (overlapping elements, nested insertions, are one site)."""
+
+    def __new__(cls, mids, sites: int):
+        obj = np.asarray(mids, dtype=np.int64).view(cls)
+        obj.sites = sites
+        return obj
+
+    def __array_finalize__(self, obj):
+        self.sites = getattr(obj, "sites", None)
+
+
 def load_te_gff(gff, chroms: dict) -> dict:
-    """{clade: {chrom: sorted midpoints}} of classified LTR retrotransposons (_clade) on the genome's sequences."""
+    """{clade: {chrom: Mids}} of classified LTR retrotransposons (_clade) on the genome's sequences: element midpoints,
+    with the number of independent insertion sites (core: the floor counts sites, the test elements)."""
     out = {}
     for c, s, e, clade in _te_rows(gff, chroms):
-        out.setdefault(clade, {}).setdefault(c, []).append((s + e) // 2)
-    return {c: {ch: np.sort(np.array(v, dtype=np.int64)) for ch, v in d.items()} for c, d in out.items()}
+        out.setdefault(clade, {}).setdefault(c, []).append((s, e))
+    return {c: {ch: Mids(np.sort([(a + b) // 2 for a, b in v]), len(merge_intervals(v))) for ch, v in d.items()}
+            for c, d in out.items()}
 
 
 def load_te_intervals(gff, chroms: dict) -> dict:
@@ -166,7 +182,7 @@ def core(mids: np.ndarray, L: int) -> dict:
     core = bins around the maximum at >= half the peak (full width at half maximum). Significant if the binomial
     tail of the core count, Bonferroni-corrected for L/core-length positions, is below TE_ALPHA."""
     n = len(mids)
-    if n < TE_MIN_ELEMENTS:
+    if (getattr(mids, "sites", None) or n) < TE_MIN_SITES:      # independent insertion sites (Mids), else elements
         return None
     b = max(TE_MIN_BIN, L // TE_BINS)
     nb = L // b + 1
@@ -184,7 +200,7 @@ def core(mids: np.ndarray, L: int) -> dict:
     k = int(np.searchsorted(mids, e) - np.searchsorted(mids, s))
     q = (e - s) / L
     pval = min(1.0, binom_sf(k, n, q) * (L / (e - s)))
-    return dict(start=s, end=e, k=k, n=n, share=k / n, p=pval, significant=pval < TE_ALPHA)
+    return dict(start=s, end=e, k=k, n=n, share=k / n, p=pval, significant=pval < TE_ALPHA, mids=mids)
 
 
 def candidate_clades(tes: dict, chroms: dict) -> list:
@@ -244,6 +260,21 @@ def centromeric_clade(tes: dict, chroms: dict):
 
 def gap(a0: int, a1: int, b0: int, b1: int) -> int:
     return max(0, max(a0, b0) - min(a1, b1))
+
+
+def contradicts(call_start: int, call_end: int, c: dict) -> bool:
+    """A core contradicts a call it does not agree with only if the clade marks the core significantly more than the
+    call region: P(X >= k_core), X ~ Binomial(k_core + k_call, 1/2) <= TE_CONTRA_ALPHA, k = the clade's elements with
+    midpoints in the core / the call. Which of the two loci the clade marks more is the TE line's own question; where
+    its density happens to peak is not (P. annua Pa1A: the satellite array sits on a second, smaller CRM cluster, 19
+    elements vs the core's 62: contradicted; B. rapa CC1 A09: a CRM plateau over 22-42 Mb, the CentBr call on CENH3
+    holds 16, the core window 18: not contradicted)."""
+    m = c.get("mids")
+    if m is None:
+        return True
+    m = np.asarray(m)
+    k_call = int(np.searchsorted(m, call_end) - np.searchsorted(m, call_start))
+    return binom_sf(c["k"], c["k"] + k_call, 0.5) <= TE_CONTRA_ALPHA
 
 
 def agrees(call_start: int, call_end: int, c: dict) -> bool:

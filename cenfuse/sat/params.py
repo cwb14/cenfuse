@@ -48,10 +48,13 @@ RDNA_FLANK_EVALUE = 1e-10      # cmsearch --hmmonly E for 45S genes in array fla
 TE_BINS = 500                  # density profile resolution: 1/500 of the chromosome
 TE_MIN_BIN = 1_000             # ... but bins of at least 1 kb
 TE_SMOOTH = 5                  # smoothing window, in bins
-TE_MIN_ELEMENTS = 5            # fewer elements of a clade on a chromosome: no peak estimate (and one nested
-                               # cluster of 2-3 elements cannot pass alone); mosses carry ~10 per chromosome
+TE_MIN_SITES = 3               # fewer independent insertion sites of a clade on a chromosome: no peak estimate. Nested
+                               # elements (overlapping) are one site, so one nested cluster cannot pass alone; three
+                               # independent insertions at one locus can (Chlorella NS4-2: 2-8 Osser elements per
+                               # chromosome, 53/54 inside CENH3; a floor of 5 elements left 5/12 chromosomes)
 TE_DERIVED_FRAC = 0.5          # a call's main family with most array bp inside LTR retrotransposons: flag te_derived
 TE_ALPHA = 1e-3                # core significance: binomial tail x (L / core length) < 0.001 (conventional level)
+TE_CONTRA_ALPHA = 0.01         # a core contradicts a call if the clade marks it more at P <= 0.01 (conventional)
 TE_CENTROMERIC_CLADE = "CRM"   # CR chromoviruses (CRM maize, CRR rice, CRB Brassica, CRS sugarcane) are
                                # centromere-specific in plants; other clades are often pericentromeric
 

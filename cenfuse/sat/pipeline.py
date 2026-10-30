@@ -37,15 +37,20 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # 0.10.2 = centromeres: a flags-only (non-CRM) LTR marker lifts the no-dominant cap only for calls it supports.
 # 0.10.3 = centromeres: a decisive core replaces a weak satellite call beside it (weak_satellite_beside_core).
 # 0.10.4 = centromeres: a significant CRM core replaces a flags-only marker's core on its chromosome.
-STAGE_VERSION = {"seeds": "0.4.0", "families": "0.5.2", "annotate": "0.5.0", "classify": "0.10.4",
-                 "centromeres": "0.10.4", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
+# seeds 0.11.0: FasTAN runs with address-space randomization off (fastan.fixed_layout), so reruns are identical.
+# families 0.12.0: clusters founded on two-copy seeds only are not families (families.build_families).
+# annotate onward 0.12.0: TE floor counts independent insertion sites (te.core); a decisive core replaces a confident
+# satellite call only if the clade marks it significantly more (te.contradicts). centromeres 0.12.1: also a call beside
+# the core (satellite_beside_core). (0.10.5-0.11.0: v8 test variants.)
+STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.12.0", "classify": "0.12.0",
+                 "centromeres": "0.12.1", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
     "families": ["min_period", "max_period", "min_seed_span", "fam_ident", "multi_ident", "superfam_ident",
                  "absorb_ident", "dedup_ident", "chain_ident", "min_fam_span", "max_families", "hmm_sample", "hmm_sample_bp", "min_hmm_seqs",
-                 "nhmmer_evalue", "array_gap_factor"],
-    "annotate": ["min_array_monomers", "evalue_ref_len"],
+                 "nhmmer_evalue", "array_gap_factor", "min_array_monomers"],
+    "annotate": ["evalue_ref_len"],
     "classify": ["chrom_min_bp", "cluster_gap", "min_concentration", "max_subtel_frac",
                  "subtel_frac_len", "max_gene_ratio", "strong_prevalence", "strong_cluster_bp", "classify_from",
                  "rdna_flank", "rdna_arrays", "rdna_array_frac"],

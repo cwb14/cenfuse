@@ -130,3 +130,29 @@ def test_units_beyond_the_seed_range_are_left_to_the_long_unit_detector(tmp_path
 def test_sequence_without_bases_gives_no_rows(tmp_path):
     assert fastan.chunk_rows("c1", "N" * 5000, 0, tmp_path, False) == []
     assert fastan.chunk_rows("c1", "", 0, tmp_path, False) == []
+
+
+def test_fasTAN_runs_with_a_fixed_memory_layout_where_possible():
+    """FasTAN 0.8's copy cuts depend on the memory layout; on Linux with setarch it runs with randomization off."""
+    import platform
+    import shutil
+    import sys
+    pre = fastan.fixed_layout()
+    if sys.platform.startswith("linux") and shutil.which("setarch"):
+        assert pre == ["setarch", platform.machine(), "-R"]
+    else:
+        assert pre == []
+
+
+@need_fastan
+def test_reruns_give_the_same_cuts(tmp_path):
+    """Imperfect arrays of several units between random DNA: three runs, one output (layout-dependent cuts were seen
+    on ~1% of real arrays)."""
+    rng = np.random.default_rng(5)
+    parts = [rand(rng, 3000)]
+    for unit_len, n, rate in ((75, 4, 0.12), (170, 12, 0.08), (1200, 3, 0.10), (60, 30, 0.15)):
+        unit = rand(rng, unit_len)
+        parts += ["".join(indel_copy(rng, unit, rate) for _ in range(n)), rand(rng, 3000)]
+    seq = "".join(parts)
+    outs = {fastan.run_fastan(seq, tmp_path) for _ in range(3)}
+    assert len(outs) == 1

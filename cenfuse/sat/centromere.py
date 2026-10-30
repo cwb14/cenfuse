@@ -8,7 +8,7 @@ import pysam
 from . import longunit
 from .classify import end_zone, make_clusters, terminal_bp
 from .genomes import count_in
-from .te import agrees, gap
+from .te import agrees, contradicts, gap
 from .util import log, union_bp
 
 REG_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "evidence", "confidence", "flags", "main_family",
@@ -171,7 +171,12 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     te: (clade, {chrom: significant core}, decisive) of the centromere-marking LTR clade, or None. A call that
     agrees with its chromosome's core is te_concordant; one that does not is te_discordant, except a long-unit call,
     which the core replaces, and, with decisive evidence, a satellite call, which the core also replaces
-    (satellite_away_from_core; Ae. geniculata 2U/7M: CENH3 on the CRM core, not on the distant array); a chromosome
+    (satellite_away_from_core; Ae. geniculata 2U/7M: CENH3 on the CRM core, not on the distant array), unless the call
+    is high or medium on its own and the core does not contradict it (te.contradicts: the clade does not mark the
+    core significantly more than the call; B. rapa CC1 A09: a CRM plateau over 22-42 Mb, CentBr on CENH3): te_discordant;
+    a call that agrees with a decisive core without overlapping it is replaced by the core when the core contradicts
+    it in the same way (satellite_beside_core; Ae. tauschii Chr2/Chr4: arrays 5-7 Mb beside a 292-332-element CRM
+    core holding CENH3; B. rapa A06: CentBr call holds more CRB than the core, kept); a chromosome
     without a call takes the core; so does a weak satellite call (weak_call) beside a decisive core, agreeing with it but
     not overlapping it (weak_satellite_beside_core: S. verrucosum chr01, Ae. geniculata chr07U, potato chr11 had the core
     on CENH3 and the weak array 0.8-5 Mb away). Decisive evidence (CRM) sets confidence;
@@ -232,12 +237,24 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                     te_flag, call = "weak_satellite_beside_core", te_call(core)   # the core outranks a weak array
                 elif call and agrees(call["cen_start"], call["cen_end"], core):
                     te_flag = "te_concordant"
+                    if decisive and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \
+                            gap(call["cen_start"], call["cen_end"], core["start"], core["end"]) > 0 and \
+                            core.get("mids") is not None and contradicts(call["cen_start"], call["cen_end"], core):
+                        te_flag, call = "satellite_beside_core", te_call(core)   # the array lies beside the CRM
+                                                                                # centromere (Ae. tauschii Chr2, Chr4)
                 elif call and call["evidence"] != "long_unit_tandem" and (not decisive or borrowed):
                     te_flag = "te_discordant"
                 elif not borrowed:
                     if call and call["evidence"] in ("satellite", "weak_satellite"):
-                        te_flag = "satellite_away_from_core"     # decisive core outranks a distant satellite array
-                    call = te_call(core)
+                        alone = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
+                                         None, capped, decisive, acro)["confidence"]
+                        if alone in ("high", "medium") and \
+                                not contradicts(call["cen_start"], call["cen_end"], core):
+                            te_flag = "te_discordant"            # the clade marks the call's locus about as much as the core
+                        else:
+                            te_flag = "satellite_away_from_core"  # decisive core outranks a distant satellite array
+                    if te_flag != "te_discordant":
+                        call = te_call(core)
             rows[c] = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
                                te_flag, capped, decisive, acro)
             if core:

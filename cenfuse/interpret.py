@@ -81,6 +81,8 @@ def basis(r, ctx: dict) -> str:
             out.append("the CRM core replaced a weak satellite array beside it")
         if "satellite_away_from_core" in sflags:
             out.append("the CRM core replaced a satellite array elsewhere")
+        if "satellite_beside_core" in sflags:
+            out.append("the CRM core replaced a satellite array beside it that holds far fewer CRM elements")
         if "hic_chose_alt" in flags:
             out.append("the second satellite cluster, chosen by validated Hi-C")
         if "acrocentric" in sflags:
