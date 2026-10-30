@@ -160,7 +160,8 @@ def test_a_flags_only_marker_lifts_the_cap_only_for_calls_it_supports(tmp_path):
 def test_a_decisive_core_replaces_a_weak_array_beside_it(tmp_path, monkeypatch):
     """A weak satellite call that agrees with a decisive (CRM) core without overlapping it is replaced by the core
     (S. verrucosum chr01, Ae. geniculata chr07U, potato chr11: the core on CENH3, the weak array 0.8-5 Mb away). A
-    strong array beside the core is kept (te_concordant), and a flags-only marker replaces nothing."""
+    strong array beside the core is kept here (te_concordant: these cores carry no element midpoints, so the
+    head-to-head test of the next tests cannot run), and a flags-only marker replaces nothing."""
     from cenfuse.sat import centromere, longunit
     from cenfuse.sat.seeds import COLS
     g, arrays = _contigs(tmp_path)
@@ -203,6 +204,26 @@ def test_a_decisive_core_replaces_a_confident_call_only_if_the_clade_marks_it_mo
                                       te=("CRM", {"c1": marked}, True))
     assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_away_from_core" in rows["c1"]["flags"]
     assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (150_000, 170_000)
+
+
+def test_a_decisive_core_replaces_a_distant_call_that_is_low_on_its_own(tmp_path, monkeypatch):
+    """The head-to-head test guards confident calls only: a distant decisive core replaces a call that is `low` on its
+    own (here: less centromeric satellite than low_sat_bp) even where the clade does not mark the core more."""
+    import numpy as np
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    from cenfuse.sat.te import Mids
+    g, arrays = _contigs(tmp_path)
+    monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
+    trf = pd.DataFrame(columns=COLS)
+    p = Params(low_sat_bp=100_000)                     # the 60-kb array is low on its own (low_satellite)
+    assert centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t0", 1, p)[0]["c1"]["confidence"] == "low"
+    in_call = list(np.linspace(5_000, 55_000, 10).astype(int))
+    plateau = dict(start=150_000, end=170_000, k=12,
+                   mids=Mids(sorted(in_call + list(range(151_000, 170_000, 1_600))), 22))   # 12 vs 10: P 0.42
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, p,
+                                      te=("CRM", {"c1": plateau}, True))
+    assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_away_from_core" in rows["c1"]["flags"]
 
 
 def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_the_core(tmp_path, monkeypatch):

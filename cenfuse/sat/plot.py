@@ -2,7 +2,8 @@
 (contig) genome, or one with more than MAX_CHROMOSOMES sequences, shows the MAX_TRACKS called sequences with the most
 centromeric satellite. Every track has the same height (capped so the figure stays <= ~13 in tall).
 Track = satellite bp per 100-kb bin (primary families coloured, cen-associated grey), scaled gene density line,
-and a box for the centromere call (dashed for fallback calls). No titles; panel letters upper-left.
+and a box for the centromere call (dashed unless it is a satellite array call: weak-satellite and long-unit
+fallbacks, CRM cores). No titles; panel letters upper-left.
 Palette: Okabe-Ito without yellow (fails the lightness band on white; dataviz validator), fixed order, never
 cycled: a 7th+ centromeric family folds into one labelled 'other centromeric' grey."""
 import math
@@ -128,7 +129,7 @@ def plot_overview(path, panels: list) -> int:
         handles.append(Patch(color=OTHER_CEN, label="other centromeric families"))
     handles += [Patch(color=ASSOC, label="cen-associated satellite"),
                 Line2D([], [], color=GENE, lw=0.6, label="gene density (scaled)"),
-                Patch(fill=False, ec="black", label="centromere call (dashed: fallback)")]
+                Patch(fill=False, ec="black", label="centromere call (dashed: not a satellite array)")]
     for ax in list(axes.flat)[len(panels):]:
         ax.set_visible(False)
     fig.legend(handles=handles, loc="outside lower center", ncol=3, frameon=False)

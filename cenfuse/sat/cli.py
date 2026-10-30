@@ -20,8 +20,8 @@ def main(argv=None) -> int:
                        description="Run all stages; a rerun resumes from checkpoints in OUTDIR/work/.")
     r.add_argument("genome_dir", nargs="?", type=Path, metavar="GENOME_DIR",
                    help="dir with one FASTA per genome (*.fa/*.fasta/*.fna, plain or bgzip, indexed with "
-                        "samtools faidx); optional GENOME_DIR/genes/<genome>.gff3[.gz] (gene loci) and "
-                        "GENOME_DIR/tes/<genome>.gff3[.gz] (LTR retrotransposons with clade=)")
+                        "samtools faidx); optional GENOME_DIR/genes/<genome>.gff3|.gff|.gtf[.gz] (gene loci) and "
+                        "GENOME_DIR/tes/<genome>.gff3|.gff[.gz] (LTR retrotransposons with clade=, or DANTE_LTR)")
     r.add_argument("--complex-dir", dest="complex_dir", type=Path, help=argparse.SUPPRESS)   # alias of GENOME_DIR
     r.add_argument("-o", "--outdir", type=Path, help="output dir [GENOME_DIR/centromere]")
     r.add_argument("-t", "--threads", type=int, default=8, help="threads [8]")

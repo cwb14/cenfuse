@@ -39,9 +39,10 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # 0.10.4 = centromeres: a significant CRM core replaces a flags-only marker's core on its chromosome.
 # seeds 0.11.0: FasTAN runs with address-space randomization off (fastan.fixed_layout), so reruns are identical.
 # families 0.12.0: clusters founded on two-copy seeds only are not families (families.build_families).
-# annotate onward 0.12.0: TE floor counts independent insertion sites (te.core); a decisive core replaces a confident
-# satellite call only if the clade marks it significantly more (te.contradicts). centromeres 0.12.1: also a call beside
-# the core (satellite_beside_core). (0.10.5-0.11.0: v8 test variants.)
+# annotate 0.12.0: follows families (no change of its own; a fingerprint takes the highest version up to its stage).
+# classify 0.12.0: TE floor counts independent insertion sites (te.core); a decisive core replaces a confident
+# satellite call only if the clade marks it significantly more (te.contradicts). centromeres 0.12.1: the same test for
+# a call beside the core (satellite_beside_core). (0.10.5-0.11.0: v8 test variants.)
 STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.12.0", "classify": "0.12.0",
                  "centromeres": "0.12.1", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'

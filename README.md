@@ -21,7 +21,7 @@ each call.*
 | **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
 | **Runtime** | the satellite search dominates and grows with satellite content (on a shared server: T2T mammals, 2.6-3.6 Gb: 1-10 h at 12 threads, median 4.3 h; mouse, ~6% satellite: 9 h at 16; maize, 2.2 Gb: 50 min at 16; *Ae. tauschii*, 4.1 Gb: 2 h at 16); Hi-C and fusion take minutes; reruns resume |
 | **Memory** | peak of a whole run: 8-74 GB for T2T mammals at 12 threads (rhesus 74 GB, horse 59 GB, giraffe 18 GB), chicken 42 GB at 16, *Arabidopsis* 5 GB at 8; the satellite search holds about one search workspace (≤ ~2.4 GB) per thread |
-| **Reproducible** | fresh runs give byte-identical outputs (FasTAN runs with address-space randomization off: two fresh moss runs, 307 files identical); reruns resume from checkpoints |
+| **Reproducible** | on Linux, fresh runs give identical results apart from the dates and commands in file headers (FasTAN runs with address-space randomization off, `setarch -R`: two fresh moss runs, 307 files); without `setarch` (e.g. macOS) cenfuse warns, and ~1% of FasTAN's array cuts can differ between runs; reruns resume from checkpoints |
 
 ## How well it works
 
@@ -75,12 +75,12 @@ run).
 The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 runs on misplaced (rotated) methylation.
 
 **Holocentric controls** (any single confident centromere is wrong): *C. elegans*, *Bombyx mori* (no CenH3),
-*Rhynchospora breviuscula* (Tyba holocentromeres): 0 confident calls in 40 chromosomes (25 `low`, 15 none).
+*Rhynchospora breviuscula* (Tyba holocentromeres): 0 confident calls in 40 chromosomes (24 `low`, 16 none).
 
 | strong | weak |
 |---|---|
 | Satellite centromeres from the FASTA alone (mammals 143/157, rice 12/12, *B. rapa* 109/110, soybean 20/20, sorghum 10/10) | Satellite-free centromeres without `tes/` (potato 2/11; horse chr11 has no call) |
-| `high` is reliable: 112/113 `high` calls on CENP-A truth were right | Confidence is conservative: many `medium`/`low` calls are right too (horse 17/18) |
+| `high` is reliable: 112/113 `high` calls on CENP-A truth were right | Confidence is conservative: many `medium`/`low` calls are right too (horse T2T: all 17 `medium` calls with CENP-A truth) |
 | CpG kinetochores at low coverage: calls are pooled per bin (rhesus at 1/16 of its reads, ~1 call per CpG strand: 21/21 kinetochores within 50 kb of full depth) | Hi-C tests flip near their threshold: both orangutans lost the gate at half depth (35 M pairs), barley its fold rescue (9.2 M -> 4.6 M pairs); no call became confidently wrong in mammals |
 | Hi-C, satellites and TEs are tested against each other, not trusted on their own word | When a small array is the active one and a large array of the same satellite sits elsewhere, the large one is called, confidently (one orangutan chromosome) |
 | Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Without CpG methylation, calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
@@ -90,9 +90,9 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |
 | Rejects interspersed repeats and finds the centromeric end of acrocentric karyotypes without annotation (goat 30/30 on the satellome locus; mouse 20/20 at the right end) | Acrocentric detection needs ≥ ~16 chromosomes. Where a larger pericentric satellite shares that end (mouse), the call is `low` on it and the CENP-A satellite is the reported alternative |
 | With `tes/`, CRM retrotransposon cores sit on CENH3 (rice 8/8, potato 6/7, maize 10/10) and place satellite-free centromeres (potato 2 → 6/11 right) | Only CRM may decide: another centromeric lineage only flags (moss Bryco cores on CENH3 25/26, calls 16/26; with Hi-C 22/26), and REXdb gives fungal elements no lineage (*Cryptococcus*: no call) |
-| With `tes/`, centromeres made of a few TE insertions count (the floor is 3 independent insertion sites: *Chlorella* 0 → 8/10), and a CRM core overrules a satellite call only where it holds significantly more CRM elements than the call (*B. rapa* 9/10 → 10/10 in 3 accessions, soybean 17/20 → 19/20, *Ae. tauschii* 3/7 → 5/7) | Satellite-free centromeres beside a genome-wide dominant pericentromeric satellite are called confidently wrong, and neither Hi-C nor TEs fix it (tomato 1/12, 7 confidently wrong); *Ae. tauschii* from the FASTA alone 1/7 (4 confidently wrong) |
-| Satellite families founded on two-copy duplications are not modelled, which cuts the search where retrotransposon units dominate it (sheep about 12x, siamang 2x) without changing a call | Which satellite becomes dominant can depend on how a run splits a satellite into families: pig's acrocentrics were right in an earlier run, now `low` and 0.6-2.7 Mb off (the honesty cap holds: 1 confident error in 157 mammal chromosomes) |
-| Morphology from the integrated call: acrocentric vs bi-armed as in the literature karyotype on 118/119 right calls (mouse 20/20, goat 30/30, horse 30/30, pig 13/13, sheep 25/26); assembly gaps counted exactly (4,084 in 3 assemblies) | Morphology is by sequence length, not cytogenetic appearance: CHM13's acrocentric chr21 and chr22 come out submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb); a wrong call gives a wrong class (`low` calls stay out of the karyotype) |
+| With `tes/`, centromeres made of a few TE insertions count (the floor is 3 independent insertion sites: *Chlorella* 0 → 8/10), and a CRM core overrules a confident satellite call elsewhere, or a non-weak one beside it, only where it holds significantly more CRM elements than the call (`low` and weak calls it replaces anyway) (*B. rapa* 9/10 → 10/10 in 3 accessions, soybean 17/20 → 19/20, *Ae. tauschii* 3/7 → 5/7) | Satellite-free centromeres beside a genome-wide dominant pericentromeric satellite are called confidently wrong, and neither Hi-C nor TEs fix it (tomato 1/12, 7 confidently wrong); *Ae. tauschii* from the FASTA alone 1/7 (4 confidently wrong) |
+| Satellite families founded on two-copy duplications are not modelled, which cuts the search where retrotransposon units dominate it (sheep about 12x, siamang 2x) without changing a call | Which satellite becomes dominant can depend on how a run splits a satellite into families: pig's acrocentrics were right in an earlier run, now `low` and 0.6-2.0 Mb off (the honesty cap holds: 1 confident error in 157 mammal chromosomes) |
+| Morphology from the integrated call: acrocentric vs bi-armed as in the literature karyotype on 117/118 right calls (mouse 20/20, goat 30/30, horse 29/29, pig 13/13, sheep 25/26); assembly gaps counted exactly (4,084 in 3 assemblies) | Morphology is by sequence length, not cytogenetic appearance: CHM13's acrocentric chr21 and chr22 come out submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb); a wrong call gives a wrong class (`low` calls stay out of the karyotype) |
 
 ## Install
 
@@ -100,7 +100,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 538 tests, ~3 min
+pytest -q -n 8          # optional: 548 tests, ~2 min
 ```
 
 ## Quick start
@@ -207,7 +207,7 @@ modkit pileup sample1.bam - --ref asm.fa --cpg --combine-strands -t 32 \
   | awk -F'\t' '$4=="m"' | bgzip > $M/sample1.CG.bed.gz && tabix -p bed $M/sample1.CG.bed.gz
 printf 'sample\tCG\nsample1\tsample1.CG.bed.gz\n' > $M/asm.tsv
 ```
-Optional `meth/asm.exclude.bed`: regions to ignore (column 4 = a sample name, or empty for all).
+Optional `meth/asm.exclude.bed`: regions the methylation line ignores (column 4 = a sample name, or empty for all; the CpG kinetochore line does not read it).
 
 **Genes:** any GFF3 or GTF of this assembly: `gene` lines (protein-coding by `gene_biotype`, `biotype` or GENCODE's
 `gene_type`), or, in a file without them, one locus per transcript's `Parent` (Spud DB potato). Sequence names must
@@ -222,11 +222,13 @@ gene on some chromosomes, matches them.
 |---|---|
 | **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `regional_centromere_central_core`, Name=kinetochore), the call in words (`basis`, `caveat`), and the chromosome's morphology and completeness |
 | **`cenfuse_report.md`** | per genome, in words: what each line found and whether it passed its test, what the centromeres are made of, the calls that are not `high` and what would settle them, morphology and completeness, the other features and their 3D association |
-| `cenfuse_overview.pdf` | the figure above |
-| `cenfuse_summary.tsv` | per genome: what each line found, whether Hi-C and CpG passed their tests, warnings |
+| `cenfuse_overview.pdf`, `asm.overview.png` | the figure above; its first page at 300 dpi |
+| `cenfuse_summary.tsv` | per genome: what each line found, how many chromosomes pass the Hi-C and CpG tests (`hic_gate_pass`, `cpg_gate_pass`), `fold_gate`, `hic_sequence_conflict`; warnings are in the log and the report |
 | `asm.loci.tsv`, `asm.features.gff3` | every other feature (telomeres, interstitial telomeric arrays, 45S and 5S rDNA arrays, knobs, subtelomeric blocks, Hi-C hubs, LTR cores, former centromeres) with each line's value there. GFF3 types are Sequence Ontology terms (`gt gff3validator -typecheck so` passes); cenfuse's kind is the `kind=` attribute; each member names its locus (`locus=`) and type (`member=`) |
+| `asm.feature_signatures.tsv`, `asm.feature_contacts.tsv` | per kind of feature, each line's median signal; with Hi-C, each kind's 3D self-association |
 | `asm.hic_anchored.bedgraph` | the Hi-C centromere score per bin, for a browser |
-| `asm.provenance.tsv`, `asm.plants.tsv` | with several plants: which plant each input comes from; each plant's centromere |
+| `asm.provenance.tsv` | which plant each input comes from (genotype and karyotype verdicts) |
+| `asm.plants.tsv`, `asm.plant_sites.tsv` | with several plants: each plant's centromere; each plant at each site ([plants.md](docs/plants.md)) |
 | `satellite/`, `hic/`, `methylation/` | each line's detailed outputs |
 
 ## Reading a call
@@ -244,6 +246,8 @@ gene on some chromosomes, matches them.
 Agreeing independent lines raise a kept call (at most two levels); an opposing line lowers it one. A call that Hi-C
 moved or placed is `medium` (`high` with a second line).
 
+Fusion flags are in `flags`; the satellite engine's are in `seq_flags`, with its evidence in `seq_evidence` (`satellite`, `weak_satellite`, `long_unit_tandem`, `retrotransposon`).
+
 | flag | meaning |
 |---|---|
 | `competing_cluster` | a second satellite cluster at least half the size, or a second satellite that also marks the acrocentric end; call is `low`, the other is in `seq_alt_start`/`seq_alt_end` |
@@ -254,8 +258,12 @@ moved or placed is `medium` (`high` with a second line).
 | `hic_medium_peak` | no sequence call; a clean medium Hi-C peak placed a `low` call |
 | `moved_with_te`, `_meth`, `_fold` | a high call moved: a second line (TE core, methylation, arm fold) agreed with Hi-C |
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence |
+| `te_concordant`, `te_discordant` | the LTR marker's core agrees with the call / lies elsewhere; with a decisive (CRM) core the call is raised to at least `medium` / lowered one level (other clades only flag) |
+| `satellite_away_from_core`, `satellite_beside_core`, `weak_satellite_beside_core` | a decisive CRM core replaced the satellite call: one elsewhere that was `low` on its own or holds significantly fewer CRM elements; one beside the core that holds significantly fewer; a weak one beside it |
+| `hic_offset`, `hic_disagrees_weak`, `hic_near` | strong validated Hi-C points elsewhere but cannot move a `high` call without a second line (`contested`); a validated peak elsewhere too weak to oppose; a peak near the call but not on it (within Hi-C's resolution: no effect) |
+| `te_derived`, `gene_rich`, `gaps:N`, `contig_end` | flags only: the main family lies mostly inside LTR retrotransposons; the call is more gene-dense than its chromosome; N assembly gaps in the call; the call reaches a contig end (`--classify-from`) |
 
-Per-genome tests (`*.centromeres.tsv` and `cenfuse_summary.tsv`): `hic_gate` (`pass`/`fail`/`untested`: does Hi-C
+Per-genome tests, given per chromosome in `*.centromeres.tsv` and counted in `cenfuse_summary.tsv` (`hic_gate_pass`, `hic_gate_untested`, `cpg_gate_pass`): `hic_gate` (`pass`/`fail`/`untested`: does Hi-C
 find the other chromosomes' centromeres? `hic_gate_refs`: `reference` = tested against the confident calls, `low` =
 no confident call anywhere, so against the `low` calls at clean peaks), `fold_gate` (does the arm fold agree with Hi-C's own peaks?) and
 `cpg_gate` (do CpG dips sit at the other chromosomes' calls more often than methylation from elsewhere would put them?).
@@ -288,10 +296,10 @@ metacentric, short arm last: the cytogenetic convention puts it first).
 | `--seed-engine fastan\|trf` | tandem-repeat finder for satellite seeds [fastan] |
 | `--seed-cache DIR` | share tandem-repeat results between runs |
 | `--classify-from T=S` | genome T (e.g. a contig assembly) takes its satellite families from genome S |
-| `--force STAGE` | recompute one stage |
+| `--force STAGE` | recompute a stage: `satellite` (the whole satellite engine), `telomere` ... `cpg`, or one satellite-engine stage (`seeds` ... `plot`) with every later one. Needed after an upgrade (the run stops and names the stage) and after adding or changing `genes/` or `tes/` in an earlier run's folder (`--force classify`): the satellite engine's checkpoints track code and parameters, not input files |
 | `-v` | per-step progress |
 
-There are no tuning knobs: every threshold is a fixed constant with its reason in a `params.py`.
+There are no tuning knobs: every threshold is a fixed constant with its reason in a `params.py` or at the top of the module that uses it.
 
 ## Several plants
 

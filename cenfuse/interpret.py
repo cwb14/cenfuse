@@ -76,13 +76,14 @@ def basis(r, ctx: dict) -> str:
         elif ev == "long_unit_tandem":
             out.append(f"long-unit tandem array, {size(ctx['sat_bp'](r.chrom, s, e))} of satellite in the call")
         elif ev == "retrotransposon":
-            out.append(f"{r.te_clade} retrotransposon core (no satellite call)")
+            replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"}
+            out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)"))
         if "weak_satellite_beside_core" in sflags:
             out.append("the CRM core replaced a weak satellite array beside it")
         if "satellite_away_from_core" in sflags:
             out.append("the CRM core replaced a satellite array elsewhere")
         if "satellite_beside_core" in sflags:
-            out.append("the CRM core replaced a satellite array beside it that holds far fewer CRM elements")
+            out.append("the CRM core replaced a satellite array beside it that holds significantly fewer CRM elements")
         if "hic_chose_alt" in flags:
             out.append("the second satellite cluster, chosen by validated Hi-C")
         if "acrocentric" in sflags:

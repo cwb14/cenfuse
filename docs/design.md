@@ -27,9 +27,12 @@ satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> ka
 fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot
 ```
 
-Each stage is checkpointed, keyed on its inputs and code, so a rerun resumes. Every stage's key includes `params.py`: a
-constant used by one new module lives in that module, so adding it does not recompute every stage. `genotype`,
-`karyotype` and `plants` handle several plants ([plants.md](plants.md)).
+The satellite engine checkpoints its stages on stage version and parameters: a change stops the run and names the
+`--force` stage, and changed input files (FASTA, `genes/`, `tes/`) are not detected (after adding `tes/` or `genes/`
+to an earlier run: `--force classify`). telomere, rdna, rdna5s, gaps, genotype, hic, fold, karyotype, meth and cpg are
+keyed on their inputs and code, so a rerun resumes; the later stages are cheap and always rerun. Their keys include
+the code of their modules and `params.py`: a constant used by one new module lives in that module, so adding it does
+not recompute every stage. `genotype`, `karyotype` and `plants` handle several plants ([plants.md](plants.md)).
 
 ## Lines
 
@@ -43,13 +46,13 @@ Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs an
 
 | rule | test | why |
 |---|---|---|
-| family founding | a seed cluster becomes a family only if one of its seeds is an array by annotate's rule (>= 3 copies); then by size (>= 20 kb of seeds, at most 40) | a satellite is tandem. Clusters founded on two-copy duplications only (0.8-2-kb units, retrotransposon-like) were dispersed or absent in every genome of the 216-genome replay (12 families in 7 genomes) and took most of the genome-wide search where they occur (T2T sheep 93%, siamang 52%, orangutans 19-28%, barley 14%); without them calls and roles were unchanged (siamang, barley, B. orangutan); search CPU at equal machine load: sheep 11.7x, siamang 2.0x, B. orangutan 1.3x, barley 1.16x less |
+| family founding | a seed cluster becomes a family only if one of its seeds is a tandem array (>= 3 copies of its unit by FasTAN, 5% short allowed); then by size (>= 20 kb of seeds, at most 40) | a satellite is tandem. Clusters founded on two-copy duplications only (0.8-2-kb units, retrotransposon-like) were dispersed or absent in every genome of the 216-genome replay (12 families in 7 genomes) and took most of the genome-wide search where they occur (T2T sheep 93%, siamang 52%, orangutans 19-28%, barley 14%); without them calls and roles were unchanged (siamang, barley, B. orangutan); search CPU at equal machine load: sheep 11.7x, siamang 2.0x, B. orangutan 1.3x, barley 1.16x less |
 | dispersed repeat | tandem_frac < 0.5 **and** whole-unit hits < 0.5 **and** locus fold < 2 → never centromeric, and role `dispersed` (never a satellite block) whatever its concentration | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits. Satellites are tandem; retrotransposon-derived centromeric arrays are concentrated (fold ≥ 2.5). Before v7 the role ignored the test: one 0.5-1.9-kb family per genome (chimpanzee, bonobo, S. orangutan, rhesus, sheep; 215-719 Mb, 2-14% in tandem) was an `interstitial` block chained along whole chromosomes, making chromosome-scale loci |
 | satellite kind | dominance judged per kind: subfamilies related by sequence are pooled | splitting alpha into 6 subfamilies let a pericentric satellite out-count it |
 | acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival (judged per satellite kind) → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs ~16+ chromosomes. A subfamily at the inner edge of a terminal block is that block, not a rival (T2T mouse: a major-satellite subfamily beyond the 5% end zone had blocked the test) |
 | the call | the cluster holding classify's chosen family (layered families pooled); a decisive CRM core may favor the largest cluster | |
 | competing cluster | a second cluster ≥ half the main one, or the terminal block of a second acrocentric satellite unrelated to the call → two levels down (`low`), reported in `seq_alt_*` | such calls were right 2/10 times on CENP-A/CENH3 truth. The acrocentric test finds a centromere's end, not which of two satellites there holds the kinetochore (mouse: the 234-bp major satellite out-sizes the 120-bp minor satellite that carries CENP-A; related layers, as in goat, are pooled instead) |
-| CRM cores (`tes/`) | the CRM clade's densest cores (full width at half maximum of its density; a core needs >= 3 independent insertion sites, overlapping elements counting once); a decisive core supports a call it agrees with, takes a chromosome without a call, replaces a `low` call, and replaces a `high` or `medium` call only if the clade marks it significantly more than the call (its elements in the core vs in the call, binomial at 1/2, P <= 0.01), and so does a confident call beside the core (agreeing without overlap: `satellite_beside_core`); otherwise the call stays, `te_discordant`, one level down | CRM retrotransposons mark grass centromeres. Site floor: *Chlorella* NS4-2's Osser (Copia) cores, 2-8 elements per chromosome, 53/54 inside CENH3: 0 -> 8/10 right (all `low`); no call changed in 12 crop `tes/` arms, B. rapa, soybean, sorghum. Head-to-head: in a broad CRM plateau the densest window is noise (B. rapa CC1/CC2 A09, soybean X26 chr1/chr6: CENH3 on the satellite, 16-26 vs 14-32 elements); a satellite on a smaller second cluster loses (P. annua Pa1A 19 vs 62; Ae. geniculata 7M/2U) |
+| CRM cores (`tes/`) | the clade's densest cores (full width at half maximum of its density; any clade's core needs >= 3 independent insertion sites, overlapping elements counting once); any marker's core takes a chromosome without a call (`medium` if decisive, else `low`). A decisive (CRM) core supports a call it agrees with (`te_concordant`, at least `medium`) and replaces a weak call beside it (`weak_satellite_beside_core`) and a disagreeing call that is `low` on its own; a disagreeing `high`/`medium` call, or a non-weak call beside it, it replaces only if the clade marks the core significantly more than the call (its elements in the core vs in the call, binomial at 1/2, P <= 0.01; `satellite_away_from_core` / `satellite_beside_core`); otherwise a disagreeing call stays, `te_discordant`, one level down, and a call beside it stays `te_concordant` | CRM retrotransposons mark grass centromeres. Site floor: *Chlorella* NS4-2's Osser (Copia) cores, 2-8 elements per chromosome, 53/54 inside CENH3: 0 -> 8/10 right (all `low`); no call changed in 12 crop `tes/` arms, B. rapa, soybean, sorghum. Head-to-head: in a broad CRM plateau the densest window is noise (B. rapa CC1/CC2 A09, soybean X26 chr1/chr6: CENH3 on the satellite, 16-26 vs 14-32 elements); a satellite on a smaller second cluster loses (P. annua Pa1A 19 vs 62; Ae. geniculata 7M/2U) |
 | CRM cores short of a majority | where CRM is not the decisive marker, each significant CRM core replaces the marker's core on its chromosome (flags only; without a qualifying clade, the CRM cores alone are the marker) | CRM is the prior centromere-specific lineage. With less sensitive annotations CRM concentrates on only some chromosomes: rice DANTE_LTR 5/12, EDTA + TEsorter 4/12, LTRquest thinned to 50% 3/12; every such core lay on CENH3 (24/24 over 8 arms of rice, potato, maize and *Brachypodium* not used to make the rule), every rice Tekay core off it |
 | honesty cap | centromeric families but none dominant, and no decisive (CRM) core: every call `low` (`no_dominant_satellite`); a flags-only marker (Athila, Tekay, Bryco) lifts the cap only for the calls it supports (`te_concordant`) | satellite evidence alone cannot tell a centromeric array from an interstitial one, and a line that contradicts a call, or says nothing about it, is no evidence for it. Before v6 any marker lifted the cap genome-wide: moss with `tes/` had 4 confident wrong calls (0 from FASTA alone), the 185-genome batch 66 confident calls the TE line did not support |
 | `tes/` formats | an element's clade from `clade=` (type holding `LTR_retrotransposon`: LTRquest, EDTA + TEsorter) or from a DANTE_LTR `transposable_element`'s `Final_Classification` (its last REXdb lineage field; an element classified only to `Ty3/gypsy`, `chromovirus` etc. has none; rank D, domains without LTRs, is not an element). `.gff3` or `.gff`. A file with no classified element on the chromosomes is reported with the reason (no lineage, or other sequence names) | DANTE_LTR is a common plant classifier; Arabidopsis with its file: the same 5 calls as with LTRquest. Its rank-D clusters made 195 of potato's 223 CRM and put decisive cores up to 15 Mb off CENH3 (6 confidently wrong calls; 2 without them). EDTA alone gives superfamilies only, which no rule can use |
@@ -89,7 +92,7 @@ Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs an
    - Agreement: within 1 bin, forgiving ≤ 4 unmappable bins (a peak at an array's edge supports a call inside it).
    - Opposition: beyond 4 *mappable* bins. Across a longer blind stretch Hi-C neither supports nor opposes.
 5. **Gate** (per chromosome x).
-   - References: the other chromosomes with `high` calls (`high` + `medium` if fewer than 3).
+   - References: the other chromosomes with `high` calls (`high` + `medium` if fewer than 4 calls are `high`).
    - x passes when most references' own peaks agree with their calls, beyond chance (Poisson-binomial P ≤ 0.01),
      and also a majority of the whole reference set.
    - Fewer than 3 references: `untested`.
@@ -143,11 +146,13 @@ calls); in any other layout it is not used (warning) and the sample's CG file is
 - **Dip test**: the run is longer than in the call's own bins shuffled (200 shuffles; significant at P ≤ 0.05).
 - **Positional test**: the run is longer than when the chromosome's CpG values are rotated by 200 random offsets onto
   the call's own CpGs and array bins (methylation from elsewhere; same size, bins and CpG density).
-- **Gate** (per chromosome, leave one out): references = the other chromosomes' `high` calls. k of n have a positional
+- **Gate** (per chromosome, leave one out): references = the other chromosomes' `high` calls (`high` + `medium` if
+  fewer than 4 are `high`). k of n have a positional
   dip; binomial tail at 0.05 (each reference's chance under the null) ≤ 0.01. No majority is required: the
   positional test is conservative (passing primates: 28-95% of tested calls; rotated tracks: 4-9%).
 - **Role**: where the gate passes, every call with a significant dip test gets its kinetochore (`cpg_kt_start/end`,
-  GFF3 `kinetochore`). It never moves a call or changes its confidence, and it cannot tell a wrong array.
+  GFF3 `regional_centromere_central_core`, Name=kinetochore). It never moves a call or changes its confidence, and it
+  cannot tell a wrong array.
 - **Assembly check**: bedMethyl rows must sit on reference CpGs (as for CHG); bedGraph rows too, at the row start or
   one base off (public tracks differ by one base).
 
@@ -158,7 +163,7 @@ calls); in any other layout it is not used (warning) and the sample's CG file is
 | no validated line | sequence call, `sequence_only` |
 | validated Hi-C (or methylation) agrees | sequence call, `concordant`, +1 level per line (max +2) |
 | validated strong Hi-C peak > 4 mappable bins away, call `low`/`medium` | moves to the Hi-C core, `offset`, `medium` |
-| same, call `high` | moves only with a second line at the peak and not at the call: a CRM core within 4 bins, or methylation `centromere_like` at the peak and a measured dip at the call (`moved_with_te`/`_meth`, `high`). Otherwise `contested`, -1 |
+| same, call `high` | moves only with a second line at the peak and not at the call: a CRM core within 4 bins, or methylation `centromere_like` at the peak and a measured dip at the call (`moved_with_te`/`_meth`, `high`). Otherwise `contested` (`hic_offset`), -1 |
 | Hi-C peak 1-4 bins away | neither supports nor opposes (`hic_near`) |
 | competing cluster, strong peak agrees with the second one, mappable bins between them | the second cluster is chosen (`hic_chose_alt`) |
 | no sequence call, strong peak | Hi-C core, `functional_only`, `medium` |
@@ -189,11 +194,12 @@ Nothing here changes a call; every statement is read from the tables cenfuse wri
   are submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb).
 - **Completeness.** Telomere arrays at the ends (telomere.py), assembly gaps (runs of >= 10 N, the satellite
   engine's rule) on the chromosome and inside the call; `t2t` = both telomeres and no gap.
-- **basis / caveat.** One sentence each per call: the sequence evidence and its size in the call, a move and its
-  second line, every agreeing line, the kinetochore; then every flag that lowered the call, every opposing line with
-  where it points, gaps in the call, and the input that would decide where cenfuse's own tests say one can (two arrays
-  of one satellite: CENP-A/CENH3 data, since Hi-C needs mappable DNA between them and CpG methylation was tested and
-  does not choose; satellite-free or capped calls: Hi-C or a CRM core when not given).
+- **basis / caveat.** One sentence each per call: the sequence evidence and its size in the call, a CRM core that
+  replaced the satellite call, a move and its second line, every agreeing line, the kinetochore; then every flag that
+  lowered the call, every opposing line with where it points, gaps in the call, and the input that would decide where
+  cenfuse's own tests say one can (two arrays of one satellite: CENP-A/CENH3 data, since Hi-C needs mappable DNA
+  between them and CpG methylation was tested and does not choose; satellite-free or capped calls: Hi-C or a CRM core
+  when not given).
 - **Report** (`cenfuse_report.md`): per genome, the lines and their tests, the calls by confidence and what they stand
   on, the calls that are not `high` with their caveats, morphology and completeness, the other features with their
   satellite share and 3D association. A failing report section is a warning; the results stay complete.
@@ -205,6 +211,7 @@ Every candidate interval becomes a locus member:
 - TE cores;
 - Hi-C cores and hubs;
 - methylation candidates;
+- 45S and 5S rDNA arrays;
 - telomere arrays at the ends and inside the chromosomes;
 - the sequence and final calls.
 
@@ -229,8 +236,10 @@ first kind that matches:
 | MAX_RAISE | 2 | low → high at most |
 | METH_SCORE | 0.5 | the methylation engine's signature rule |
 | SAT_SUPPORT_BP | 5 kb | the satellite engine's weak-satellite floor |
-| TANDEM_FRAC, ACRO_ALPHA | 0.5, 0.01 | majority rule; conventional level |
-| LOCUS_FOLD | 2 | heuristic (as the Hi-C engine's hub fold) |
+| satellite engine (`sat/params.py`): TANDEM_FRAC, ACRO_ALPHA | 0.5, 0.01 | majority rule; conventional level |
+| sat: LOCUS_FOLD | 2 | heuristic (as the Hi-C engine's hub fold) |
+| sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | nested copies are one insertion, three independent ones make a locus; conventional levels |
+| sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array (also founds a family); unit-length tolerance |
 | fold: S_MIN, CI_MIN | 9 bins, 12.5% | beyond the ± 4-bin centromeric domain; Levan's telocentric bound |
 | CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
 | CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
@@ -255,7 +264,7 @@ first kind that matches:
 | confident satellite call beside a decisive core | the core replaces it if the clade marks it significantly more (the same binomial head-to-head) | kept as agreeing (v7): Ae. tauschii Chr2/Chr4 arrays 5-7 Mb beside a 292-332-element CRM core holding CENH3 (3/7 with `tes/`; with the rule 5/7); replay: 17 calls in 15 genomes move to the core, with truth Ae. geniculata chr02M wrong -> right, S. verrucosum chr05 wrong -> wrong (closer); B. rapa A06 (call holds more CRB than the core) kept |
 | TE core floor | 3 independent insertion sites | 5 elements (v7): *Chlorella* Osser cores on 5/12 chromosomes, no marker. Sites in the binomial test too: cores moved in 113/220 replay genomes |
 | skip dispersed families on a sample of the genome (sample screen) | not adopted | every model searched on each chromosome's end chunks + every 5th chunk; a family skipped elsewhere when the sample shows at P <= 0.01 that classify would call it dispersed, and dropping it changes no other family's sampled arrays. Simulated on 216 stored annotations: 0 false skips. On real runs (sheep, mouse, S. orangutan, moss, *Brachypodium*): 0 skips. Dispersed families overlap each other on the same retrotransposon copies, and dropping them changes a few sampled arrays of small families (mouse: of the minor and major satellites); the check is needed (without it moss Chr08's call moved); < 7 chromosomes never reach the sign test; families whose hits rarely chain into arrays cannot be measured. Without the check mouse would gain <= 1.6x |
-| FasTAN reruns (reproducibility) | FasTAN under `setarch -R` (address-space randomization off) where the OS allows | as is: FasTAN 0.8's cuts depend on memory layout (one moss 5-Mb chunk, 5 runs: 17/982 arrays cut differently), so consensuses, families and some calls varied between fresh runs (moss: 5 call boundaries, one by 0.9 Mb); off: 5/5 runs identical, a whole fresh moss run byte-identical twice |
+| FasTAN reruns (reproducibility) | FasTAN under `setarch -R` (address-space randomization off) where the OS allows | as is: FasTAN 0.8's cuts depend on memory layout (one moss 5-Mb chunk, 5 runs: 17/982 arrays cut differently), so consensuses, families and some calls varied between fresh runs (moss: 5 call boundaries, one by 0.9 Mb); off: 5/5 runs identical; two whole fresh moss runs identical apart from header dates and commands |
 | fold center selection | centromeric index ≥ 12.5% | lower confidence bound of the mean: biased to the chromosome middle (barley 2/7) |
 | Hi-C peaks in end bins | support only, never oppose | (rice chr4: an end-bin peak contested a correct call) |
 | numpy huge pages | off by default | on: Hi-C bootstrap 30× slower on fragmented memory |
@@ -298,16 +307,18 @@ first kind that matches:
 - The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
 - Satellite-search memory: about one pyhmmer workspace per thread (model length × the 256-kb search block, up to ~2.4
   GB for 2-kb units): chicken 58 GB at 24 threads (277 GB before v5), *Arabidopsis* 4.8 GB at 8.
-- Satellite outputs made before v7 (`--satellite-dir`) keep the old roles: there an interspersed family classed
-  `interstitial` (one 0.5-1.9-kb family each in chimpanzee, bonobo, S. orangutan, rhesus and sheep) chains into
-  chromosome-wide clusters and chromosome-scale loci. Rerun the satellite engine from classify (`--force classify`) to
-  apply the v7 role rule. Calls are not affected; the report gives each block class's satellite share.
+- Satellite outputs of earlier versions read with `--satellite-dir` keep their version's rules: before v7 an
+  interspersed family classed `interstitial` (one 0.5-1.9-kb family each in chimpanzee, bonobo, S. orangutan, rhesus
+  and sheep) chains into chromosome-wide clusters and chromosome-scale loci; before v8 the TE floor is 5 elements, a
+  CRM core replaces every confident distant call, two-copy duplications can found families, and FasTAN's cuts vary
+  between runs. A rerun in an earlier version's output folder stops at the first changed stage (`seeds` from v7):
+  rerun the satellite engine (`--force satellite`) to apply the current rules.
 - Morphology is only as right as the call: a wrong call gives a wrong class (`low` calls are kept out of the summary's
   karyotype). An incomplete chromosome (a missing telomere, gaps) shifts the index.
 
 ## Tests
 
-`pytest -q -n 8`: 538 tests on small synthetic fixtures.
+`pytest -q -n 8`: 548 tests on small synthetic fixtures.
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three

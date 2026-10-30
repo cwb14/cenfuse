@@ -197,6 +197,11 @@ Each change has a reason independent of the case that prompted it, and was reche
 | 2026-10-28 | `short_arm` is `.` when the call spans the chromosome's middle (morphology, no call changes) | CHM13 chr1 (p arm 50 kb longer by sequence) | K1 verdict unchanged; the 30 regression runs |
 | 2026-10-28 | the karyotype and the short-arm list count `high`/`medium` calls only | the *C. elegans* report (holocentric; short arms from `low` calls) | 47 breadth reports |
 | 2026-10-28 | a family meeting the dispersed-repeat test gets role `dispersed` (no call changes) | bonobo's chromosome-scale loci (tracks L, D) | 72-job replay, 220 genomes: only the 5 interspersed families changed role, calls identical |
+| 2026-10-28 | FasTAN runs with address-space randomization off (reproducibility, not a rule) | two fresh moss runs differed (5 call boundaries) | 5 repeated runs of one chunk; two fresh moss runs identical |
+| 2026-10-28 | TE core floor: 3 independent insertion sites instead of 5 elements | *Chlorella* NS4-2 (Osser cores below the floor) | 12 crop `tes/` arms, moss, *Chlamydomonas*, *Arabidopsis*, *Brachypodium*, tomato, soybean, sorghum: no call changed; 72-job replay: 2 Sphagnum calls |
+| 2026-10-29 | a decisive core replaces a confident distant satellite call only if the clade marks it significantly more (binomial, P <= 0.01) | *B. rapa* CC1/CC2 A09 | held out: *B. rapa* CC3/CCA03, soybean, sorghum, *Ae. tauschii*, tomato `tes/`; crop arms; 72-job replay (3 calls) |
+| 2026-10-29 | families only from seed clusters with an array seed (>= 3 copies; speed, no call changes) | T2T sheep's search time | siamang, barley, B. orangutan: calls and roles identical |
+| 2026-10-30 | the same head-to-head test for a call beside the core | *Ae. tauschii* Chr2/Chr4 | 21 `tes/` arms (only those 2 changed); 72-job replay (17 calls; with truth, 1 wrong call fixed, none lost) |
 
 ## 6. Kinetochores from CpG methylation (v4)
 
@@ -276,7 +281,7 @@ Any confident single centromere is wrong here.
 | genome | why it is hard | calls |
 |---|---|---|
 | *C. elegans* CGC1 (T2T, 6 chr) | holocentric, no centromeric satellite | 6 `low`, all `no_dominant_satellite` |
-| *Bombyx mori* P50T (29 chr) | holocentric; Lepidoptera lost CenH3 | 14 `low`, 15 none |
+| *Bombyx mori* P50T (29 chr) | holocentric; Lepidoptera lost CenH3 | 13 `low`, 16 none |
 | *Rhynchospora breviuscula* (5 chr) | holocentric; Tyba arrays along every chromosome | 5 `low` |
 
 0 confident calls in 40 chromosomes, with no code change. A genome-level "holocentric" flag was considered and not
@@ -718,14 +723,14 @@ Earlier versions scored the satellite engine's outputs of the v3 engine through 
 the FASTA (satellite engine included) with the delivered code. First it found that two fresh runs of the same input
 differed: FasTAN 0.8 cuts arrays depending on memory layout (one moss 5-Mb chunk, 5 runs: 17 of 982 arrays cut
 differently), so families and some call boundaries varied (moss: 5). FasTAN now runs with address-space randomization
-off (`setarch -R`); two fresh moss runs gave 307 identical output files. The README tables are from this rerun.
-Every row reproduced except:
+off (`setarch -R`); two fresh moss runs gave 307 output files identical apart from header dates and commands. The
+README tables are from this rerun. Every row reproduced except:
 - **9 T2T mammals, FASTA only**: 143 right, 1 confidently wrong, 13 low/none (was 148/5/4). All in pig: in this run
   the 73-bp satellite takes the sequence of a former 83-bp subtelomeric family (that family is not formed), becomes
   the largest cluster on pig's 6 acrocentric ends, and with a 50-bp family on 4 more chromosomes the 336-bp family
   loses genome-wide dominance. The related-family preference then lapses and the honesty cap makes every pig call
-  `low`: 5 right `medium` calls at the acrocentric ends became `low` calls 0.6-2.7 Mb inside. How a fresh run splits
-  satellites into families decides this; with genes and Hi-C pig is 13/17 as before.
+  `low`: 5 right `medium` calls at the acrocentric ends became `low` calls 0.6-2.0 Mb from CENP-A. How a fresh run
+  splits satellites into families decides this; with genes and Hi-C pig is 13/17 as before.
 - **+ genes + Hi-C**: 148/4/5 (was 149/4/4): horse T2T CM128050.1, a `low` call 2.7 Mb from CENP-A.
 - **CpG kinetochores**: median width 55 kb (was 60); 62/63 on curated CDRs (S. orangutan CM054694.2 now off).
 - The moss `tes/` arm reproduces the README (16 right, 11 `high`/`medium`, 0 confidently wrong); the v7 delivered run
@@ -746,9 +751,9 @@ soybean X26, sorghum BTx623 (ChIP of line V9), *Ae. tauschii* AL8/78, *Chlorella
   satellite call on CENH3. A core now overrules a confident satellite call only where the clade's elements sit
   significantly more in the core than in the call (binomial at 1/2, P <= 0.01): *B. rapa* 9/10 → 10/10 in 3
   accessions, soybean 17/20 → 19/20; P. annua Pa1A (satellite on a smaller second CRM cluster) unchanged.
-- *Ae. tauschii*: satellite arrays beside CRM cores that hold CENH3 on all 7 chromosomes; the same test now applies
-  to a confident call beside the core: 3/7 → 5/7 with `tes/` (Chr5/Chr7: calls at the core's edge remain). Replay:
-  Ae. geniculata chr02M wrong → right.
+- *Ae. tauschii*: satellite arrays beside CRM cores that hold CENH3 on all 7 chromosomes; the same test now applies to
+  a non-weak satellite call beside the core: 3/7 → 5/7 with `tes/` (Chr5/Chr7: calls at the core's edge remain).
+  Replay: Ae. geniculata chr02M wrong → right.
 - tomato: 11/12 CENH3 domains hold no satellite array; the dominant 53-bp satellite and a 181-bp one sit 3-42 Mb
   away; no LTR clade marks the domains, and 43 M Hi-C pairs (Heinz 1706, CRR1296445) gave prior-free peaks 1-37 Mb
   off on all 12. A reported failure.

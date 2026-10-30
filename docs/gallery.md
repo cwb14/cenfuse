@@ -1,8 +1,8 @@
 # Gallery: cenfuse's overview figure for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf` from a default run on the benchmark inputs, unedited
-(the *Poa annua* one is in the [README](../README.md)). Numbers: [benchmark.md](benchmark.md). The *Arabidopsis*,
-chicken, maize and mouse images come from earlier runs, made before the rDNA markers were drawn.
+Each image is the first page of `cenfuse_overview.pdf` from a default run on the benchmark inputs, unedited: the v8
+rerun of every benchmark arm (2026-10-30); *Poa infirma*'s comes from an earlier run (v6; not rerun), and the *Poa
+annua* one is in the [README](../README.md). Numbers: [benchmark.md](benchmark.md).
 
 **How to read one** (panel letters as in the images):
 
@@ -25,7 +25,7 @@ chicken, maize and mouse images come from earlier runs, made before the rDNA mar
 | [Bornean orangutan](#bornean-orangutan) | 15/16 | pass | one confident miss: CENP-A on a small alpha array, 14 Mb from the large one that was called |
 | [crab-eating macaque](#crab-eating-macaque) | 16/16 | pass | |
 | [pig](#pig) | 13/17 | fail | truth is weak ChIP from other pigs |
-| [horse (T2T)](#horse-t2t) | 30/32 | fail | chr11 (satellite-free) has no call |
+| [horse (T2T)](#horse-t2t) | 29/32 | fail | chr11 (satellite-free) has no call; CM128050.1 is a `low` call 2.7 Mb from CENP-A |
 
 ## Mammals without functional truth (agreement with the satellome locus)
 
@@ -33,7 +33,7 @@ chicken, maize and mouse images come from earlier runs, made before the rDNA mar
 |---|---|---|
 | [siamang](#siamang) | 20/26 | pass |
 | [rhesus macaque](#rhesus-macaque) | 22/22 | fail |
-| [sheep](#sheep) | 26/28 | fail |
+| [sheep](#sheep) | 27/28 | fail |
 | [goat](#goat) (all acrocentric) | 30/30 | fail |
 | [giraffe](#giraffe) | 15/15 | fail |
 

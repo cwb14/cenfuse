@@ -1,6 +1,6 @@
 """Retrotransposon evidence: the LTR-RT clade that concentrates at one locus per chromosome marks the centromere
-(Athila in A. thaliana, CRM in grasses). Optional input GENOME_DIR/tes/<genome>.gff3[.gz]; design:
-docs/2026-10-05-retrotransposon-evidence.md."""
+(Athila in A. thaliana, CRM in grasses). Optional input GENOME_DIR/tes/<genome>.gff3|.gff[.gz]; design:
+docs/design.md ('Satellites and TEs')."""
 import gzip
 import math
 from pathlib import Path
@@ -93,7 +93,7 @@ def te_gff(complex_dir, genome: str):
 
 class Mids(np.ndarray):
     """Sorted element midpoints of one clade on one chromosome; .sites = independent insertion sites they make
-    (overlapping elements, nested insertions, are one site)."""
+    (overlapping or abutting elements, e.g. nested insertions, are one site)."""
 
     def __new__(cls, mids, sites: int):
         obj = np.asarray(mids, dtype=np.int64).view(cls)
@@ -263,12 +263,12 @@ def gap(a0: int, a1: int, b0: int, b1: int) -> int:
 
 
 def contradicts(call_start: int, call_end: int, c: dict) -> bool:
-    """A core contradicts a call it does not agree with only if the clade marks the core significantly more than the
-    call region: P(X >= k_core), X ~ Binomial(k_core + k_call, 1/2) <= TE_CONTRA_ALPHA, k = the clade's elements with
-    midpoints in the core / the call. Which of the two loci the clade marks more is the TE line's own question; where
-    its density happens to peak is not (P. annua Pa1A: the satellite array sits on a second, smaller CRM cluster, 19
-    elements vs the core's 62: contradicted; B. rapa CC1 A09: a CRM plateau over 22-42 Mb, the CentBr call on CENH3
-    holds 16, the core window 18: not contradicted)."""
+    """A core contradicts a call (one elsewhere, or one beside it) only if the clade marks the core significantly more
+    than the call region: P(X >= k_core), X ~ Binomial(k_core + k_call, 1/2) <= TE_CONTRA_ALPHA, k = the clade's
+    elements with midpoints in the core / the call. Which of the two loci the clade marks more is the TE line's own
+    question; where its density happens to peak is not (P. annua Pa1A: the satellite array sits on a second, smaller
+    CRM cluster, 19 elements vs the core's 62: contradicted; B. rapa CC1 A09: a CRM plateau over 22-42 Mb, the CentBr
+    call on CENH3 holds 16, the core window 18: not contradicted)."""
     m = c.get("mids")
     if m is None:
         return True

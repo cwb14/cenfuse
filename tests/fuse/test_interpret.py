@@ -75,6 +75,12 @@ def test_satellite_engine_flags():
                                                              seq_evidence="retrotransposon", te_clade="CRM"), ctx())
     assert "replaced a satellite array elsewhere" in it.basis(row(seq_flags="satellite_away_from_core",
                                                                   seq_evidence="retrotransposon", te_clade="CRM"), ctx())
+    b = it.basis(row(seq_flags="satellite_beside_core", seq_evidence="retrotransposon", te_clade="CRM"), ctx())
+    assert b == ("CRM retrotransposon core; the CRM core replaced a satellite array beside it that holds "
+                 "significantly fewer CRM elements")
+    for flag in ("weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"):
+        assert "no satellite call" not in it.basis(row(seq_flags=flag, seq_evidence="retrotransposon", te_clade="CRM"),
+                                                   ctx()), flag
 
 
 def test_moves_and_placements():

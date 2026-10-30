@@ -53,10 +53,11 @@ def select_seeds(tables: dict, p) -> pd.DataFrame:
 
 
 def arrayed(seeds: pd.DataFrame, p) -> set:
-    """Seed clusters (rep) with a seed that is an array by annotate's rule (>= min_array_monomers copies, LEN_TOL short
-    allowed). A satellite family is founded on a satellite array, not on two-copy duplications only: every such
-    family of the 216-genome replay set was dispersed or absent, and in T2T sheep four of them took 93% of the
-    genome-wide search (without them: calls and roles unchanged in siamang, 1.9x faster)."""
+    """Seed clusters (rep) with a seed that is a tandem array: >= min_array_monomers copies of its unit by FasTAN's
+    copy number, LEN_TOL short allowed (2.85 copies count; annotate's own array rule counts whole monomer hits). A
+    satellite family is founded on a satellite array, not on two-copy duplications only: all 12 such families of the
+    216-genome replay set were dispersed or absent, and in T2T sheep four of them took 93% of the genome-wide search
+    (without them: calls and roles unchanged in siamang, about 2x less search CPU)."""
     return set(seeds.rep[seeds.copies >= p.min_array_monomers * (1 - LEN_TOL)])
 
 
@@ -499,7 +500,8 @@ def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) 
         cand = [(mx, r) for mx, r in cand if r in founded]
         if duplic:
             log.info(f"families: {len(duplic)} cluster(s) >= min_fam_span founded on two-copy seeds only (no array of "
-                     f">= {p.min_array_monomers} copies): not satellite families (largest {duplic[0][0]} bp)")
+                     f">= {p.min_array_monomers * (1 - LEN_TOL):g} copies): not satellite families "
+                     f"(largest {duplic[0][0]} bp)")
         top, dropped = cand[:p.max_families], cand[p.max_families:]
         log.info(f"families: {len(seeds)} seeds -> {len(set(assign.values()))} clusters; "
                  f"{len(top)} carried forward" + (f"; {len(dropped)} more >= min_fam_span dropped by max_families "

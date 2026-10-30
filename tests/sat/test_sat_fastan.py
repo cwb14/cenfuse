@@ -144,6 +144,18 @@ def test_fasTAN_runs_with_a_fixed_memory_layout_where_possible():
         assert pre == []
 
 
+def test_without_setarch_fastan_runs_as_is_and_warns(monkeypatch, caplog):
+    """Without setarch (macOS, or no util-linux) FasTAN runs with the default memory layout, and cenfuse warns that
+    satellite families can then differ between reruns."""
+    import logging
+    import shutil
+    monkeypatch.setattr(fastan, "_FIXED", None)
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: None)
+    with caplog.at_level(logging.WARNING, logger="cenfuse-sat"):
+        assert fastan.fixed_layout() == []
+    assert "setarch -R" in caplog.text
+
+
 @need_fastan
 def test_reruns_give_the_same_cuts(tmp_path):
     """Imperfect arrays of several units between random DNA: three runs, one output (layout-dependent cuts were seen

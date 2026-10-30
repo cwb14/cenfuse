@@ -658,8 +658,8 @@ def legends(f) -> tuple[str, str]:
     ptab = f.get("plants")
     if ptab is not None and len(ptab):
         _plant_legends(f, short, long)
-    long.append(f"Exceptions are listed in {g.name}.centromeres.tsv (relation, against, flags) and every candidate "
-                f"feature in {g.name}.loci.tsv.")
+    long.append(f"Exceptions are listed in {g.name}.centromeres.tsv (relation, against, flags, seq_flags) and every "
+                f"candidate feature in {g.name}.loci.tsv.")
     long.append(f"Analysis: {__import__('socket').gethostname()}:{f['out']} · Script: cenfuse/plot.py · "
                 f"{date.today()}")
     return "\n\n".join(short), "\n\n".join(long)

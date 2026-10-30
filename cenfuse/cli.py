@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .util import CenfuseError, log, setup_logging
+from .util import CenfuseError, setup_logging
 
 
 def main(argv=None) -> int:

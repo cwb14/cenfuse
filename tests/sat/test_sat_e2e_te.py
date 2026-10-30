@@ -67,7 +67,8 @@ def test_satellite_away_from_the_retrotransposon_centromere_is_rejected(tmp_path
 
 def test_decisive_core_replaces_a_satellite_call_far_from_it(tmp_path):
     """Ae. geniculata 2U/7M (CENH3 ChIP): the centromeric family agrees with the CRM core on most chromosomes, but on one
-    its array lies far from the core. With decisive (CRM) evidence the core places that centromere."""
+    its array lies far from the core. With decisive (CRM) evidence the core places that centromere: the clade marks
+    the core far more than the array (te.contradicts)."""
     at, away = (135_000, 165_000), (30_000, 50_000)
     truth, summ, fams = _run(tmp_path, {"01": at, "02": at, "03": away, "04": at})
     for g, s in summ.items():

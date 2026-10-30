@@ -293,6 +293,16 @@ def test_mafft_alignment_does_not_depend_on_threads(tmp_path):
     assert all(mafft(seqs, tmp_path / f"t16_{i}", 16) == a for i in range(2))
 
 
+def test_build_families_founds_families_on_arrayed_clusters_only(synth_complex, synth_seeds, test_params, tmp_path,
+                                                                 monkeypatch):
+    """build_families carries forward only the clusters arrayed() returns: with none, no family."""
+    from cenfuse.sat import families
+    from cenfuse.sat.genomes import discover_genomes
+    monkeypatch.setattr(families, "arrayed", lambda seeds, p: set())
+    fam = families.build_families(synth_seeds, discover_genomes(synth_complex[0]), tmp_path, 2, test_params)
+    assert len(fam) == 0
+
+
 def test_only_clusters_with_an_array_seed_found_families():
     """>= min_array_monomers copies (LEN_TOL short allowed: 2.85 of 3) in one seed at least; two-copy duplications
     alone do not found a satellite family (T2T sheep: four such families, all dispersed, took 93% of the search)."""

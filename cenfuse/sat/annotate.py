@@ -12,7 +12,7 @@ from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextSequence
 from pyhmmer.plan7 import LongTargetsPipeline
 
 from .params import ANNOT_CHUNK, FULL_MONOMER_COV, MULTIMER_MIN_COV, MULTIMER_RATIO, NHMMER_REPORT_E, OVERLAP_MAX_COV
-from .util import log, union_bp
+from .util import log
 
 ABC = Alphabet.dna()
 MON_COLS = ["chrom", "start", "end", "strand", "family", "bitscore", "evalue",
