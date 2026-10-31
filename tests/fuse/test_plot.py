@@ -51,3 +51,18 @@ def test_overview_marks_45s_and_5s_rdna_arrays():
     assert not {"45S rDNA array (NOR)", "5S rDNA array"} & {t.get_text() for t in fig.legends[0].get_texts()}
     plt.close(fig)
     assert "No 45S or 5S rDNA array was found" in plot.legends(f)[1]
+
+
+def test_relation_labels_end_inside_the_page():
+    """Panel B's longest label ("sequence only, medium") ends inside the page: the PNG has no margin to spare (10 of
+    the 23 v8 gallery pages cut it at the right edge)."""
+    f = _fig(dict(nors=[], five_s=[]))
+    f["calls"].loc[0, "confidence"] = "medium"
+    fig = plot._pages(f)[0]
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    labels = [t for t in fig.axes[1].texts if t.get_text() == "sequence only, medium"]
+    assert labels and all(t.get_window_extent(r).x1 <= fig.bbox.x1 for t in labels)
+    a, b = fig.axes[0].get_window_extent(r), fig.axes[1].get_window_extent(r)
+    assert a.x1 < b.x0                                       # panel A stays left of panel B
+    plt.close(fig)

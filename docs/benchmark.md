@@ -19,19 +19,49 @@ says so and why). Rules changed after a result was seen are listed in
 
 ## At a glance
 
+Three figures from the v8 rerun (section 12), each with its legends in the PDF. Every genome's own overview page is
+in the [gallery](gallery.md).
+
+**Mammals and Hi-C** (sections 1, 2, 4):
+
 ![benchmark overview](img/benchmark_overview.png)
 
-*Scope: the 2026-10-24 benchmark (sections 1-2), drawn before the v8 rerun (section 12 has the current numbers: pig
-from the FASTA alone 8/17, horse T2T with all inputs 29/32; panels A and H and the legend counts shift slightly): 9
-T2T mammals with CENP-A truth, and rice, barley, potato and horse EquCab3 with ChIP truth; panel I adds the 5 mammals
-without functional truth and both Poa species. Genomes benchmarked later are in sections 7 and 9 (Arabidopsis,
-chicken, maize and mouse also in the [gallery](gallery.md)). [PDF with legends](img/benchmark_overview.pdf). **A**
-every chromosome with a mapped centromere: the call (box, colored by outcome) against CENP-A/CENH3 (black bar); open
-boxes and arrows = barley calls moved by Hi-C. **B-F** one chromosome per kind of outcome: right (B); uncertain, two
-similar satellite clusters (C); confidently wrong, CENP-A on a small array (D); moved by the Hi-C arm fold (E, barley,
-with its contact map); no line has signal (F, potato). **G** every chromosome as one square; black tick = chance.
+*9 T2T mammals with CENP-A truth; rice, barley, potato and horse EquCab3 with ChIP truth ([PDF with
+legends](img/benchmark_overview.pdf)). **A** every chromosome with a mapped centromere, all inputs: the call (box,
+colored by outcome) against CENP-A/CENH3 (black bar); open boxes and arrows = barley calls moved by Hi-C. **B-F** one
+chromosome per kind of outcome: right (B); uncertain, two similar satellite clusters (C); confidently wrong, CENP-A on
+a small array (D); moved by the Hi-C arm fold (E, barley, with its contact map); no line has signal (F, potato).
+**G** every chromosome as one square, FASTA only vs all inputs (chicken and mouse: FASTA only); black tick = chance.
 **H** each evidence line alone vs the fused call. **I** the Hi-C test on real vs randomized Hi-C, and the arm-fold
-test.*
+test, in 14 mammals (5 without functional truth), the 4 ChIP plants and both *Poa* species.*
+
+**Plants and algae with CENH3 truth: satellites, CRM retrotransposons, and where both fail** (sections 2, 7, 9, 10,
+12):
+
+![plant benchmark](img/benchmark_plants.png)
+
+*14 plant and algal species with CENH3 ChIP (CUT&Tag in *Chlamydomonas*), FASTA only vs + `tes/` (+ Hi-C), and 7
+genomes without a single centromere ([PDF with legends](img/benchmark_plants.pdf)). **A** every chromosome of the
+genomes run with `tes/` (*B. rapa*: CC1), each to scale: CENH3 (black), the + `tes/` call colored by outcome, the
+FASTA call (open box, arrow) where `tes/` moved it, and every element of the centromeric LTR lineage (CRM, brown;
+another named lineage, green). **B** *Ae. tauschii* Chr1, placed by its CRM core: CENH3 ChIP/input, satellite
+arrays, every CRM and other LTR retrotransposon, both calls. **C** B's CRM core, every element to size. **D** the
+failure: tomato chr10, CENH3 on neither satellite nor CRM. **E** the count test: every conflict between a CRM core
+and a satellite call, CRM elements in each, the P = 0.01 boundary, colored by where CENH3 is. **F** *Chlorella*:
+every Osser insertion around each centromere. **G** every chromosome as one square per genome and input set (all 11
+*B. rapa* accessions), black tick = chance; holocentric and point-centromere controls.*
+
+**Kinetochores from CpG methylation** (sections 6, 10):
+
+![CpG kinetochores](img/benchmark_cpg.png)
+
+*Primates with DiMeLo-seq CENP-A, curated CDRs or CENP-A ChIP, and HG002 ([PDF with legends](img/benchmark_cpg.pdf)).
+**A** a typical bonobo centromere: the satellite array, every CpG with cenfuse's 5-kb bins, DiMeLo-seq CENP-A, the
+call, the kinetochore (CpG dip), the CENP-A domain and the curated CDR. **B** the dip at single-CpG resolution.
+**C** widths of call, kinetochore and CENP-A domain. **D** every ape kinetochore centered on its CENP-A domain:
+methylation over CENP-A, one row pair each. **E** HG002 from ONT and PacBio HiFi, one row pair per chromosome. **F**
+the CpG gate on real vs rotated methylation, and every kinetochore against truth and chance. **G** rhesus and
+crab-eating macaque thinned to 1/16 of their reads.*
 
 ## 1. T2T mammals (14 genomes)
 

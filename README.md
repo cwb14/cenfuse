@@ -6,7 +6,7 @@ is required.
 
 ![cenfuse overview of the Poa annua assembly](docs/img/example_overview.png)
 
-*Poa annua, all four inputs ([PDF with legends](docs/img/example_overview.pdf)). **A** one row per chromosome:
+*Poa annua, all four inputs, a fresh run of cenfuse 0.8.0 ([PDF with legends](docs/img/example_overview.pdf)). **A** one row per chromosome:
 Hi-C score (blue), CHG methylation (black), satellite arrays by role, TE density; black box = sequence call, gray
 band = final call; ▶ ▼ = telomere arrays at the ends and inside; ◆ ◇ = 45S and 5S rDNA arrays. **B** lines that
 support (●) or oppose (×) each call. **C** each line's call relative to the sequence call. **D** Hi-C score around
@@ -26,7 +26,8 @@ each call.*
 ## How well it works
 
 Right = the call overlaps the CENP-A/CENH3 domain (mammals) or lies within 4 Hi-C bins of it (plants).
-Figure, details and every failure: [`docs/benchmark.md`](docs/benchmark.md). Every genome's overview plot:
+Figures (mammals and Hi-C; plants and LTR retrotransposons; CpG kinetochores), details and every failure:
+[`docs/benchmark.md`](docs/benchmark.md). Every genome's overview plot:
 [`docs/gallery.md`](docs/gallery.md).
 
 | genomes | truth | inputs | chromosomes | right | confidently wrong | wrong but `low`, or no call |
@@ -66,7 +67,7 @@ run).
 
 | genomes | truth | kinetochores | on truth | width |
 |---|---|---|---|---|
-| 5 great apes | DiMeLo-seq CENP-A | 39 | 35 within 50 kb (29 overlap); CENP-A signal higher inside on 39/39 | median 55 kb, calls 5.1 Mb |
+| 5 great apes | DiMeLo-seq CENP-A | 39 | 35 within 50 kb (29 overlap); CENP-A signal higher inside on 39/39 | median 45 kb, calls 3.9 Mb (all 133 kinetochores with truth, 6 primates: 55 kb, 5.1 Mb) |
 | same + human | curated CDRs | 63 | 62 | |
 | crab-eating macaque | CENP-A ChIP of another animal | 21 (15 with truth) | 12/15 inside its domain | |
 | rhesus (R10, held out) | none | 21 of 22 | | |
@@ -84,7 +85,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 | CpG kinetochores at low coverage: calls are pooled per bin (rhesus at 1/16 of its reads, ~1 call per CpG strand: 21/21 kinetochores within 50 kb of full depth) | Hi-C tests flip near their threshold: both orangutans lost the gate at half depth (35 M pairs), barley its fold rescue (9.2 M -> 4.6 M pairs); no call became confidently wrong in mammals |
 | Hi-C, satellites and TEs are tested against each other, not trusted on their own word | When a small array is the active one and a large array of the same satellite sits elsewhere, the large one is called, confidently (one orangutan chromosome) |
 | Hi-C must pass a test in each genome before it can act; it never passed on randomized Hi-C | Without CpG methylation, calls span the array (median 0.8-5.6 Mb), not the 0.1-0.5 Mb kinetochore |
-| CpG methylation places the kinetochore inside the array (55 kb; 35/39 within 50 kb of CENP-A) | The CpG line refines a call but cannot fix a wrong one; its test failed on older chimpanzee data |
+| CpG methylation places the kinetochore inside the array (median 55 kb in 6 primates; 35/39 within 50 kb of CENP-A) | The CpG line refines a call but cannot fix a wrong one; its test failed on older chimpanzee data |
 | No confident call on holocentric genomes (0/40 chromosomes), or on point, regional and AT-rich centromeres (yeasts, *Plasmodium*, *Neurospora*, *Cryptococcus*) | CENH3 on satellite-free DNA beside the satellite array can be missed confidently (maize chr5, 2 Mb from CentC) |
 | Knobs are not taken for centromeres (maize: 23.6 Mb of knob repeat, none in a call) | Chicken: right calls stay `low`; its Hi-C is dominated by telomere clustering and cannot validate them |
 | In grasses, Hi-C can overrule a wrong satellite line (barley 0 → 6/7) | Hi-C failed its test in 6/14 mammals (pig, horse, rhesus, sheep, goat, giraffe) and then only reports |

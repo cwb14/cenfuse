@@ -1,14 +1,17 @@
 # Gallery: cenfuse's overview figure for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf` from a default run on the benchmark inputs, unedited: the v8
-rerun of every benchmark arm (2026-10-30); *Poa infirma*'s comes from an earlier run (v6; not rerun), and the *Poa
-annua* one is in the [README](../README.md). Numbers: [benchmark.md](benchmark.md).
+Each image is the first page of `cenfuse_overview.pdf`, unedited, from cenfuse 0.8.0 on the benchmark inputs
+(2026-10-30). Each run reads the satellite search of the v8 from-scratch rerun (`--satellite-dir`) and recomputes
+everything else; its calls are identical to the v8 run's. *Poa infirma*'s comes from a fresh 0.8.0 run of both *Poa*
+genomes with all four inputs, whose *P. annua* page is in the [README](../README.md). Numbers:
+[benchmark.md](benchmark.md).
 
 **How to read one** (panel letters as in the images):
 
 | panel | shows |
 |---|---|
-| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside the chromosome (▼); 45S (◆) and 5S (◇) rDNA arrays |
+| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), with `tes/` the
+marker retrotransposon clade's density (orange), the satellite call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside the chromosome (▼); 45S (◆) and 5S (◇) rDNA arrays |
 | **B** | which evidence lines support (●) or oppose (×) each final call, then its relation and confidence (a `fold` column appears only where the arm fold acted: barley) |
 | **C** | where each line puts the centromere, relative to the satellite call |
 | **D** | Hi-C score around every final call: a peak at 0 means the calls sit where centromeres meet in the nucleus |
@@ -55,6 +58,37 @@ annua* one is in the [README](../README.md). Numbers: [benchmark.md](benchmark.m
 | [chicken (GGswu)](#chicken-ggswu) | CENP-A windows (33 of 40 chromosomes) | FASTA | 28/33 | all `low`: no satellite family dominates |
 | [maize (Mo17 T2T)](#maize-mo17-t2t) | CENH3 | FASTA | 9/10 within 1 Mb (7 overlap) | the knob repeat (23.6 Mb) is never called; chr5 confidently wrong: CENH3 on satellite-free DNA 2 Mb from CentC |
 | [mouse (mhaESC T2T)](#mouse-mhaesc-t2t) | minor-satellite (CENP-A) array | FASTA | 1/20 (20/20 at the centromeric end) | all acrocentric: calls are `low` on the larger pericentric major satellite, with the minor satellite as the reported alternative |
+## Plants and algae with CENH3 truth and LTR retrotransposons (`tes/`)
+
+| genome | inputs | right | note |
+|---|---|---|---|
+| [moss (*Physcomitrium* V6)](#moss-physcomitrium-v6) | FASTA, `tes/`, Hi-C | 22/26 | Copia (Bryco) cluster centromeres without satellite; the 4 misses are `low` |
+| [*Chlamydomonas* (UL-1690)](#chlamydomonas-ul-1690) | FASTA, `tes/` | 6/17 | LINE-cluster centromeres; every call `low` |
+| [*Brachypodium distachyon* Bd21](#brachypodium-distachyon-bd21) | FASTA, `tes/` | 3/3 | CENH3 truth on 3 of 5 chromosomes; all `high` |
+| [*Brassica rapa* CC1](#brassica-rapa-cc1) | FASTA, `tes/` | 10/10 | one of 11 accessions (FASTA alone: 109/110 in all 11) |
+| [soybean X26](#soybean-x26) | FASTA, `tes/` | 19/20 | chr13: a CRM core replaced a `low` satellite call and is `medium`, 1.9 Mb from CENH3 (FASTA alone 20/20) |
+| [sorghum BTx623](#sorghum-btx623) | FASTA, `tes/` | 10/10 | CENH3 ChIP of line V9; all `high` |
+| [*Aegilops tauschii* AL8/78](#aegilops-tauschii-al878) | FASTA, `tes/` | 5/7 | calls on CRM cores; Chr5 and Chr7 sit at a core's edge, 1.3 and 3.1 Mb from CENH3 (FASTA alone 1/7) |
+| [*Chlorella sorokiniana* NS4-2](#chlorella-sorokiniana-ns4-2) | FASTA, `tes/` | 8/10 | centromeres of 2-7 Osser insertions; every call `low` (FASTA alone 0/10) |
+| [tomato Heinz 1706](#tomato-heinz-1706) | FASTA, `tes/`, Hi-C | 1/12 | satellite-free centromeres beside a dominant pericentromeric satellite: 7 confidently wrong, a reported failure |
+
+## A diploid human T2T genome
+
+| genome | truth | inputs | calls on truth | note |
+|---|---|---|---|---|
+| [HG002](#hg002) | CenSat active alpha-satellite arrays | FASTA, ONT CpG methylation | 46/46 | both haplotypes; 45 `high`; CpG kinetochores on 40, all inside the active array |
+
+## Controls: no single regional centromere (any confident call is wrong)
+
+| genome | centromeres | chromosomes | confident calls | note |
+|---|---|---|---|---|
+| [*Caenorhabditis elegans*](#caenorhabditis-elegans) | holocentric | 6 | 0 | 6 `low` |
+| [*Bombyx mori*](#bombyx-mori) | holocentric, no CenH3 | 29 | 0 | 13 `low`, 16 none |
+| [*Rhynchospora breviuscula*](#rhynchospora-breviuscula) | holocentric (Tyba repeat) | 5 | 0 | 5 `low` |
+| [*Saccharomyces cerevisiae*](#saccharomyces-cerevisiae) | point | 17 | 0 | none |
+| [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | regional | 3 | 0 | 1 `low`, 2 none |
+| [*Neurospora crassa*](#neurospora-crassa) | regional, AT-rich | 7 | 0 | none |
+| [*Plasmodium falciparum*](#plasmodium-falciparum) | short, AT-rich | 14 | 0 | 1 `low`, 13 none |
 
 ---
 
@@ -126,3 +160,54 @@ annua* one is in the [README](../README.md). Numbers: [benchmark.md](benchmark.m
 
 ### mouse (mhaESC T2T)
 ![mouse mhaESC](img/gallery/mmT2T.png)
+
+### moss (Physcomitrium V6)
+![moss Physcomitrium V6](img/gallery/ppat.png)
+
+### Chlamydomonas (UL-1690)
+![Chlamydomonas UL-1690](img/gallery/chlamy.png)
+
+### Brachypodium distachyon Bd21
+![Brachypodium distachyon Bd21](img/gallery/brachy.png)
+
+### Brassica rapa CC1
+![Brassica rapa CC1](img/gallery/CC1.png)
+
+### soybean X26
+![soybean X26](img/gallery/gmX26.png)
+
+### sorghum BTx623
+![sorghum BTx623](img/gallery/sbBTx623.png)
+
+### Aegilops tauschii AL8/78
+![Aegilops tauschii AL8/78](img/gallery/aetAL878.png)
+
+### Chlorella sorokiniana NS4-2
+![Chlorella sorokiniana NS4-2](img/gallery/csNS42.png)
+
+### tomato Heinz 1706
+![tomato Heinz 1706](img/gallery/tomato.png)
+
+### HG002
+![HG002](img/gallery/hg002.png)
+
+### Caenorhabditis elegans
+![Caenorhabditis elegans](img/gallery/celegans.png)
+
+### Bombyx mori
+![Bombyx mori](img/gallery/bmori.png)
+
+### Rhynchospora breviuscula
+![Rhynchospora breviuscula](img/gallery/rbrev.png)
+
+### Saccharomyces cerevisiae
+![Saccharomyces cerevisiae](img/gallery/scer.png)
+
+### Schizosaccharomyces pombe
+![Schizosaccharomyces pombe](img/gallery/spom.png)
+
+### Neurospora crassa
+![Neurospora crassa](img/gallery/ncra.png)
+
+### Plasmodium falciparum
+![Plasmodium falciparum](img/gallery/pfal.png)

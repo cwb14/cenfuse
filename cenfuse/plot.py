@@ -28,12 +28,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.collections import PolyCollection  # noqa: E402
+from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
+from matplotlib.textpath import TextPath  # noqa: E402
 
 log = logging.getLogger("cenfuse")
 MM = 1 / 25.4
 WIDTH = 180 * MM
+B_COL_MM = 4.6                                   # panel B: spacing of the line columns
 ROWS_PER_PAGE = 24
 ROLE_COLOR = {"centromeric": "#D55E00", "cen_associated": "#F4A582", "interstitial": "#CC79A7",
               "subtelomeric": "#56B4E9", "rDNA": "#009E73"}
@@ -107,7 +110,15 @@ def _nan_runs(x, y, min_run=2):
             if e - s >= min_run]
 
 
-def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
+def _rel_label(r) -> str:
+    return f"{REL_SHORT.get(r['relation'], r['relation'])}{', ' + r['conf'] if r['conf'] != 'none' else ''}"
+
+
+def _text_mm(s: str, size: float) -> float:
+    return TextPath((0, 0), s, size=size, prop=FontProperties(size=size)).get_extents().width / 72 * 25.4
+
+
+def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax, b_xmax):
     seq, tel, hic, meth = f["seq"], f["tel"], f["hic"], f["meth"]
     rdna = f.get("rdna") or {}
     arrays = seq.arrays
@@ -204,8 +215,7 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
                 axb.plot(j, y0 + 0.5, "o", ms=3.6, color="black", mew=0)
             elif line in r["against"]:
                 axb.plot(j, y0 + 0.5, "x", ms=3.6, color="#D55E00", mew=0.9)
-        axb.text(len(f["lines"]) - 0.35, y0 + 0.5, f"{REL_SHORT.get(r['relation'], r['relation'])}"
-                 f"{', ' + r['conf'] if r['conf'] != 'none' else ''}", va="center", fontsize=6)
+        axb.text(len(f["lines"]) - 0.35, y0 + 0.5, _rel_label(r), va="center", fontsize=6)
     ax.set_xlim(-Lmax * 0.005, Lmax * 1.005)
     ax.set_ylim(-0.1, n + 0.1)
     ax.set_yticks([])
@@ -215,7 +225,7 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax):
     ax.set_xticks(ticks)
     ax.set_xticklabels([f"{t / 1e6:g}" for t in ticks])
     ax.set_xlabel("position (Mb)", labelpad=1)
-    axb.set_xlim(-0.6, len(f["lines"]) + 3.2)
+    axb.set_xlim(-0.6, b_xmax)
     axb.set_ylim(-0.1, n + 0.1)
     axb.set_xticks(range(len(f["lines"])))
     axb.set_xticklabels([LINE_LABEL[x] for x in f["lines"]], rotation=90)
@@ -348,6 +358,10 @@ def _pages(f):
     fold = any("fold" in (r["support"] | r["against"]) for r in rows)   # a fold column only where the fold acted
     f["lines"] = LINES[:3] + (["fold"] if fold else []) + LINES[3:]
     label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
+    # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
+    b_xmax = len(f["lines"]) - 0.35 + (max(_text_mm(_rel_label(r), 6) for r in rows) + 1.0) / B_COL_MM
+    b_mm = (b_xmax + 0.6) * B_COL_MM
+    b_left = 1 - (b_mm + 1) / (WIDTH / MM)
     pages = []
     chunks = [rows[i:i + ROWS_PER_PAGE] for i in range(0, len(rows), ROWS_PER_PAGE)]
     for pi, chunk in enumerate(chunks):
@@ -361,12 +375,12 @@ def _pages(f):
         height = (gtop + gal_mm + 12 + bottom_mm) * MM
         fig = plt.figure(figsize=(WIDTH, height))
         H = height / MM
-        ax = fig.add_axes([0.11, 1 - (gtop + gal_mm) / H, 0.66, gal_mm / H])
-        axb = fig.add_axes([0.785, 1 - (gtop + gal_mm) / H, 0.2, gal_mm / H])
-        _gallery(ax, axb, chunk, f, scale, has_hic, has_meth, Lmax)
+        ax = fig.add_axes([0.11, 1 - (gtop + gal_mm) / H, b_left - 0.015 - 0.11, gal_mm / H])
+        axb = fig.add_axes([b_left, 1 - (gtop + gal_mm) / H, b_mm / (WIDTH / MM), gal_mm / H])
+        _gallery(ax, axb, chunk, f, scale, has_hic, has_meth, Lmax, b_xmax)
         _key(fig, 1 - 2 / H, has_hic, has_meth, roles, rdna)
         fig.text(0.01, 1 - 21 / H, "A", fontsize=9, fontweight="bold", va="bottom")
-        fig.text(0.765, 1 - 21 / H, "B", fontsize=9, fontweight="bold", va="bottom")
+        fig.text(b_left - 0.02, 1 - 21 / H, "B", fontsize=9, fontweight="bold", va="bottom")
         if last:
             yb = yb_mm / H
             hb = 44 / H
