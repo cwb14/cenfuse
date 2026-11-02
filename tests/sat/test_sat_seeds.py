@@ -174,3 +174,114 @@ def test_genome_without_chunks_is_cached(tmp_path, test_params):
     path = tmp_path / "z.trf.tsv.gz"
     _compute({path: Genome("z", tmp_path / "z.fa", {"c1": 0})}, tmp_path, 1, replace(test_params, seed_engine="trf"))
     assert path.exists() and pd.read_csv(path, sep="\t").empty
+
+
+# ---- FasTAN crashes: recovered by splitting the piece (fastan.chunk_rows) and recorded beside the cached seed table
+
+@pytest.mark.parametrize("overlap, chr1_starts, chr2_starts", [
+    (10_000, [100, 95_100, 190_100], [100, 190_100]),
+    (20_000, [100, 90_100, 180_100], [100, 180_100])])      # the overlap is seed_overlap: the halves' and the chunks'
+def test_crash_table_beside_the_cache(tmp_path, monkeypatch, caplog, overlap, chr1_starts, chr2_starts):
+    """FasTAN aborts on the first 200-kb chunk of chr1 (here: on any chr1 piece over 150 kb). The run still finishes,
+    with the seeds of that chunk's two halves, and the crashed interval is listed beside the cached seed table, where
+    every run that reuses the cache finds it."""
+    import logging
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat import fastan
+    from cenfuse.sat.genomes import Genome
+    from cenfuse.sat.util import log
+    from sat_common import crashing_fastan, dna
+    monkeypatch.setattr(log, "propagate", True)
+    rng = np.random.default_rng(4)
+    chroms = {c: dna(rng, 300_000) for c in ("chr1", "chr2")}
+    fa = tmp_path / "g.fa"
+    fa.write_text("".join(f">{c}\n{s}\n" for c, s in chroms.items()))
+    pysam.faidx(str(fa))
+    g = Genome("g", fa, {c: len(s) for c, s in chroms.items()})
+    monkeypatch.setattr(fastan, "setup", lambda tmpdir: False)         # the real setup runs FasTAN on a test sequence
+    crashing_fastan(monkeypatch, chroms, lambda name, a, b: name == "chr1" and b - a > 150_000)   # forked workers keep it
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        cache = seeds.seed_genomes([g], tmp_path / "cache", 2, Params(seed_chunk=200_000, seed_overlap=overlap))["g"]
+    assert cache.exists()
+    lines = [x.split("\t") for x in seeds.crash_path(cache).read_text().splitlines()]
+    assert lines == [["chrom", "start", "end", "signal", "action"], ["chr1", "0", "200000", "SIGABRT", "split"]]
+    assert [r for r in caplog.records if r.levelno == logging.INFO
+            and r.getMessage().startswith("seeds: g: FasTAN crashed on 1 chunk(s)")]
+    df = seeds.load_seeds(cache)      # the stand-in finds one array at [100, 300) of each piece it finishes
+    assert df[df.chrom == "chr1"].start.tolist() == chr1_starts      # the two halves of chunk 1, then chunk 2
+    assert df[df.chrom == "chr2"].start.tolist() == chr2_starts
+
+
+def test_write_cache_lists_the_crashes_and_summarizes_them(tmp_path, monkeypatch, caplog):
+    """events: one list per chunk FasTAN crashed on. The table has a row per event; the log line counts the chunks, the
+    pieces split and the bp of skipped pieces (skipped pieces that overlap are counted once)."""
+    import logging
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat.genomes import Genome
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    path = tmp_path / "x.fastan.tsv.gz"
+    chunk1 = [("c1", 0, 200_000, "SIGABRT", "split"), ("c1", 100_000, 115_000, "SIGABRT", "skipped"),
+              ("c1", 110_000, 125_000, "SIGABRT", "skipped")]
+    chunk2 = [("c2", 0, 15_000, "SIGSEGV", "skipped")]
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        seeds._write_cache(path, Genome("g", tmp_path / "g.fa", {}), [], 0.05, [chunk1, chunk2])
+    assert seeds.crash_path(path).read_text() == (
+        "chrom\tstart\tend\tsignal\taction\n"
+        "c1\t0\t200000\tSIGABRT\tsplit\nc1\t100000\t115000\tSIGABRT\tskipped\nc1\t110000\t125000\tSIGABRT\tskipped\n"
+        "c2\t0\t15000\tSIGSEGV\tskipped\n")
+    line = [r.getMessage() for r in caplog.records if "FasTAN crashed" in r.getMessage()]
+    assert len(line) == 1 and line[0].startswith("seeds: g: FasTAN crashed on 2 chunk(s)")
+    assert "1 piece(s) split" in line[0] and "40,000 bp skipped" in line[0]       # 25,000 (union on c1) + 15,000 on c2
+
+
+def test_the_crash_table_is_written_before_the_cache_file(tmp_path, monkeypatch):
+    """Other runs wait for the cache file and then look for the table beside it: if the cache file cannot be written,
+    the table is already there, so the file never shows up without it."""
+    import gzip
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat.genomes import Genome
+
+    def refuse(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(gzip, "open", refuse)
+    path = tmp_path / "x.fastan.tsv.gz"
+    with pytest.raises(OSError):
+        seeds._write_cache(path, Genome("g", tmp_path / "g.fa", {}), [], 0.05,
+                           [[("c1", 0, 200_000, "SIGABRT", "split")]])
+    assert seeds.crash_path(path).exists() and not path.exists()
+
+
+def test_a_crash_table_left_by_an_earlier_run_is_dropped_when_nothing_crashed(tmp_path):
+    """The table describes the cache file beside it: recomputing the cache without a crash must not keep the old one."""
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat.genomes import Genome
+    path = tmp_path / "x.fastan.tsv.gz"
+    seeds.crash_path(path).write_text("chrom\tstart\tend\tsignal\taction\nc1\t0\t200000\tSIGABRT\tsplit\n")
+    seeds._write_cache(path, Genome("g", tmp_path / "g.fa", {}), [], 0.05)
+    assert path.exists() and not seeds.crash_path(path).exists()
+
+
+def test_stage_seeds_links_the_crash_table_only_when_there_is_one(tmp_path, monkeypatch):
+    """work/seeds/<genome>.fastan_crashes.tsv is a link to the table beside the cached seed table; a genome FasTAN never
+    crashed on has none, and a link left by an earlier run does not outlive its table."""
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat.pipeline import Pipeline
+    for n in "ab":
+        (tmp_path / f"{n}.fa").write_text(">c\nACGT\n")
+        (tmp_path / f"{n}.fa.fai").write_text("c\t4\t3\t4\t5\n")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    paths = {n: cache / f"{n}.fastan.tsv.gz" for n in "ab"}
+    for p in paths.values():
+        p.write_text("")
+    seeds.crash_path(paths["a"]).write_text("chrom\tstart\tend\tsignal\taction\n")
+    monkeypatch.setattr(seeds, "seed_genomes", lambda *a, **k: paths)
+    pl = Pipeline(tmp_path, 1, cache, Params())
+    (pl.work / "seeds").mkdir()
+    (pl.work / "seeds" / "b.fastan_crashes.tsv").symlink_to(tmp_path / "gone.tsv")    # left by an earlier run
+    pl.stage_seeds()
+    assert (pl.work / "seeds" / "a.fastan_crashes.tsv").resolve() == seeds.crash_path(paths["a"]).resolve()
+    assert not (pl.work / "seeds" / "b.fastan_crashes.tsv").is_symlink()
+    assert (pl.work / "seeds" / "b.seeds.tsv.gz").resolve() == paths["b"].resolve()   # the seed table link is unchanged

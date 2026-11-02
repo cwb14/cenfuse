@@ -1,8 +1,12 @@
+import logging
+import signal
+
 import numpy as np
 import pytest
 
 from cenfuse.sat import fastan
-from sat_common import have
+from cenfuse.sat.util import SatelliteError, log
+from sat_common import crashing_fastan, dna, have
 
 need_fastan = pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview"), reason="FasTAN tools missing")
 
@@ -168,3 +172,122 @@ def test_reruns_give_the_same_cuts(tmp_path):
     seq = "".join(parts)
     outs = {fastan.run_fastan(seq, tmp_path) for _ in range(3)}
     assert len(outs) == 1
+
+
+# ---- crash recovery: FasTAN 0.8 aborts (SIGABRT) on some large satellite arrays; chunk_rows splits the piece and
+# retries (these tests replace run_fastan by sat_common.crashing_fastan: no FasTAN needed)
+
+def test_crash_on_a_long_piece_is_split_and_recovered(monkeypatch, tmp_path, caplog):
+    """A piece FasTAN aborts on is cut in two halves that overlap by `overlap` bp, each retried. Here FasTAN dies on
+    any piece over 1 Mb: the pieces it finishes tile the chunk, rows keep absolute coordinates, and every crash is
+    logged and recorded."""
+    monkeypatch.setattr(log, "propagate", True)
+    seq = dna(np.random.default_rng(1), 4_000_000)
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: b - a > 1_000_000)
+    events = []
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        rows = fastan.chunk_rows("c1", seq, 7_000_000, tmp_path, False, events, 10_000)
+    pieces = sorted((a, b) for _, a, b in done)
+    assert pieces[0][0] == 0 and pieces[-1][1] == 4_000_000                          # no gap at either end
+    assert all(nxt[0] == cur[1] - 10_000 for cur, nxt in zip(pieces, pieces[1:]))    # neighbours overlap by `overlap`
+    assert sorted((r[1], r[2]) for r in rows) == [(7_000_000 + a + 100, 7_000_000 + a + 300) for a, _ in pieces]
+    assert len(events) == len(pieces) - 1                                            # every crash made two pieces
+    assert events[0] == ("c1", 7_000_000, 11_000_000, "SIGABRT", "split")
+    assert events[1] == ("c1", 7_000_000, 9_005_000, "SIGABRT", "split")             # the cut is at 9,000,000: both
+    assert ("c1", 8_995_000, 11_000_000, "SIGABRT", "split") in events              # halves reach 5,000 bp past it
+    assert all(e[3:] == ("SIGABRT", "split") and 7_000_000 <= e[1] < e[2] <= 11_000_000 for e in events)
+    info = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert len(info) == len(events) and "SIGABRT" in info[0] and "c1:7,000,000-11,000,000" in info[0]
+
+
+def test_a_piece_that_always_crashes_is_skipped(monkeypatch, tmp_path, caplog):
+    """FasTAN dies on every piece that holds one position (7,500,000, 2 kb before the chunk's end). A piece down to
+    2 x overlap is skipped, with a warning that names its interval; the rest of the chunk is still searched."""
+    monkeypatch.setattr(log, "propagate", True)
+    seq = dna(np.random.default_rng(2), 502_000)
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: a <= 500_000 < b)
+    events = []
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        rows = fastan.chunk_rows("c1", seq, 7_000_000, tmp_path, False, events, 10_000)
+    skipped = [e for e in events if e[4] == "skipped"]
+    assert len(skipped) == 1
+    chrom, start, end, signame, _ = skipped[0]
+    assert signame == "SIGABRT" and end - start <= 2 * 10_000 and start <= 7_500_000 < end
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and f"c1:{start:,}-{end:,}" in warnings[0]
+    searched = np.zeros(len(seq), bool)
+    for _, a, b in done:
+        searched[a:b] = True
+    lost = np.flatnonzero(~searched) + 7_000_000
+    assert lost.min() >= start and lost.max() < end                                  # only the skipped piece is lost
+    assert len(rows) == len(done) > 0
+
+
+@pytest.mark.parametrize("n, actions", [(20_000, ["skipped"]), (20_001, ["split", "skipped", "skipped"])])
+def test_a_piece_is_split_only_while_longer_than_twice_the_overlap(monkeypatch, tmp_path, n, actions):
+    """FasTAN dies on every piece. At exactly 2 x overlap the chunk is skipped as it is; one base more and it is cut
+    in two halves (15,000 and 15,001 bp), which are then skipped."""
+    seq = dna(np.random.default_rng(4), n)
+    crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
+    events = []
+    assert fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000) == []
+    assert [e[4] for e in events] == actions
+
+
+@pytest.mark.parametrize("code", [1, -signal.SIGKILL, -signal.SIGTERM, -signal.SIGINT])
+def test_non_crash_failures_still_stop_the_run(monkeypatch, tmp_path, code):
+    """Only a crash is routed around. An exit status, or a kill (the OOM killer, the scheduler, Ctrl-C), stops the
+    run at the first piece: splitting would hide a real problem and keep a killed job going."""
+    calls = []
+
+    def run(piece, tmpdir):
+        calls.append(len(piece))
+        raise SatelliteError(f"command failed (exit {code}): FasTAN -m -p -T1 s.1gdb")
+
+    monkeypatch.setattr(fastan, "run_fastan", run)
+    events = []
+    with pytest.raises(SatelliteError, match=f"exit {code}"):
+        fastan.chunk_rows("c1", "ACGT" * 50_000, 0, tmp_path, False, events, 10_000)
+    assert calls == [200_000] and events == []
+
+
+@pytest.mark.parametrize("msg, want", [
+    *[pytest.param(f"command failed (exit -{s.value}): FasTAN -m -p -T1 s.1gdb\nmalloc(): corrupted top size", s.value,
+                   id=s.name) for s in (signal.SIGABRT, signal.SIGSEGV, signal.SIGBUS, signal.SIGFPE, signal.SIGILL)],
+    pytest.param("command failed (exit -9): FasTAN -m -p -T1 s.1gdb", None, id="SIGKILL-the-OOM-killer"),
+    pytest.param("command failed (exit -15): FasTAN -m -p -T1 s.1gdb", None, id="SIGTERM"),
+    pytest.param("command failed (exit -2): FasTAN -m -p -T1 s.1gdb", None, id="SIGINT"),
+    pytest.param("command failed (exit 1): FasTAN -m -p -T1 s.1gdb", None, id="exit-status-1"),
+    pytest.param("command failed (exit 6): FasTAN -m -p -T1 s.1gdb", None, id="exit-status-6-is-not-signal-6"),
+    pytest.param("command failed (exit 1): FAtoGDB s.fa\ncommand failed (exit -6): x", None, id="opening-status-only"),
+    pytest.param("FasTAN output: unparsable .1ano line 'M 0 1999'", None, id="other-error"),
+    pytest.param("command failed (exit x): FasTAN", None, id="unparsable-status"),
+    pytest.param("", None, id="empty")])
+def test_crash_signal_parses_only_crash_signals(msg, want):
+    """SIGABRT, SIGSEGV, SIGBUS, SIGFPE and SIGILL mean the program itself failed (signal numbers differ by platform,
+    hence the names); every other failure, kills included, gives None."""
+    assert fastan.crash_signal(SatelliteError(msg)) == want
+
+
+def test_crash_at_sequence_edges_and_in_mostly_n_pieces(monkeypatch, tmp_path):
+    """FasTAN dies on whatever piece holds the first or the last base of a 400-kb sequence whose middle is N (a
+    chromosome end beside a gap). The recursion ends at both edges: exactly those two pieces are skipped, no piece
+    without bases ever reaches FasTAN (FAtoGDB would reject it), and every base outside them is searched."""
+    rng = np.random.default_rng(3)
+    seq = dna(rng, 20_000) + "N" * 360_000 + dna(rng, 20_000)
+    n = len(seq)
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: a <= 0 < b or a <= n - 1 < b)
+    events = []
+    rows = fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000)
+    skipped = sorted(e for e in events if e[4] == "skipped")
+    assert len(skipped) == 2 and skipped[0][1] == 0 and skipped[1][2] == n          # the first and the last piece only
+    assert all(e[2] - e[1] <= 2 * 10_000 for e in skipped)
+    bases = np.ones(n, bool)
+    bases[20_000:380_000] = False
+    searched, skip_mask = np.zeros(n, bool), np.zeros(n, bool)
+    for _, a, b in done:
+        searched[a:b] = True
+    for _, a, b, _, _ in skipped:
+        skip_mask[a:b] = True
+    assert not (bases & ~searched & ~skip_mask).any()                                # nothing else is lost
+    assert len(rows) == len(done) > 0

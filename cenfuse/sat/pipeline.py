@@ -194,6 +194,11 @@ class Pipeline:
             link = self._p("seeds", f"{g.name}.seeds.tsv.gz")
             link.unlink(missing_ok=True)
             link.symlink_to(paths[g.name])
+            crashes = seeds.crash_path(paths[g.name])           # exists only if FasTAN crashed on this genome
+            link = self._p("seeds", f"{g.name}.fastan_crashes.tsv")
+            link.unlink(missing_ok=True)                        # a link left by an earlier run of this stage
+            if crashes.exists():
+                link.symlink_to(crashes)
 
     def stage_families(self):
         families.build_families({g.name: self.seed_table(g) for g in self.genomes}, self.genomes,

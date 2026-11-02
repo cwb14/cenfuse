@@ -4,7 +4,9 @@ of its copies."""
 import os
 import platform
 import random
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -12,10 +14,16 @@ import tempfile
 import numpy as np
 import pyabpoa
 
-from .params import CONS_UNITS, FASTAN_ARGS, LEN_TOL, RELATED_LEN_TOL, SEED_MAX_PERIOD
+from .params import CONS_UNITS, FASTAN_ARGS, LEN_TOL, RELATED_LEN_TOL, SEED_MAX_PERIOD, Params
 from .util import SatelliteError, log, run
 
 TOOLS = ["FAtoGDB", "FasTAN", "ONEview"]
+# FasTAN 0.8 aborts ("malloc(): corrupted top size", SIGABRT) on some large satellite arrays (Oryza minuta
+# GWHESQK00000003:29,940,000-30,582,500, a 642-kb array). These signals mean the program itself failed, so the piece
+# is split and retried; a kill (SIGKILL: the OOM killer; SIGTERM, SIGINT: the scheduler or the user) is not FasTAN's
+# fault and must stop the run.
+CRASH_SIGNALS = (signal.SIGABRT, signal.SIGSEGV, signal.SIGBUS, signal.SIGFPE, signal.SIGILL)
+_KILLED_BY = re.compile(r"command failed \(exit -(\d+)\)")     # util.run: a command that died by signal N exits -N
 DUP_TOL = LEN_TOL   # a unit is a mean over the copies aligned, so the same array seen from two chunks can differ
 KEY = ["fastan", 2, FASTAN_ARGS, CONS_UNITS, RELATED_LEN_TOL, SEED_MAX_PERIOD, DUP_TOL]   # cache key; bump 2 if rows change
 NAN = float("nan")
@@ -79,6 +87,14 @@ def run_fastan(seq: str, tmpdir) -> str:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def crash_signal(err: SatelliteError) -> int | None:
+    """N if err says a command (FasTAN, FAtoGDB or ONEview) died by crash signal N (CRASH_SIGNALS), else None. Only the
+    status that opens the message counts, not the command's stderr after it."""
+    m = _KILLED_BY.match(str(err))
+    n = int(m.group(1)) if m else None
+    return n if n in CRASH_SIGNALS else None
+
+
 def trims_last_unit(tmpdir) -> bool:
     """True if the installed FasTAN ends each interval where the lagging copy of its first-wave alignment ends, one
     unit before the array does: the 0.8 release does (fixed upstream on 2026-08-09). Probe: ten exact copies of a
@@ -115,15 +131,41 @@ def unit_consensus(units: list, period: int) -> str:
     return _POA.msa(ok, out_cons=True, out_msa=False).cons_seq[0]
 
 
-def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool) -> list:
+def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: list | None = None,
+               overlap: int = Params.seed_overlap) -> list:
     """Seed-table rows (seeds.COLS) of the FasTAN arrays of one chunk at offset, units up to SEED_MAX_PERIOD (longer
     ones are the long-unit detector's). pct_match = 100 - FasTAN's % differences between adjacent copies; score = the
-    matched bp; FasTAN measures no indel share or entropy (NaN). trims: see trims_last_unit."""
+    matched bp; FasTAN measures no indel share or entropy (NaN). trims: see trims_last_unit.
+    A piece FasTAN dies on by a crash signal is cut in two halves that overlap by `overlap` bp and each half is
+    retried, recursively (seeds.dedupe merges what both halves report, as for chunk overlaps); with the overlap
+    >= 2 x SEED_MAX_PERIOD no array of a seed-length unit is lost at the cut. A piece of at most 2 x overlap that still
+    crashes is skipped with a warning. Each crash is appended to events as (chrom, start, end, signal name, 'split' |
+    'skipped'), 0-based absolute. Any other failure (an exit status, a kill) stops the run."""
     seq = seq.upper()
     if not any(b in seq for b in "ACGT"):
         return []                                    # FAtoGDB rejects a sequence without bases
+    try:
+        ano = run_fastan(seq, tmpdir)
+    except SatelliteError as e:
+        sig = crash_signal(e)
+        if sig is None:
+            raise                                    # an exit status or a kill: not FasTAN's bug to route around
+        name, stop = signal.Signals(sig).name, offset + len(seq)
+        where = f"{chrom}:{offset:,}-{stop:,}"
+        if len(seq) <= 2 * overlap:
+            log.warning(f"seeds: FasTAN crashed ({name}) on {where} ({len(seq):,} bp), too short to split further: "
+                        f"skipped, no seeds from this piece")
+            if events is not None:
+                events.append((chrom, offset, stop, name, "skipped"))
+            return []
+        log.info(f"seeds: FasTAN crashed ({name}) on {where}; retrying its two halves, overlapping by {overlap:,} bp")
+        if events is not None:
+            events.append((chrom, offset, stop, name, "split"))
+        h, half = len(seq) // 2, overlap // 2
+        return chunk_rows(chrom, seq[:h + half], offset, tmpdir, trims, events, overlap) + \
+            chunk_rows(chrom, seq[h - half:], offset + h - half, tmpdir, trims, events, overlap)
     out = []
-    for beg, end, unit, diff, cuts in parse_ano(run_fastan(seq, tmpdir)):
+    for beg, end, unit, diff, cuts in parse_ano(ano):
         if unit > SEED_MAX_PERIOD:
             continue
         if trims:                                    # add the last copy; an array never crosses an assembly gap
