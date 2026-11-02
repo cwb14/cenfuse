@@ -1,8 +1,15 @@
-"""Overview plot: panel C (each line's call relative to the sequence call) scales to the calls drawn."""
+"""Overview plot: panel C (each line's call relative to the sequence call) scales to the calls drawn; the pages of a
+genome are drawn, saved and closed one at a time."""
+import re
+import warnings
+
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pytest
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
 
 from cenfuse import plot
 
@@ -20,14 +27,16 @@ def test_offsets_axis_covers_sequence_only_calls():
     assert lo <= -4 and hi >= 4
 
 
-def _fig(rdna):
+def _fig(rdna, n=1):
+    """The least `overview` needs, for n chromosomes (c1..cn), each with one satellite array and a sequence call."""
     import pandas as pd
     from types import SimpleNamespace
-    calls = pd.DataFrame([dict(chrom="c1", chrom_len=10_000_000, start="4000001", end="5000000", seq_start="4000001",
+    names = [f"c{i}" for i in range(1, n + 1)]
+    calls = pd.DataFrame([dict(chrom=c, chrom_len=10_000_000, start="4000001", end="5000000", seq_start="4000001",
                                seq_end="5000000", relation="sequence_only", confidence="high", call_source="sequence",
                                support="satellite", against=".", te_start=".", te_end=".", hic_anch_core_start=".",
-                               hic_anch_core_end=".", hic_anch_peak_start=".", hic_anch_peak_end=".")])
-    arrays = pd.DataFrame(dict(chrom=["c1"], start=[4_100_000], end=[4_900_000], role=["centromeric"]))
+                               hic_anch_core_end=".", hic_anch_peak_start=".", hic_anch_peak_end=".") for c in names])
+    arrays = pd.DataFrame(dict(chrom=names, start=[4_100_000] * n, end=[4_900_000] * n, role=["centromeric"] * n))
     return dict(genome=SimpleNamespace(name="g", lines=["satellite"]), seq=SimpleNamespace(arrays=arrays), tel={},
                 hic=None, meth=None, calls=calls, telo={}, plants=None, out="x", rdna=rdna)
 
@@ -66,3 +75,71 @@ def test_relation_labels_end_inside_the_page():
     a, b = fig.axes[0].get_window_extent(r), fig.axes[1].get_window_extent(r)
     assert a.x1 < b.x0                                       # panel A stays left of panel B
     plt.close(fig)
+
+
+@pytest.fixture
+def quick_pages(monkeypatch):
+    """Pages of 2 rows and a fixed label width. The page lifecycle depends on neither, and measuring each chromosome's
+    relation label (a TextPath, 0.1 s each) would take over a minute for the 600 rows of 25 full pages."""
+    monkeypatch.setattr(plot, "ROWS_PER_PAGE", 2)
+    monkeypatch.setattr(plot, "_text_mm", lambda s, size: 20.0)
+
+
+def test_overview_keeps_one_page_open_at_a_time(tmp_path, monkeypatch, quick_pages):
+    """A genome of more pages than matplotlib's open-figure limit (20; the 670-sequence Cissus run had 28) is drawn,
+    saved and closed one page at a time: no "More than 20 figures" RuntimeWarning, at most one figure open at any
+    save (two allowed: a page drawn ahead), none left, and every page in the PDF."""
+    n_pages, n_legend_pages = 25, 2                           # the figure pages; the short and the long legend
+    f = _fig(dict(nors=[], five_s=[]), n=n_pages * plot.ROWS_PER_PAGE)
+    open_at_save = []
+
+    def spy(save):
+        def wrapped(self, *args, **kwargs):
+            open_at_save.append(len(plt.get_fignums()))
+            return save(self, *args, **kwargs)
+        return wrapped
+
+    monkeypatch.setattr(Figure, "savefig", spy(Figure.savefig))
+    monkeypatch.setattr(PdfPages, "savefig", spy(PdfPages.savefig))
+    plt.close("all")                                          # figures other tests left open are not this test's
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            plot.overview([f], tmp_path)
+        left = plt.get_fignums()
+    finally:
+        plt.close("all")                                      # a leak fails this test, not the next one
+    assert len(open_at_save) >= n_pages + n_legend_pages      # the spy saw every save
+    assert max(open_at_save) <= 2 and left == []
+    pdf = (tmp_path / "cenfuse_overview.pdf").read_bytes()
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == n_pages + n_legend_pages     # page objects, not /Pages
+    assert (tmp_path / "g.overview.png").is_file()
+
+
+@pytest.mark.parametrize("where", ["draw", "save"])
+def test_overview_closes_the_page_that_fails(tmp_path, monkeypatch, quick_pages, where):
+    """A page whose drawing or saving fails is closed before the error reaches the caller: the pipeline logs it and
+    goes on, and a figure left open would stay so for the rest of the process."""
+    f = _fig(dict(nors=[], five_s=[]), n=2 * plot.ROWS_PER_PAGE + 1)        # three pages
+    n_calls = []
+
+    def fail_second(real):
+        def wrapped(*args, **kwargs):
+            n_calls.append(1)
+            if len(n_calls) == 2:
+                raise OSError("disk full")
+            return real(*args, **kwargs)
+        return wrapped
+
+    if where == "draw":
+        monkeypatch.setattr(plot, "_gallery", fail_second(plot._gallery))
+    else:
+        monkeypatch.setattr(PdfPages, "savefig", fail_second(PdfPages.savefig))
+    plt.close("all")
+    try:
+        with pytest.raises(OSError, match="disk full"):
+            plot.overview([f], tmp_path)
+        left = plt.get_fignums()
+    finally:
+        plt.close("all")
+    assert left == []

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 import textwrap
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -28,6 +30,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.collections import PolyCollection  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
@@ -335,7 +338,10 @@ def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False)):
                handlelength=1.6, columnspacing=1.2, handletextpad=0.5, borderaxespad=0)
 
 
-def _pages(f):
+def _page_iter(f: dict) -> Iterator[Figure]:
+    """The figure pages of one genome, each drawn when asked for. The caller saves and closes a page before asking for
+    the next, so one is open at a time: matplotlib warns at 20 open figures, and the 670-sequence Cissus run (28
+    pages) held every page, with its memory, until the last was drawn."""
     g = f["genome"]
     rows = _rows(f["calls"])
     has_hic, has_meth = f["hic"] is not None, f["meth"] is not None
@@ -362,7 +368,6 @@ def _pages(f):
     b_xmax = len(f["lines"]) - 0.35 + (max(_text_mm(_rel_label(r), 6) for r in rows) + 1.0) / B_COL_MM
     b_mm = (b_xmax + 0.6) * B_COL_MM
     b_left = 1 - (b_mm + 1) / (WIDTH / MM)
-    pages = []
     chunks = [rows[i:i + ROWS_PER_PAGE] for i in range(0, len(rows), ROWS_PER_PAGE)]
     for pi, chunk in enumerate(chunks):
         last = pi == len(chunks) - 1
@@ -391,8 +396,13 @@ def _pages(f):
                 axd = fig.add_axes([0.7, yb, 0.28, hb])
                 _overlay(axd, rows, f["hic"])
                 fig.text(0.63, yb + hb + 3 / H, "D", fontsize=9, fontweight="bold", va="bottom")
-        pages.append(fig)
-    return pages
+        yield fig
+
+
+def _pages(f):
+    """Every page of one genome at once, all open (the caller closes them): to inspect pages; `overview` uses
+    `_page_iter`, which holds one."""
+    return list(_page_iter(f))
 
 
 def _focus(ptab):
@@ -740,17 +750,29 @@ def _text_page(text: str):
     return fig
 
 
+@contextmanager
+def _closing_new_figures():
+    """Close the figures opened inside the block and still open when it ends, however it ends. After an error that is
+    the page being drawn or saved (a half-drawn page never reaches the code that would close it); the pipeline logs
+    the error and goes on, so it would stay open for the rest of the process."""
+    before = set(plt.get_fignums())
+    try:
+        yield
+    finally:
+        for num in sorted(set(plt.get_fignums()) - before):
+            plt.close(num)
+
+
 def overview(figs: list, out: Path) -> None:
     out = Path(out)
-    with PdfPages(out / "cenfuse_overview.pdf") as pdf:
+    with _closing_new_figures(), PdfPages(out / "cenfuse_overview.pdf") as pdf:
         for f in figs:
             f.setdefault("out", out)
-            pages = _pages(f)
-            for i, fig in enumerate(pages):
+            for i, fig in enumerate(_page_iter(f)):
                 pdf.savefig(fig)
                 if i == 0:
                     fig.savefig(out / f"{f['genome'].name}.overview.png", dpi=300)
-                plt.close(fig)
+                plt.close(fig)                                 # before the next page is drawn
             pp = _plants_page(f)
             if pp is not None:
                 pdf.savefig(pp)
