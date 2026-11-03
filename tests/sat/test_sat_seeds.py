@@ -1,11 +1,13 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pysam
 import pytest
 
-from cenfuse.sat.genomes import discover_genomes
+from cenfuse.sat.genomes import Genome, discover_genomes
 from cenfuse.sat.params import Params
-from cenfuse.sat.seeds import COLS, cache_path, chunks, dedupe, seed_genomes
+from cenfuse.sat.seeds import COLS, cache_path, chunks, dedupe, genome_key, seed_genomes
 from cenfuse.sat.util import union_bp
 from sat_common import have
 
@@ -41,6 +43,69 @@ def test_cache_key_depends_on_engine_and_chunking(tmp_path):
     assert a == cache_path(tmp_path, "abc", Params()) and a.name.endswith(".fastan.tsv.gz")
     assert a != cache_path(tmp_path, "abc", Params(seed_chunk=1_000_000))
     assert a != cache_path(tmp_path, "abc", Params(seed_engine="trf"))
+
+
+# ---- genome_key: the FASTA md5, plus a suffix for the chromosome set where it can differ from the file's sequences.
+# Literals: THREE_MD5 = md5 of THREE_SEQS; SET_* = md5("\n".join(sorted(names)))[:8] for the sets a, a+b and a+b+c. The
+# keys of the indexed layouts are what genome_key returned before the link-indexed fix (computed with that code).
+
+THREE_SEQS = ">a\nACGT\n>b\nACGT\n>c\nACGT\n"
+THREE_MD5 = "9b8d2a54af5e98d5b9a4509765fbd8d6"
+SET_A, SET_AB, SET_ABC = "0cc175b9", "8cdeb444", "c32b2057"
+
+
+def _view_fasta(tmp_path, layout: str):
+    """The FASTA of a cenfuse view of one genome: inputs.make_view links it to the user's FASTA, resolved. The user's
+    FASTA holds a, b and c and has its .fai beside the path cenfuse was given. layout: 'file' (a file, indexed beside
+    it), 'link_to_indexed' (a link to an indexed file; the index is linked beside it too) or 'link_indexed' (a link to
+    a file without .fai: samtools faidx ran on the link, so the .fai sits beside the link)."""
+    real = tmp_path / "shared" / "ref.fa"
+    real.parent.mkdir()
+    real.write_text(THREE_SEQS)
+    user = real if layout == "file" else tmp_path / "genomes" / "S.fa"
+    if user != real:
+        user.parent.mkdir()
+        user.symlink_to(real)
+    pysam.faidx(str(user if layout == "link_indexed" else real))
+    if layout == "link_to_indexed":
+        Path(f"{user}.fai").symlink_to(f"{real}.fai")
+    assert Path(f"{user}.fai").exists()                              # cenfuse needs the .fai beside the path it gets
+    assert Path(f"{real}.fai").exists() == (layout != "link_indexed")    # and the layout is what its name says
+    (tmp_path / "view").mkdir()
+    (tmp_path / "view" / "S.fa").symlink_to(user.resolve())
+    return tmp_path / "view" / "S.fa"
+
+
+def _key(fasta, names: str) -> str:
+    return genome_key(Genome("S", fasta, {c: 4 for c in names}))
+
+
+def test_link_indexed_fasta_keys_separate_chromosome_sets(tmp_path):
+    """The user's FASTA is a link and its .fai sits beside the link, so the real file has none to compare the
+    chromosome set with. The set must still decide the key: otherwise `--force satellite` after a chromosome-set change
+    finds the old set's seeds in the cache and reuses them."""
+    fa = _view_fasta(tmp_path, "link_indexed")
+    keys = [_key(fa, names) for names in ("abc", "a", "ab")]
+    assert len(set(keys)) == 3
+    assert keys[1:] == [f"{THREE_MD5}-{SET_A}", f"{THREE_MD5}-{SET_AB}"]      # the keys the indexed layouts give
+    assert _key(fa, "ba") == keys[2]                                          # the set decides, not its order
+
+
+def test_link_indexed_fasta_with_every_sequence_gets_the_set_suffix(tmp_path):
+    """Without the real file's .fai nothing says the chromosomes are all of the file's sequences, so the whole file
+    gets the suffix too (and never shares an entry with a subset made by a cenfuse that left the suffix out)."""
+    key = _key(_view_fasta(tmp_path, "link_indexed"), "abc")
+    assert key != THREE_MD5 and key == f"{THREE_MD5}-{SET_ABC}"
+
+
+@pytest.mark.parametrize("layout", ["file", "link_to_indexed"])
+def test_keys_are_unchanged_when_the_real_file_is_indexed(tmp_path, layout):
+    """Seed caches made before the fix stay valid (hours per large genome): the whole file keeps the plain md5, a
+    subset gets the suffix."""
+    fa = _view_fasta(tmp_path, layout)
+    assert _key(fa, "abc") == THREE_MD5
+    assert _key(fa, "a") == f"{THREE_MD5}-{SET_A}"
+    assert _key(fa, "ab") == f"{THREE_MD5}-{SET_AB}"
 
 
 @pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview"), reason="FasTAN tools missing")

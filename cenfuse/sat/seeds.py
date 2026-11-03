@@ -76,14 +76,19 @@ def dedupe(rows: list, tol: float = 0) -> list:
 def genome_key(g) -> str:
     """FASTA md5; plus the chromosome set when the genome uses a subset of the FASTA's sequences (cenfuse hands
     the satellite engine a view whose .fai lists chromosomes only), so a subset and the whole file never share a
-    cache entry."""
+    cache entry. The real file's own .fai lists its sequences; without one (the user's FASTA is a link and its .fai
+    sits beside the link) the set cannot be checked against them, so it always counts: else a changed set would
+    reuse the old set's seeds."""
     md5 = md5_file(g.fasta)
     own = Path(os.path.realpath(g.fasta) + ".fai")
     if own.exists():
         with open(own) as f:
             names = {line.split("\t", 1)[0] for line in f if line.strip()}
-        if names != set(g.chroms):
-            md5 += "-" + hashlib.md5("\n".join(sorted(g.chroms)).encode()).hexdigest()[:8]
+        subset = names != set(g.chroms)
+    else:
+        subset = True
+    if subset:
+        md5 += "-" + hashlib.md5("\n".join(sorted(g.chroms)).encode()).hexdigest()[:8]
     return md5
 
 
