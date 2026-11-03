@@ -68,8 +68,10 @@ class Evidence:
     chrom: str
     chrom_len: int
     seq: dict                 # start, end, evidence, confidence, flags, main_family; alt_start/alt_end (competing
-                              # cluster, -1 = none); overruled_start/overruled_end (the satellite array a CRM core
-                              # replaced, -1 = none): reported only, never a candidate for the call
+                              # cluster, -1 = none); overruled_start/overruled_end (the call a TE core replaced: with
+                              # a decisive CRM core a satellite, weak-satellite or long-unit call, with a core of any
+                              # clade a long-unit call away from it; -1 = none): reported only, never a candidate for
+                              # the call
     te: dict | None           # clade, start, end, decisive (the marker clade's core)
     hic: dict | None          # one row of the hicfuse table, or None (no Hi-C, or not a callable chromosome)
     meth: dict | None = None  # item -> {'label', 'score'} pooled over samples (methfuse.support), or None

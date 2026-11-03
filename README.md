@@ -19,9 +19,9 @@ each call.*
 | **Needs** | a chromosome-level FASTA. Optional: LTR retrotransposons, Hi-C, methylation (CpG from ONT or PacBio HiFi; CHG from ONT), genes |
 | **Gives** | one centromere per chromosome, with a confidence and the evidence for and against it, also in words (what the call stands on, why it may be wrong, which input would decide); with CpG methylation, the kinetochore inside it; each chromosome's morphology (centromeric index, Levan class) and completeness (telomeres at both ends, assembly gaps); telomeres (also interstitial ones), 45S and 5S rDNA arrays, knobs and other repeat blocks on the same map; a report that reads it all out |
 | **Priority** | right > uncertain > wrong. `low` means "uncertain", and cenfuse uses it rather than guess |
-| **Runtime** | the satellite search dominates and grows with satellite content (on a shared server: T2T mammals, 2.6-3.6 Gb: 1-10 h at 12 threads, median 4.3 h; mouse, ~6% satellite: 9 h at 16; maize, 2.2 Gb: 50 min at 16; *Ae. tauschii*, 4.1 Gb: 2 h at 16); Hi-C and fusion take minutes; reruns resume. The log reports the search every 10% of its work with the time left (an estimate) and names the costliest families; the family models are built in parallel (the families stage 1.6-3.4x faster at 16 threads, same output); a FasTAN crash on a piece of a chromosome is recovered by splitting the piece ([Options](#options)) |
+| **Runtime** | the satellite search dominates and grows with satellite content (on a shared server: T2T mammals, 2.6-3.6 Gb: 1-10 h at 12 threads, median 4.3 h; mouse, ~6% satellite: 9 h at 16; maize, 2.2 Gb: 50 min at 16; *Ae. tauschii*, 4.1 Gb: 2 h at 16); Hi-C and fusion take minutes; reruns resume. The log reports the search every 10% of its work with the time left (an estimate) and names the costliest families; the family models are built in parallel, with the same output (families stage of *Panax japonicus* at 16 threads: 674 s against 2,290 s for 0.8 at 16, 3.4x; Col-CC 130 s and rice 87 s at 16 threads against 230 s and 138 s for 0.8 at 8 and 12); a FasTAN crash on a piece of a chromosome is recovered by splitting the piece ([Options](#options)) |
 | **Memory** | peak of a whole run: 8-74 GB for T2T mammals at 12 threads (rhesus 74 GB, horse 59 GB, giraffe 18 GB), chicken 42 GB at 16, *Arabidopsis* 5 GB at 8; the satellite search holds about one search workspace (≤ ~2.4 GB) per thread |
-| **Reproducible** | on Linux, fresh runs give identical results apart from the dates and commands in file headers (FasTAN runs with address-space randomization off, `setarch -R`: two fresh moss runs, 307 files) and one work table, `satellite/work/annotate/<genome>.search_cost.tsv`, whose CPU times differ between runs; without `setarch` (e.g. macOS) cenfuse warns, and ~1% of FasTAN's array cuts can differ between runs; reruns resume from checkpoints |
+| **Reproducible** | on Linux, fresh runs give identical results apart from the dates and commands in file headers (FasTAN runs with address-space randomization off, `setarch -R`: two fresh moss runs, 307 files) and two kinds of work files: `satellite/work/annotate/<genome>.search_cost.tsv`, whose CPU times differ between runs, and the families stage's BLAST scratch under `satellite/work/families/fam*/frame*/` and `replay*/`, which depends on which accepted families a concurrent build saw; the family models and every results file are exact. Without `setarch` (e.g. macOS) cenfuse warns, and ~1% of FasTAN's array cuts can differ between runs; reruns resume from checkpoints |
 
 ## How well it works
 
@@ -92,7 +92,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 | Rejects interspersed repeats and finds the centromeric end of acrocentric karyotypes without annotation (goat 30/30 on the satellome locus; mouse 20/20 at the right end) | Acrocentric detection needs ≥ ~16 chromosomes. Where a larger pericentric satellite shares that end (mouse), the call is `low` on it and the CENP-A satellite is the reported alternative |
 | With `tes/`, CRM retrotransposon cores sit on CENH3 (rice 8/8, potato 6/7, maize 10/10) and place satellite-free centromeres (potato 2 → 6/11 right) | Only CRM may decide: another centromeric lineage only flags (moss Bryco cores on CENH3 25/26, calls 16/26; with Hi-C 22/26), and REXdb gives fungal elements no lineage (*Cryptococcus*: no call) |
 | With `tes/`, centromeres made of a few TE insertions count (the floor is 3 independent insertion sites: *Chlorella* 0 → 8/10), and a CRM core overrules a confident satellite call elsewhere, or a non-weak one beside it, only where it holds significantly more CRM elements than the call (`low` and weak calls it replaces anyway) (*B. rapa* 9/10 → 10/10 in 3 accessions, soybean 17/20 → 19/20, *Ae. tauschii* 3/7 → 5/7) | Satellite-free centromeres beside a genome-wide dominant pericentromeric satellite are called confidently wrong, and neither Hi-C nor TEs fix it (tomato 1/12, 7 confidently wrong); *Ae. tauschii* from the FASTA alone 1/7 (4 confidently wrong) |
-| Satellite families founded on two-copy duplications are not modelled, which cuts the search where retrotransposon units dominate it (sheep about 12x, siamang 2x) without changing a call | Which satellite becomes dominant can depend on how a run splits a satellite into families: pig's acrocentrics were right in an earlier run, now `low` and 0.6-2.0 Mb off (the honesty cap holds: 1 confident error in 157 mammal chromosomes) |
+| Satellite families founded on two-copy duplications are not modeled, which cuts the search where retrotransposon units dominate it (sheep about 12x, siamang 2x) without changing a call | Which satellite becomes dominant can depend on how a run splits a satellite into families: pig's acrocentrics were right in an earlier run, now `low` and 0.6-2.0 Mb off (the honesty cap holds: 1 confident error in 157 mammal chromosomes) |
 | Morphology from the integrated call: acrocentric vs bi-armed as in the literature karyotype on 117/118 right calls (mouse 20/20, goat 30/30, horse 29/29, pig 13/13, sheep 25/26); assembly gaps counted exactly (4,084 in 3 assemblies) | Morphology is by sequence length, not cytogenetic appearance: CHM13's acrocentric chr21 and chr22 come out submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb); a wrong call gives a wrong class (`low` calls stay out of the karyotype) |
 
 ## Install
@@ -101,7 +101,7 @@ The CpG test passed in 6/7 primates with truth (not in chimpanzee) and in 0/8 ru
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 686 tests, ~2 min
+pytest -q -n 8          # optional: 704 tests, ~2 min
 ```
 
 ## Quick start
@@ -137,12 +137,18 @@ mygenome/
 | `meth/` | CG: the kinetochore inside each call, where CpG dips are shown to mark centromeres (primates); CHG (with `tes/`): a second functional line and per-plant verdicts (plants) |
 | `genes/` | gene density at every locus; helps reject gene-rich and subtelomeric repeats |
 
-**Chromosome set.** The chromosomes are the sequences above the first tenfold drop in length between neighbours
+**Chromosome set.** The chromosomes are the sequences above the first tenfold drop in length between neighbors
 (looked for only after half the assembly is counted; all sequences when there is none), except that a gradual scaffold
-tail is cut off: if the sequences from the first one shorter than a tenth of the median length of those before it, down
-to that drop, span a tenfold range or more, the set ends before them. Limits: a small chromosome that stands alone after
-a tenfold gap is dropped (*D. melanogaster* without its Y loses the 1.35-Mb chromosome 4; with the 3.7-Mb Y it is
-kept), and large unplaced scaffolds can stay in. `--classify-from` targets keep the 0.8 rule, which has no tail test.
+tail is cut off: take the first sequence after half the assembly that is shorter than a tenth of the median length of
+those before it; if the sequences from it down to that drop span a tenfold range or more, the set ends before it. The
+log and the report's Notes say when this cut fires, how many sequences it left out and the shortest one kept.
+`--classify-from` targets keep the 0.8 rule, which has no tail test. Limits shared with 0.8: a small chromosome that
+stands alone after a tenfold gap is dropped (*D. melanogaster* without its Y loses the 1.35-Mb chromosome 4; with the
+3.7-Mb Y it is kept), and large unplaced scaffolds can stay in. Limits of the tail cut, where 0.8 kept the
+chromosomes: dot chromosomes followed by a gradual scaffold tail are cut with the tail (a bird-like karyotype of 37
+chromosomes plus 300 scaffolds tapering from 0.4 Mb: 0.8 keeps all 337 sequences, 0.9 keeps 31 and drops six
+0.5-1.4-Mb dot chromosomes; with a clean gap before the scaffolds both keep 37), and small chromosomes that themselves
+span a tenfold range are cut as a tail.
 When the rule fails, name the chromosomes in `asm.chromosomes.txt` (the FASTA's name): one sequence name per line, a
 line starting with `#` is a comment (a `#` inside a name, as in `HG002#1#chr1`, is part of it), and blank lines, CRLF
 line ends, trailing spaces and a UTF-8 byte-order mark are accepted. The list replaces the rule, also for
@@ -236,7 +242,7 @@ gene on some chromosomes, matches them.
 
 | file | content |
 |---|---|
-| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, the satellite array a CRM core replaced (`seq_overruled_start`/`seq_overruled_end`), the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `regional_centromere_central_core`, Name=kinetochore), the call in words (`basis`, `caveat`), and the chromosome's morphology and completeness |
+| **`asm.centromeres.tsv`** (+ `.bed`, `.gff3`) | **the answer**: per chromosome, the call, `relation`, `confidence`, supporting and opposing lines, each line's own call, the array a TE core replaced (`seq_overruled_start`/`seq_overruled_end`), the CpG kinetochore (`cpg_kt_start`/`cpg_kt_end`; GFF3 `regional_centromere_central_core`, Name=kinetochore), the call in words (`basis`, `caveat`), and the chromosome's morphology and completeness |
 | **`cenfuse_report.md`** | per genome, in words: what each line found and whether it passed its test, what the centromeres are made of, the calls that are not `high` and what would settle them, morphology and completeness, the other features and their 3D association |
 | `cenfuse_overview.pdf`, `asm.overview.png` | the figure above; its first page at 300 dpi |
 | `cenfuse_summary.tsv` | per genome: what each line found, how many chromosomes pass the Hi-C and CpG tests (`hic_gate_pass`, `cpg_gate_pass`), `fold_gate`, `hic_sequence_conflict`; warnings are in the log and the report |
@@ -264,11 +270,15 @@ moved or placed is `medium` (`high` with a second line).
 
 Fusion flags are in `flags`; the satellite engine's are in `seq_flags`, with its evidence in `seq_evidence` (`satellite`, `weak_satellite`, `long_unit_tandem`, `retrotransposon`).
 
-The satellite, weak-satellite or long-unit call that a decisive CRM core took the place of is in
 `seq_overruled_start`/`seq_overruled_end` (1-based; `.` = none; the satellite summary also has its family,
-`overruled_family`). It is never written to `seq_alt_start`/`seq_alt_end`, which validated Hi-C can move a call to. A `.`
-on a chromosome flagged `satellite_away_from_core`, `satellite_beside_core` or `weak_satellite_beside_core` means the
-satellite output predates 0.9 (its centromeres stage was not rerun).
+`overruled_family`) hold every call that a TE core took the place of: a satellite or weak-satellite call that a
+decisive CRM core replaced (flagged `satellite_away_from_core`, `satellite_beside_core` or
+`weak_satellite_beside_core`), a long-unit call beside a decisive core (`weak_satellite_beside_core`), and a long-unit
+call away from the core, which a core of any clade replaces, decisive or not (no flag). A long-unit call is made only
+on a chromosome without a satellite call, and with a core there the long-unit scan covers the core and 500 kb on each
+side. The caveat names the overruled array. It is never written to `seq_alt_start`/`seq_alt_end`, which validated
+Hi-C can move a call to. A `.` on a chromosome flagged `satellite_away_from_core`, `satellite_beside_core` or
+`weak_satellite_beside_core` means the satellite output predates 0.9 (its centromeres stage was not rerun).
 
 | flag | meaning |
 |---|---|
@@ -300,7 +310,7 @@ no confident call anywhere, so against the `low` calls at clean peaks), `fold_ga
 | column | meaning |
 |---|---|
 | `basis` | what the call stands on, in words: the satellite family and its unit, the centromeric satellite in the call, a CRM core and the interval of the satellite call it replaced, a move or placement and its second line, each agreeing line, the kinetochore |
-| `caveat` | why the call may be wrong: each flag that lowered it, each opposing line (with where it points), gaps in the call; after `->`, the input that would decide, where cenfuse's tests say one can (two arrays of one satellite: CENP-A/CENH3 data; neither Hi-C nor CpG methylation chooses between them). `.` = nothing known against the call |
+| `caveat` | why the call may be wrong: the array a TE core overruled (with where it lies), each flag that lowered it, each opposing line (with where it points), gaps in the call; after `->`, the input that would decide, where cenfuse's tests say one can (two arrays of one satellite: CENP-A/CENH3 data; neither Hi-C nor CpG methylation chooses between them). `.` = nothing known against the call |
 | `cen_point`, `short_arm`, `ci`, `arm_ratio`, `morphology` | the arms, measured from the CpG kinetochore's midpoint where there is one, else the call's: centromeric index (short arm / length), arm ratio (long / short), Levan class (metacentric <= 1.7 < submetacentric <= 3 < subtelocentric <= 7 < acrocentric; two classes when the call spans both); `short_arm` = the sequence end nearer the centromere (`.` when the call spans the middle) |
 | `telomeres`, `gaps`, `call_gaps`, `t2t` | telomere arrays at `both` ends, one (`start`, `end`) or `none`; assembly gaps (runs of >= 10 N) on the chromosome and inside the call; `t2t` = `yes` with telomere arrays at both ends and no gap |
 
@@ -327,9 +337,14 @@ There are no tuning knobs: every threshold is a fixed constant with its reason i
 `satellite/work/chromosome_set.json` records ({genome: sorted names}, written before the engine runs). A rerun in a
 folder whose set changed (a genome added or removed, a new or edited `chromosomes.txt`, or the 0.9 rule on an assembly
 with a gradual scaffold tail) stops, names the genomes and their chromosome counts, and says to rerun with
-`--force satellite`; a folder made before 0.9 has no record and is compared with the set the 0.8 rule gives. A folder
-whose set is unchanged resumes, folders from 0.8 included. `--satellite-dir` takes an earlier run's satellite outputs
-as they are and only warns when their chromosomes differ from the set.
+`--force satellite`. A folder made before 0.9 has no record: each current genome's set is compared with the set the
+0.8 rule gives, so a genome added or removed since is detected only once a record exists. A folder whose set is
+unchanged resumes, folders from 0.8 included: the satellite engine's checkpoints are kept, and cenfuse's own stages,
+whose keys carry cenfuse's version, are computed once more. The satellite engine keeps its version (0.9.0) and its
+stage versions, so nothing forces a rerun, although its summary and region tables gained the `overruled_*` columns;
+the standalone methylation engine (`python -m cenfuse.meth`, 0.1.0) now counts chromosomes with the 0.9 rule.
+`--satellite-dir` takes an earlier run's satellite outputs as they are and only warns when their chromosomes differ
+from the set.
 
 **The log** (INFO, without `-v`). The genome-wide search logs `annotate: <genome>: N% of the work done in X; about Y
 left (estimate)` at each 10% of its work (chunk length x model length, counted as searches finish) and after an hour
@@ -343,10 +358,13 @@ nothing shows here). `satellite/work/annotate/<genome>.search_cost.tsv` lists ev
 **FasTAN crashes.** FasTAN can abort on a large satellite array (SIGABRT, `malloc(): corrupted top size`). A piece of
 the seed search on which it dies by a crash signal (SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL) is split into two halves
 that overlap by 10 kb, and each half is retried, recursively; a piece of at most 20 kb that still crashes is skipped
-with a warning. A kill (SIGKILL, such as the OOM killer; SIGTERM; SIGINT) still stops the run. The crashed intervals
-(0-based) are in `<seed cache file>.fastan_crashes.tsv` beside the cached seeds, so a shared `--seed-cache` keeps them,
-linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the genome's summary line in the log counts them. The
-seeds of a piece that does not crash are those cenfuse 0.8 gave.
+with a warning. If no piece of a chunk longer than 20 kb could be searched (FasTAN crashed on every one, down to 20
+kb), the run stops: FasTAN's known crash is local to one array (*Oryza minuta* lost 0 bp after 4 splits), so a whole
+chunk failing means FasTAN itself is failing, and going on would give a satellite-free result. The error names the
+chunk and the crash table and suggests `--seed-engine trf`. A kill (SIGKILL, such as the OOM killer; SIGTERM; SIGINT)
+still stops the run. The crashed intervals (0-based) are in `<seed cache file>.fastan_crashes.tsv` beside the cached
+seeds, so a shared `--seed-cache` keeps them, linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the
+genome's summary line in the log counts them. The seeds of a piece that does not crash are those cenfuse 0.8 gave.
 
 ## Several plants
 
@@ -380,8 +398,10 @@ scores every plant on its own (`shared` or `shifted`). Details: [`docs/plants.md
   set or half of LTRquest's elements were not enough in rice and potato (potato lost its gain from `tes/`).
 - **Chromosome set**: the length rule drops a small chromosome that stands alone after a tenfold gap (*D. melanogaster*
   without its Y), and can keep large unplaced scaffolds (31 extra sequences, 1.5-117 Mb, in 12 of 121 polyploid
-  assemblies, against 5,614 in 0.8); name the chromosomes in `asm.chromosomes.txt` (all of them: the methylation
-  line's domain size divides by the number listed).
+  assemblies, against 5,614 in 0.8). Its tail cut, new in 0.9, also drops chromosomes 0.8 kept: dot chromosomes
+  followed by a gradual scaffold tail (a bird-like karyotype with 300 scaffolds tapering from 0.4 Mb loses six
+  0.5-1.4-Mb dot chromosomes) and small chromosomes that themselves span a tenfold range. For any of these, name the
+  chromosomes in `asm.chromosomes.txt` (all of them: the methylation line's domain size divides by the number listed).
 
 ## Documentation
 

@@ -9,8 +9,10 @@ WIN_D = 0.4                 # sliding window = 0.4 D: narrower than the domain (
 RING_LO_D = 1.5             # class reference ring starts 1.5 D away: beyond the domain (heuristic)
 RING_HI_D = 4.0             # ...and ends 4 D away: wide enough for stable class levels (heuristic)
 MIN_LEN_D = 10              # sequences >= 10 D are analysed: a 4-D ring each side of a 2-D centre
-GAP_FOLD = 10               # chromosomes vs unplaced scaffolds: the first tenfold drop in sorted sequence length after
-                            # half the assembly (heuristic)
+GAP_FOLD = 10               # chromosomes vs unplaced scaffolds (heuristic): the first tenfold drop in sorted sequence
+                            # length after half the assembly ends the set (cenfuse 0.8, track.tenfold_count); in 0.9
+                            # (track.chromosome_count) a sequence under 1/GAP_FOLD of the median length before it is
+                            # small, and small ones spanning a GAP_FOLD range form a gradual scaffold tail, cut off
 D_REF_BP = 22.2e6           # summed CENH3 domain length of maize Mo17 (2.22 Mb x 10 centromeres; Chen et al. 2023)
 D_REF_G = 2.18e9            # maize Mo17 genome size (bp)
 D_SLOPE = 0.97              # CENH3 area scales with genome size^0.97 (Plackova et al. 2021 Sci Rep)
