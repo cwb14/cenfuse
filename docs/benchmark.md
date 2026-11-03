@@ -19,7 +19,8 @@ says so and why). Rules changed after a result was seen are listed in
 
 ## At a glance
 
-Three figures from the v8 rerun (section 12), each with its legends in the PDF. Every genome's own overview page is
+Three figures from the v8 rerun (section 12) and one from v10 (section 13: [3D contact data](img/benchmark_hic.pdf)),
+each with its legends in the PDF. Every genome's own overview page is
 in the [gallery](gallery.md).
 
 **Mammals and Hi-C** (sections 1, 2, 4):
@@ -801,3 +802,125 @@ soybean X26, sorghum BTx623 (ChIP of line V9), *Ae. tauschii* AL8/78, *Chlorella
   siamang 2.0x, B. orangutan 1.3x, barley 1.16x; calls and roles identical (siamang, barley, B. orangutan: one
   reported alternative locus end +106 bp). Mouse's cost is in array-founded L1-like families: unchanged.
 
+
+## 13. v10: 3D contact data (Hi-C, Omni-C) across nuclear architectures
+
+Criteria and dated amendments: `v10/PLAN.md` (2026-11-03, written before any v10 code change or run); run record
+`v10/memo.md`; dead ends `v10/dead_ends.md`; report `v10/REPORT.md`. Nuclei differ: in Type I (Rabl-like) nuclei
+centromeres cluster and arms align; in Type II (territorial) nuclei they mostly do not (Hoencamp et al. 2021), and
+the regime belongs to the sample, not the species (tissue, stage). cenfuse therefore measures in each dataset whether
+Hi-C marks centromeres before it lets Hi-C act.
+
+![Hi-C finds centromeres where nuclei cluster them](img/benchmark_hic.png)
+
+*Where nuclei cluster their centromeres, Hi-C contacts alone find every centromere ([PDF with legends](img/benchmark_hic.pdf)).
+**A** contacts between the 16 chromosomes of budding yeast (above the diagonal; the same reads with partners shuffled
+below): a spot wherever two centromeres meet; the prior-free score above peaks at every centromere. **B, C** every read
+pair joining chromosomes IV and XV, real and shuffled. **D** all yeast chromosomes aligned at their centromere. **E**
+every chromosome of four genomes with their centromeres and cenfuse's calls, the three misses included. **F**
+clustered centromeres vs territories (schematic). **G** chromosomes whose centromere is found: cenfuse from the FASTA,
+with Hi-C, Hi-C's prior-free peak; 14 T2T mammals, four plants, moss and chicken with partner windows at the true
+centromeres (the ceiling) and at cenfuse's sequence calls; chance and shuffled Hi-C drawn.*
+
+### What in the 3D data marks centromeres (survey of the stored Hi-C runs; no code change)
+
+Per chromosome, does a profile's maximum (minimum) lie on the truth (within 1 mappable bin; 21 genomes, 4
+randomized controls; `v10/explore/signals.py`)? Chromosomes right / scored (chance):
+
+| genome | trans clustering, anchored at the sequence calls (as cenfuse) | anchored at the truth (the ceiling) | best cis profile |
+|---|---|---|---|
+| goat, sheep, rhesus, giraffe, pig, horse T2T (0.9 gate fails) | 12/23, 6/23, 7/22, 4/10, 1/11, 2/11 (0.1-0.5) | 12, 9, 7, 4, 4, 2 | at chance |
+| apes, crab-eating macaque (gate passes) | 2/3 to 23/25 | the same | at chance |
+| potato | 0/11 (0.4) | 7/11 | insulation minimum 6/11 |
+| barley (2-Mb bins) | 0/7 (0.1) | 6/7 | arm fold 2/7 |
+| tomato | 2/12 (0.4) | 6/12 | insulation maximum 9/12 |
+| moss | 20/26 (2.1) | 23/26 | at chance |
+| chicken | 9/24 (1.4) | 7/24 | at chance |
+| randomized Hi-C (4) | 0-3 (0.6-1.6) | 0-3 | |
+
+- Trans centromere clustering is in the data of every genome with functional truth, Type II mammals included, but on
+  20-55% of the chromosomes where the 0.9 gate fails: too few for a majority.
+- Where the sequence line is wrong genome-wide (potato, barley, tomato) the signal is there (anchored at the truth
+  7/11, 6/7, 6/12) but the anchors are wrong. Hi-C cannot rescue those from inside its own data: in potato every
+  prior-free start converges on a non-centromeric set 3.5x more mutually clustered than the CENH3 set.
+- Not adopted (`v10/dead_ends.md`): an end-distance expected for trans contacts (moss 23 -> 25/26, sheep 9 -> 5), cis
+  insulation and compartment profiles (single genomes, opposite signs, no specific per-genome test), arm-scale
+  segregation (CHM13 6/23, others at chance).
+
+### Small genomes: point, regional and AT-rich centromeres (track R)
+
+The 0.9 engine needed 20 bins of at least 250 kb per chromosome, so no chromosome under 5 Mb was ever analyzed. Bins
+now go down to the coarsest ladder size that gives the shortest chromosome 20 bins (only where needed). New Hi-C,
+mapped with the README recipe to the stored assemblies (`v10/memo.md`). Right = within 1 Hi-C bin of the truth:
+
+| genome | centromeres | truth | Hi-C | bin | prior-free peaks on truth | FASTA only | + Hi-C |
+|---|---|---|---|---|---|---|---|
+| *S. cerevisiae* R64 | point (125 bp) | SGD CEN | 14.9 M pairs, G1 | 10 kb | 16/16 | 0/16 (no call) | 16/16 (`low`) |
+| *P. falciparum* 3D7 | AT-rich, 2-3 kb | CEN cores; chr10 CenH3 CUT&Tag | 15.9 M, rings | 10 kb | 14/14 | 0/14 | 13/14 (`low`) |
+| *S. pombe* 972 | regional, 35-110 kb | CENP-A domains (PomBase) | 22.1 M | 50 kb | 3/3 | 1/3 (`low`) | 2/3 (`low`) |
+| *N. crassa* NC12 | RIP-mutated relics, 150-300 kb | CenH3 (Smith et al. 2011) | 30.3 M | 50 kb | 7/7 | 0/7 | 6/7 (`medium`) |
+
+- *Neurospora*: the arm fold passes (6/7, P 1.8e-6), so the fold and the prior-free trans peaks, two readouts of
+  the same Hi-C, validate each other: 6 `medium` calls. LG VI gets none: its fold core lies elsewhere, beside the
+  RefSeq inversion next to its centromere.
+- Yeast and *Plasmodium*: the fold fails (6/16, P 0.005; 3/14, P 0.02) and nothing else can test Hi-C, so the calls
+  are `low` (`hic_denovo_only`). *Plasmodium* chr4 keeps the FASTA's `low` call on a var-gene tandem 300 kb away
+  (no line can be tested there); its caveat names where Hi-C's peak lies (`hic_denovo_elsewhere`).
+- *S. pombe* chr2: the prior-free call is `medium` (2 of the engine's 3 tests), so no call; chr3 keeps its right
+  long-unit call.
+- Randomized Hi-C (partners re-paired, coverage kept) on yeast, *Plasmodium*, *S. pombe*, *Neurospora* and *C. elegans*: no test
+  passes, no call changes and no Hi-C-alone call is made (the engine's few prior-free calls on shuffled yeast contacts
+  are `medium` or `low`, below the `high` the rule needs).
+- Chicken: chr1 (200 Mb) would need 4,001 bins at 50 kb (cap 4,000), so it stays at 250 kb and its microchromosomes
+  stay out of the Hi-C line (unchanged).
+
+### Holocentric controls with 3D data
+
+| genome | 3D data | calls |
+|---|---|---|
+| *C. elegans* CGC1 | Hi-C, N2 embryos, 28.7 M pairs | 0 confident (6 `low`, as from the FASTA); Hi-C's prior-free calls were confident on 5/6, the gate and the fold failed, so nothing changed |
+| *Rhynchospora breviuscula* | Omni-C (Dovetail), same individual, 3.3 M pairs (500-kb bins) | 0 confident (5 `low`, as from the FASTA) |
+| *Bombyx mori* | Arima Hi-C, p50 adult, 5.9 M pairs | 0 confident (13 `low`, 16 without a call, as from the FASTA); gate 0/29, fold fails |
+
+### Weak but significant Hi-C supports agreeing calls (track W) and nothing else changes (R1)
+
+Every stored Hi-C arm rerun with 0.10.0 (65 runs: 14 mammals with genes and Hi-C, their 28 randomized controls, the
+9 CpG arms, the plant Hi-C arms), compared with the v8 runs on every shared column of the call, summary, loci and Hi-C
+engine tables (`v10/bench/compare_r1.py`, `check_w1.py`):
+
+| runs | differences |
+|---|---|
+| 59 | none |
+| goat | the support tier on 31 chromosomes; the 8 calls whose significant peak agrees go `medium` -> `high` (all on the satellome locus) |
+| rhesus (genes + Hi-C; + CpG) | the support tier on 22; 5 `high` calls gain Hi-C as a supporting line (confidence unchanged) |
+| horse EquCab3 | the support tier on 28; no call raised (its agreeing peaks lie in end windows, which do not count with `low` references) |
+| potato `tes/` arms | the wording of 2 basis sentences (0.9's record of the replaced array, not a 0.10 change) |
+
+- The 28 randomized controls (ends moved; partners re-paired) never reach the support tier. With the first form of the
+  rule, which counted every agreement, partner re-pairing put it on 22 chromosomes of Sumatran orangutan: shuffled
+  peaks land on the calls at the low-coverage edges of unmappable arrays, almost all at level `low` or `none`. The tier
+  now counts only agreements at peaks of level `medium` or `high`.
+- At full depth the tier supported 18 calls, all on truth (satellome locus or CENP-A).
+
+### A territorial plant nucleus: *Arabidopsis* Col-CC with Hi-C
+
+Col-0 leaf in situ Hi-C (Zhu et al. 2017; 21.6 M read pairs, 15.4 M kept; 250-kb bins). The five calls stay right and
+`high` (unchanged from the FASTA). Hi-C's anchored peak lies on the call (at the edge of the unmappable CEN180 array)
+on 3/5 chromosomes and the gate passes on 2/5; its prior-free peaks lie 1-4 Mb off CENH3 on all five (chromocenter
+neighbors, not the centromeres), as expected where centromeres do not dominate trans contacts.
+
+### Weak Hi-C at reduced depth (track W, held out)
+
+The thinned libraries of v6 (2-50% of the pairs; CHM13, chimpanzee, gorilla, both orangutans, crab-eating macaque,
+pig, horse, rice, potato, barley; 55 runs). The support tier appears where the full test fails at reduced depth: both
+orangutans at 25-50% and pig at 5%. It supports 25 calls, 16 with truth: 14 right, 2 wrong. The 2 wrong ones are pig
+CM000817.6 and CM000822.6, `high` and wrong already from the satellite line (pig's truth is weak ChIP from other pigs,
+and Hi-C favors the same satellite array). Confidence rose on 2 calls (Bornean orangutan CM054644.2, `low` -> `medium`
+at 25% and 50%), both right; no `low` call became confidently wrong. The pre-registered bar (>= 90% of supported calls
+right) is missed: 88%.
+
+### Other pipelines' files (track I)
+
+Rice's 53.2 M pairs rewritten as a HiC-Pro `.allValidPairs.gz` and a Juicer long `merged_nodups.txt.gz`: the same
+pairs read and kept, and every shared column of the call, summary, loci, Hi-C engine and feature-contact tables
+identical to the 4DN pairs run.

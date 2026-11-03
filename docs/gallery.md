@@ -211,3 +211,44 @@ marker retrotransposon clade's density (orange), the satellite call (black box) 
 
 ### Plasmodium falciparum
 ![Plasmodium falciparum](img/gallery/pfal.png)
+
+## With 3D contact data (cenfuse 0.10.0)
+
+Fresh 0.10.0 runs with the new Hi-C libraries (`v10/memo.md`), reading the v8 satellite search (`--satellite-dir`).
+In panel A the blue band is a call Hi-C placed; in genomes without a sequence call panel D shows the prior-free Hi-C
+score (there is nothing to anchor the other). Numbers: [benchmark.md](benchmark.md#13-v10-3d-contact-data-hi-c-omni-c-across-nuclear-architectures).
+
+| genome | right / chromosomes | how |
+|---|---|---|
+| [*Saccharomyces cerevisiae*, Hi-C](#saccharomyces-cerevisiae-hi-c) | 16/16 (`low`) | Hi-C alone at 10-kb bins |
+| [*Plasmodium falciparum*, Hi-C](#plasmodium-falciparum-hi-c) | 13/14 (`low`) | Hi-C alone at 10-kb bins |
+| [*Schizosaccharomyces pombe*, Hi-C](#schizosaccharomyces-pombe-hi-c) | 2/3 (`low`) | Hi-C alone at 50-kb bins |
+| [*Neurospora crassa*, Hi-C](#neurospora-crassa-hi-c) | 6/7 (`medium`) | arm fold + prior-free Hi-C at 50-kb bins |
+| [*Caenorhabditis elegans*, Hi-C](#caenorhabditis-elegans-hi-c) | holocentric: 0 confident | Hi-C fails its tests; nothing changes |
+| [*Rhynchospora breviuscula*, Omni-C](#rhynchospora-breviuscula-omni-c) | holocentric: 0 confident | 3.3 M pairs; nothing changes |
+| [*Bombyx mori*, Hi-C](#bombyx-mori-hi-c) | holocentric: 0 confident | Arima Hi-C; nothing changes |
+| [*Arabidopsis* Col-CC, Hi-C](#arabidopsis-col-cc-hi-c) | 5/5 (`high`) | unchanged; anchored Hi-C peaks on the call 3/5 |
+
+### Saccharomyces cerevisiae, Hi-C
+![Saccharomyces cerevisiae with Hi-C](img/gallery/scer_hic.png)
+
+### Plasmodium falciparum, Hi-C
+![Plasmodium falciparum with Hi-C](img/gallery/pfal_hic.png)
+
+### Schizosaccharomyces pombe, Hi-C
+![Schizosaccharomyces pombe with Hi-C](img/gallery/spom_hic.png)
+
+### Neurospora crassa, Hi-C
+![Neurospora crassa with Hi-C](img/gallery/ncra_hic.png)
+
+### Caenorhabditis elegans, Hi-C
+![Caenorhabditis elegans with Hi-C](img/gallery/celegans_hic.png)
+
+### Rhynchospora breviuscula, Omni-C
+![Rhynchospora breviuscula with Omni-C](img/gallery/rbrev_omnic.png)
+
+### Bombyx mori, Hi-C
+![Bombyx mori with Hi-C](img/gallery/bmori_hic.png)
+
+### Arabidopsis Col-CC, Hi-C
+![Arabidopsis Col-CC with Hi-C](img/gallery/colcc_hic.png)

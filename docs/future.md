@@ -1,7 +1,8 @@
 # Future development
 
-What cenfuse 0.9 leaves open. Each entry gives the evidence (numbers), a proposed approach and the check it needs: a
-rerun, or truth data. Nothing here is implemented unless an entry says so.
+What cenfuse 0.10 leaves open. Each entry gives the evidence (numbers), a proposed approach and the check it needs: a
+rerun, or truth data. Nothing here is implemented unless an entry says so. Entries 1-11 come from 0.9; entries 12-16
+from the 0.10 work on 3D contact data (v10 survey of the stored Hi-C runs, new small-genome benchmarks).
 
 The evidence comes from two stress tests: a run of 0.8 on a 106-genome allotetraploid plant set (2,320 calls on 2,355
 sequences: 54% `high`, 23% `medium`, 23% `low`) and the CENH3/CENP-A benchmark ([benchmark.md](benchmark.md)). The
@@ -22,6 +23,11 @@ check needs.
 | 9 | [CENH3 truths for allopolyploids](#9-cenh3-truths-for-allopolyploids) | new data |
 | 10 | [chromosome-set limits](#10-chromosome-set-limits) | known karyotypes |
 | 11 | [the LTR retrotransposon line](#11-the-ltr-retrotransposon-line) | held-out truth; for 11a, a rerun and a per-rule diagnostic switch |
+| 12 | [a second line for Hi-C alone](#12-a-second-line-for-hi-c-alone) | small genomes with CENP-A truth and Hi-C |
+| 13 | [anchors where the sequence line is wrong genome-wide](#13-anchors-where-the-sequence-line-is-wrong-genome-wide) | CENH3 genomes with Hi-C and `tes/` or methylation |
+| 14 | [cis signals of satellite-free centromeres](#14-cis-signals-of-satellite-free-centromeres) | more satellite-free CENH3 genomes with Hi-C |
+| 15 | [bird microchromosomes and other small chromosomes in large genomes](#15-bird-microchromosomes-and-other-small-chromosomes-in-large-genomes) | a sparse fold scan; deep bird Hi-C |
+| 16 | [replicate Hi-C libraries of one plant](#16-replicate-hi-c-libraries-of-one-plant) | provenance rule for merging |
 
 ## 1. Weak (single-sequence) family models
 
@@ -220,3 +226,74 @@ first, then new genomes with a broad CRM plateau and truth.
 Considered, not proposed: lowering confidence under a flags-only `te_discordant` (15/16 wrong in moss, tomato and
 Chlorella, but pericentromeric non-CRM clades are common, rice Tekay cores lay off CENH3, and the proxies favor the
 satellite call); raising a flags-only core-only call above `low` (Chlorella 8/8 right, tomato 0/7).
+
+## 12. A second line for Hi-C alone
+
+**Evidence.** With 10-kb bins, Hi-C's prior-free calls lie on the centromere on 16/16 *S. cerevisiae* and 14/14
+*P. falciparum* chromosomes, but cenfuse 0.10 can only make them `low` calls (`hic_denovo_only`): with fewer than 3
+sequence calls nothing tests Hi-C, and the arm fold, the only Hi-C-internal test, fails in these small nuclei (6/16,
+3/14). The Rabl polarity test passes almost everywhere (randomized Hi-C included) and cannot serve.
+
+**Approach.** An independent line that works without satellites: the trans arm alignment of Type I nuclei (contacts
+between arm bins at equal distance from the putative centromeres, the 'X' of Hoencamp et al. 2021) computed outside
+the centromere windows, or sequence composition where it marks centromeres (AT-rich cores in *Plasmodium* and
+*Neurospora*). Agreement beyond chance on most chromosomes would validate the prior-free calls (`medium`).
+
+**Check.** Yeasts, *Plasmodium*, *Neurospora*, *Cryptococcus*, *Candida* with CENP-A truth; the holocentric controls
+and randomized Hi-C must never pass.
+
+## 13. Anchors where the sequence line is wrong genome-wide
+
+**Evidence.** Potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of them (v10 survey), but
+anchored at the sequence calls 0/11 and 0/7: the satellite calls are wrong there, so the gate fails. Prior-free
+clustering does not help in potato (its strongest mutual trans cluster is not the centromeres). Barley is rescued by
+the arm fold only.
+
+**Approach.** Anchor the trans score at another independent line's calls (decisive CRM cores, methylation
+candidates) and gate it against those, so Hi-C is tested against the line most likely right.
+
+**Check.** Potato and barley with `tes/` and Hi-C (CENH3 truth); no change where the satellite line is right.
+
+## 14. Cis signals of satellite-free centromeres
+
+**Evidence.** In tomato, the mean distance-normalized contact crossing a bin within 1 Mb peaks on CENH3 on 9/12
+chromosomes (chance 0.4), where every sequence line fails; potato shows the opposite sign (6/11), mammals nothing.
+No per-genome test tells when the profile marks centromeres (cis-anchored trans agreement is not specific: v10
+dead_ends.md).
+
+**Approach.** Gate a cis profile like the anchored Hi-C: against the other chromosomes' calls of an independent line,
+with its sign chosen leave-one-out.
+
+**Check.** More satellite-free CENH3 genomes with Hi-C (Solanaceae, legumes).
+
+## 15. Bird microchromosomes and other small chromosomes in large genomes
+
+**Evidence.** Bins finer than 250 kb are capped by the largest chromosome (4,000 bins, a dense cis block): chicken's
+200-Mb chr1 needs 4,001 at 50 kb, so its 2.5-5-Mb microchromosomes stay uncalled by Hi-C.
+
+**Approach.** A sparse or banded fold scan (only pairs within the fold's reach), which lifts the per-chromosome cap.
+
+**Check.** Chicken GGswu with deeper Hi-C (40 M pairs is shallow for 50-kb bins); calls on the 2.5-7-Mb chromosomes
+against the CENP-A windows.
+
+## 16. Replicate Hi-C libraries of one plant
+
+**Evidence.** Hi-C tests flip near their depth threshold (benchmark.md: orangutans at half depth, barley's fold). Rows
+of `hic/<genome>.tsv` that name the same plant are treated as separate libraries, and one decides.
+
+**Approach.** Merge the contacts of libraries with the same sample name (and a `reference` or `unknown` provenance
+verdict) before the engine.
+
+**Check.** The thinned series (v6 hd/): two halves given as replicates must reproduce the full-depth result.
+
+## 17. Methylation at calls the arm fold places
+
+**Evidence** (code review, v10). A call placed by the arm fold and the prior-free peak (`fold_pair`) takes its
+methylation label from the anchored Hi-C peak's item, not from the provisional call where it sits; 0.10's Hi-C-alone
+calls use the provisional item. Seen in code only; no benchmark genome with methylation has a `fold_pair` call whose
+anchored peak lies elsewhere.
+
+**Approach.** Use the provisional item for every call placed at the prior-free core.
+
+**Check.** *P. annua* with all inputs (fold passes, methylation from five plants): calls and supports unchanged or
+listed.

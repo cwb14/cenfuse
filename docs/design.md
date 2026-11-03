@@ -36,7 +36,10 @@ the code of their modules and `params.py`: a constant used by one new module liv
 not recompute every stage. `genotype`, `karyotype` and `plants` handle several plants ([plants.md](plants.md)).
 In 0.9 the satellite engine keeps its version (0.9.0) and its stage versions, so nothing forces a rerun, although its
 summary and region tables gained the `overruled_*` columns; the standalone methylation engine (`python -m
-cenfuse.meth`, 0.1.0) now counts chromosomes with the 0.9 rule (`track.chromosome_count`).
+cenfuse.meth`, 0.1.0) now counts chromosomes with the 0.9 rule (`track.chromosome_count`). 0.10 changes only the Hi-C line
+(Hi-C engine 0.2.0: bins for small chromosomes, other pipelines' pairs files; cenfuse: the support tier, Hi-C alone):
+the satellite engine's checkpoints are kept, and the hic stage and every later one are computed once more (their
+keys carry cenfuse's version and code).
 
 ### Chromosome set (`inputs.py`, `meth/track.py`)
 
@@ -198,7 +201,20 @@ How the stages run (none of this changes a call):
 
 ### Hi-C (`cenfuse.hic` engine + `hicfuse.py`)
 
-1. **Prior-free call**: the engine's own iteration. It decides nothing by itself; only the fold test can validate it.
+0. **Bins from the chromosomes** (engine `bins.candidate_sizes`; ladder 5 kb, 10 kb, 50 kb, 250 kb, 500 kb, 1 Mb, 2 Mb,
+   each a multiple of every finer one so coarsening is exact). A chromosome needs 20 bins to be called. When every
+   chromosome of the set has 20 bins at 250 kb, the candidates are 250 kb and coarser, as in 0.9 (identical results).
+   Otherwise the ladder goes down to the coarsest size that gives the shortest chromosome 20 bins (*S. cerevisiae* and
+   *P. falciparum* 10 kb, *S. pombe* and *N. crassa* 50 kb), but not below the size at which the largest chromosome
+   would exceed 4,000 bins (its dense cis block) or the genome 50,000 bins (chicken: chr1 needs 4,001 at 50 kb, so it
+   stays at 250 kb). Sequences shorter than 20 x 5 kb never count (an organelle in the set). Run on its own
+   (`python -m cenfuse.hic call`), the engine first applies cenfuse's chromosome-set rule to the `.fai` it is given
+   (organelles, unplaced scaffolds); cenfuse passes its set, which is taken as given. A `.cool`/`.mcool` offers its
+   own resolutions in the candidate range (or, with none there, those that fit in memory). The depth rule then
+   picks the finest candidate with >= 25 expected centromere contacts per bin. Windows are in bins (partner window
+   +/- 4, end window 8, null exclusion 20), so they scale with the bin.
+1. **Prior-free call**: the engine's own iteration. It decides nothing by itself; only the fold test can validate it,
+   except in a genome where nothing can (step 6).
 2. **Anchored score.** For chromosome x: its mean contact with partner windows at the *other* chromosomes' sequence
    calls (calls ≥ `medium`; all calls if fewer than 3). x's own call never shapes its score.
    - A partner window is the call midpoint ± 4 bins when most of those bins are mappable.
@@ -221,6 +237,27 @@ How the stages run (none of this changes a call):
      3D whatever the centromere: in a Rabl nucleus, wrong calls at the ends would agree with Hi-C. Two independent
      lines that agree beyond chance on most chromosomes validate each other. `hic_gate_refs` says which references
      were used.
+   - **Support tier** (0.10): agreements beyond chance (the same Poisson-binomial tail <= 0.01, at least 3 of them)
+     but not on a majority, counting only agreements at significant anchored peaks (Hi-C level `medium` or `high`:
+     at least two of the engine's three tests). Hi-C then carries centromere information but its peak is often
+     elsewhere, so it may only support: a kept call whose own significant anchored peak agrees goes up one level
+     (`hic_support`); on this tier Hi-C never opposes, moves, chooses the competing cluster or places a call.
+     Without the majority each agreement must stand on its own: randomized Hi-C (partners re-paired, coverage kept)
+     still puts 3-6 peaks per genome on the calls (chance ~1), at the low-coverage edges of unmappable arrays, almost
+     all at level `low` or `none`; counting those, the tier would pass on 21-25 chromosomes of 4 randomized genomes. Reason: a peak lands on a call by chance on
+     ~1-2% of chromosomes, so an agreement is strong evidence (likelihood ratio ~10-25), while a peak elsewhere is
+     weak evidence against. Where 0.9's gate failed only for want of a majority (rhesus, goat, giraffe, horse,
+     EquCab3, moss, chicken; stored runs), an agreeing peak marked a right call 61 of 64 times (wrong: pig, sheep,
+     potato).
+6. **Hi-C alone** (0.10). A genome with fewer than 3 reference calls (the gate's references) cannot test the gate on
+   any chromosome (a genome-level condition: where the gate ran on some chromosomes, Hi-C alone acts on none) (point, regional and AT-rich centromeres: yeasts, *Plasmodium*, *Neurospora*). There, on a
+   chromosome without a sequence call and unless the fold passed, a clean prior-free call at engine level `high` (no
+   hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a `low` call at its core (`hic_denovo_only`):
+   the best candidate, untested. A prior-free core within a bin of a 45S array is not clean (NORs meet in the
+   nucleolus; the anchored peaks get the same test). A sequence call is kept; where the clean prior-free peak lies beyond 4 bins of it,
+   it is flagged (`hic_denovo_elsewhere`) with the place in the caveat. Prior-free `high` calls cannot be trusted
+   where they can be tested (right on 45% of T2T mammal chromosomes; potato's strongest mutual trans cluster is not
+   its centromeres), which is why such calls stay `low`.
 
 ### Arm fold (`fold.py`)
 
@@ -289,6 +326,9 @@ calls); in any other layout it is not used (warning) and the sample's CG file is
 | no sequence call, clean medium peak | Hi-C core, `functional_only`, `low` (`hic_medium_peak`) |
 | gate not passed, fold test passed; fold core and prior-free peak agree, the sequence call at neither | moves to the prior-free core, `offset`, `medium` (`fold_pair`; `moved_with_fold` for a high call) |
 | same, but the fold or the prior-free peak opposes the kept call | `contested`, -1 per opposing line (`fold_offset`, `hic_denovo_offset`) |
+| support tier only (significant agreements beyond chance, no majority), the call's own significant peak agrees | sequence call, `concordant`, +1 (`hic_support`); never opposes, moves or places |
+| no references anywhere (gate untested), fold not passed, no sequence call, clean `high` prior-free call | prior-free core, `functional_only`, `low` (`hic_denovo_only`) |
+| same, with a sequence call that the clean prior-free peak does not reach | sequence call kept, flag `hic_denovo_elsewhere` |
 
 - **Confidence**: the satellite engine's level, then ±1 per line as above. A contest keeps the level when
   methylation supports the call. A moved or Hi-C-placed call is `medium`, `high` with a second line.
@@ -365,6 +405,9 @@ first kind that matches:
 | sat: THREADS_PER_BUILD, RELATED_LEN_TOL | 4, 15% | the fewest threads per build while families remain: MAFFT is 3.6x faster at 4 threads and 5.6x at 16 (*Panax* fam006, identical alignment), so 4 builds of 4 beat 1 of 16, and spare threads go to the builds; length tolerance of related families (subfamilies with indels) |
 | sat: progress step, heartbeat | 10%, 1 h | a line per tenth of the work; a line after an hour without one, checked only when a search finishes (so while every thread is busy with a long search the log can stay quiet for longer) |
 | fold: S_MIN, CI_MIN | 9 bins, 12.5% | beyond the ± 4-bin centromeric domain; Levan's telocentric bound |
+| Hi-C engine (`hic/params.py`): BIN_LADDER | 5 kb, 10 kb, 50 kb, 250 kb, 500 kb, 1 Mb, 2 Mb | each a multiple of every finer one: coarsening the base matrix is exact |
+| Hi-C engine: STD_FLOOR | 250 kb | 0.9's finest bin, kept while every chromosome has 20 bins at it: finer bins only make small chromosomes callable |
+| Hi-C engine: MAX_CHROM_BINS, MAX_GENOME_BINS | 4,000, 50,000 | memory: the largest dense cis block (128 MB) and the genome matrix with its bootstrap copies (0.9 ran 3-4-Gb genomes at 12,000-16,000 bins) |
 | CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
 | CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
 | 5S (`rdna.py`): FIVE_S_E, FIVE_S_UNIT_MAX, MIN_UNITS | 1e-5, 20 kb, 3 | the satellite engine's nhmmer E; twice the longest 5S-bearing unit (9.1-kb yeast rDNA); a tandem array |
@@ -393,6 +436,12 @@ first kind that matches:
 | Hi-C peaks in end bins | support only, never oppose | (rice chr4: an end-bin peak contested a correct call) |
 | numpy huge pages | off by default | on: Hi-C bootstrap 30× slower on fragmented memory |
 | CRM on a minority of chromosomes | its cores replace the marker's per chromosome | CRM as the genome's marker when its cores beat chance (binomial, P <= 0.01): with 5 chromosomes one core is enough, and in TAIR10 one CRM core displaced Athila (te_concordant on 5/5), two right `high` calls fell to `low` |
+| Hi-C that finds the centromeres beyond chance but not on most chromosomes | a support tier: supports agreeing calls only (+1) | the 0.9 rule (no role at all): goat, rhesus, giraffe, horse, EquCab3, moss and chicken peaks that agree with calls were right 61/64 and were not used. Opposition or moves on this tier: not adopted (a disagreeing peak is weak evidence; many disagreeing calls are right) |
+| genomes without sequence calls (point, regional, AT-rich centromeres) | Hi-C's clean `high` prior-free calls as `low` calls | nothing (0.9: no Hi-C call where no test is possible; yeast 0/16 calls). Validating them with the Rabl polarity test: it passes in nearly every genome, randomized Hi-C included. With the arm fold: fails in yeast (6/16) and *Plasmodium* (3/14), whose prior-free calls are 16/16 and 14/14 right |
+| bins finer than 250 kb | only where a chromosome has < 20 bins at 250 kb, down to the coarsest size that makes the shortest one callable | a fixed 250-kb floor (0.9: chromosomes < 5 Mb never analyzed). The finest size the depth allows everywhere: changes every mid-size genome's results without a reason in them |
+| trans O/E with an end-distance expected (removes generic telomere clustering) | not adopted | oracle-anchored peaks on truth: moss 23 -> 25/26 but sheep 9 -> 5, chicken 7 -> 6, goat 12 -> 11 (v10 dead_ends.md); end peaks surviving the correction: right 15, wrong 16 |
+| prior-free clustering from many starts | not adopted | potato: every start except the truth converges on a non-centromeric set 3.5x more mutually clustered than CENH3 (the 0.x note "random restarts: accuracy unchanged" holds) |
+| cis profiles (insulation, compartment) as 3D lines | not adopted | informative in single genomes only (tomato insulation maximum on CENH3 9/12, potato minimum 6/11, mammals at chance), and no per-genome test is specific: cis-anchored trans agreement fires on telomeres and on rice's non-centromeric features (8/12 at P 2e-10, 0 right). A lead in future.md |
 | telomeric Hi-C peaks | never strong, so never move a call (ends cluster in 3D whatever the centromere: all 10 such peaks in rice, barley, CHM13 and orangutan wrong; at reduced depth plant ones 0/27 right, other peaks 27/120) | strong when the LTR marker's core lies within 4 bins: moss (11/26 CENH3 domains within 2 Mb of an end) 22 -> 26/26, all confident, and no other run changes; moss alone prompted it and is the only genome where it acts (lead) |
 | Hi-C pairs without MAPQ columns | a warning (uniqueness not checked) | an input check reading pairtools' parse command, or refusing such pairs: not needed. The same reads kept at MAPQ >= 1 changed no gate or fold and made no call confidently wrong in 5 genomes (CHM13, orangutan, rice, barley, moss); multi-copy repeat reads map at MAPQ 0, which pairtools drops at any floor |
 | Hi-C fragility | reported as depth guidance | a split-half check (gate and fold rerun on half the contacts, flag when the result flips): stable genomes agree with another random half (13/13), but where two halves disagree with each other (rice, barley's fold, both orangutans, *P. annua*'s fold) one half matched another in 1/5, and Hi-C time doubles |
@@ -420,7 +469,15 @@ first kind that matches:
 ## Known risks
 
 - The gate takes the sequence calls as references. If those are wrong genome-wide, only the fold (Rabl nuclei),
-  `tes/` or methylation can rescue Hi-C.
+  `tes/` or methylation can rescue Hi-C. Potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of
+  them (v10 survey), so the signal is there; the anchors are not.
+- Support tier: a wrong call that sits on a non-centromeric trans cluster (heterochromatin, a knob) can agree with
+  Hi-C and be raised (1 of the 64 stored agreements: potato, where the strongest trans cluster is not the centromeres;
+  its genome has only 2 agreements, below the tier's floor of 3).
+- Hi-C alone (`hic_denovo_only`) trusts the strongest trans cluster to be the centromeres where nothing can test it;
+  in a genome without sequence calls whose dominant trans cluster is something else, these `low` calls are wrong. A
+  holocentric genome without sequence calls would get them too: *C. elegans* Hi-C (N2 embryos) has clean `high`
+  prior-free calls on 3 of 6 chromosomes; its 6 `low` sequence calls keep the rule off there.
 - One wrong Hi-C peak in a genome where Hi-C mostly works passes the gate. Only `high` calls need a second line to move.
 - Hi-C tests lose power gradually but flip at their threshold: the gate failed in both orangutans at half depth and
   barley's fold below its 9.2 M pairs; the pig gate passed only at 10-25% depth. A failed test reverts to the sequence
@@ -470,7 +527,7 @@ first kind that matches:
 
 ## Tests
 
-`pytest -q -n 8`: 704 tests on small synthetic fixtures (about 2 min).
+`pytest -q -n 8`: 753 tests on small synthetic fixtures (about 3 min).
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three
@@ -502,3 +559,15 @@ first kind that matches:
   an error.
 - Replaced calls: each branch of the CRM replacement records its interval, `.` for outputs of 0.8, and the basis and
   the caveat name it.
+- Hi-C bins (0.10): candidate sizes for large, yeast-like, *Plasmodium*-, *S. pombe*- and chicken-like karyotypes,
+  the memory caps, an organelle ignored; the ladder's sizes divide each other; a synthetic yeast-like Rabl genome
+  (16 chromosomes of 0.23-0.9 Mb) called at 10 kb with its centromeres found; a 1-Mb contig that makes 50 kb a
+  candidate on a library too shallow for it (250 kb chosen, the contig reported as not callable).
+- Support tier: significant agreements beyond chance without a majority (leave-one-out counts, the floor of 3, high
+  chance, low-level agreements ignored); it raises an agreeing call one level, needs the call's own significant
+  peak, never opposes, moves or places, and needs a clean peak with low references.
+- Hi-C alone: a `low` call where no test is possible, none where a sequence call, a gate test or a passed fold
+  exists, none from a medium, low or flagged prior-free call; the `hic_denovo_elsewhere` note; their sentences.
+- Pairs layouts: HiC-Pro (12 and 8 fields), Juicer long, medium, short and short-with-score, plain and gzip, read
+  like the 4DN pairs of the same contacts; the 7-field read-ID layout kept 0-based; an unknown headerless layout
+  stops with the layouts read; HiC-Pro and Juicer files found as libraries.
