@@ -286,3 +286,221 @@ def test_search_with_nothing_to_search_logs_no_progress(caplog, monkeypatch, tmp
         no_sequences = search_genome(hmms, SimpleNamespace(name="g", fasta=g.fasta, chroms={}), 2, 1e-5, **kw)
     assert no_models["c"].empty and no_sequences == {}
     assert not [r for r in caplog.records if r.name == "cenfuse-sat"]
+
+
+# ---- cost of the search per family (annotate dominates the run time; which family costs what was not recorded)
+
+def _costs(**by_family):
+    """A cost dict as search_genome fills it: family=(model_len, searches, cpu_s, wall_s, hits)."""
+    return {f: dict(zip(("model_len", "searches", "cpu_s", "wall_s", "hits"), v)) for f, v in by_family.items()}
+
+
+@pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
+def test_search_cost_table(tmp_path, synth_complex, synth_families, test_params, synth_annot):
+    """annotate_genome writes, per model, the search work it cost: searches (one per chunk), CPU and wall hours, the
+    hits nhmmer reported and the monomers kept in the end (counted in the monomers table it wrote). Writing the table
+    changes no result."""
+    from cenfuse.sat.annotate import ANNOT_CHUNK, COST_COLS, _chunks, annotate_genome
+    hmms, g = _pa_a(synth_complex, synth_families)
+    fam, _ = synth_families
+    out_mon = tmp_path / "m.tsv.gz"
+    mon, arr = annotate_genome(g, hmms, dict(zip(fam.fam_id, fam.consensus_len)), 2, test_params, out_mon,
+                               tmp_path / "a.tsv", out_cost=tmp_path / "c.tsv")
+    cost = pd.read_csv(tmp_path / "c.tsv", sep="\t", dtype={"family": str})
+    assert cost.columns.tolist() == COST_COLS
+    assert sorted(cost.family) == sorted(h.name for h in hmms)                     # one row per model
+    assert dict(zip(cost.family, cost.model_len)) == {h.name: h.M for h in hmms}
+    chunks = len(list(_chunks(g.chroms, ANNOT_CHUNK, max(10_000, 2 * max(h.M for h in hmms)))))
+    assert (cost.searches == chunks).all()                                         # each model searched every chunk
+    assert (cost.cpu_h > 0).all() and (cost.wall_h > 0).all()
+    assert abs(cost.cpu_share.sum() - 1) < 1e-6
+    assert cost.cpu_h.is_monotonic_decreasing                                      # costliest first
+    kept = pd.read_csv(out_mon, sep="\t").family.value_counts()
+    assert dict(zip(cost.family, cost.monomers_kept)) == {h.name: int(kept.get(h.name, 0)) for h in hmms}
+    assert cost.monomers_kept.sum() > 0 and (cost.hits_reported >= cost.monomers_kept).all()
+    assert mon.equals(synth_annot[0]) and arr.equals(synth_annot[1])               # the run without a table: the same
+
+
+def test_search_cost_table_ranks_families_and_counts_kept_monomers():
+    """Costliest first, a tie in the order of the models; shares of the CPU measured; kept monomers per family."""
+    from cenfuse.sat.annotate import COST_COLS, costliest, search_cost_table
+    cost = _costs(a=(150, 4, 3600.0, 4000.0, 50), b=(90, 4, 36000.0, 40000.0, 900), c=(3000, 4, 3600.0, 3700.0, 7),
+                  d=(40, 4, 0.0, 1.0, 0), e=(60, 4, 7200.0, 7300.0, 1))
+    one = lambda start, end, fam, m: ("c1", start, end, "+", fam, 90.0, 1e-20, 1, m, m, 0.9)
+    mon = _mon([one(0, 150, "a", 150), one(150, 300, "a", 150), one(300, 3300, "c", 3000)])
+    t = search_cost_table(cost, mon)
+    assert t.columns.tolist() == COST_COLS and t.family.tolist() == ["b", "e", "a", "c", "d"]
+    assert t.cpu_h.tolist() == [10.0, 2.0, 1.0, 1.0, 0.0]
+    assert t.wall_h.tolist() == pytest.approx([40000 / 3600, 7300 / 3600, 4000 / 3600, 3700 / 3600, 1 / 3600])
+    assert t.cpu_share.tolist() == pytest.approx([10 / 14, 2 / 14, 1 / 14, 1 / 14, 0])
+    assert abs(t.cpu_share.sum() - 1) < 1e-12
+    assert dict(zip(t.family, t.monomers_kept)) == {"a": 2, "b": 0, "c": 1, "d": 0, "e": 0}
+    assert dict(zip(t.family, t.hits_reported)) == {"a": 50, "b": 900, "c": 7, "d": 0, "e": 1}
+    assert [f for f, _ in costliest(t)] == ["b", "e", "a"] and costliest(t)[0][1] == pytest.approx(10 / 14)
+    assert [f for f, _ in costliest(t, 2)] == ["b", "e"]
+
+
+def test_search_cost_table_with_no_cpu_or_no_models():
+    """No CPU measured: every share is 0 and nothing is ranked. No models: an empty table with its columns."""
+    from cenfuse.sat.annotate import COST_COLS, costliest, search_cost_table
+    t = search_cost_table(_costs(a=(150, 0, 0.0, 0.0, 0), b=(90, 0, 0.0, 0.0, 0)), _mon([]))
+    assert t.family.tolist() == ["a", "b"] and t.cpu_share.tolist() == [0.0, 0.0] and costliest(t) == []
+    t = search_cost_table({}, _mon([]))
+    assert t.empty and t.columns.tolist() == COST_COLS and costliest(t) == []
+
+
+def test_search_cost_follows_the_family_searched(monkeypatch, tmp_path):
+    """Each search's thread CPU time, wall time and hits go to its own family: model 0 only waits (wall time, no CPU),
+    models 1 and 2 compute 10 and 20 ms per search; model r reports r + 1 hits."""
+    import cenfuse.sat.annotate as annotate
+
+    def search_one(h):
+        if h.rank == 0:
+            time.sleep(0.03)
+        else:
+            t = time.thread_time()
+            while time.thread_time() - t < 0.01 * h.rank:
+                pass
+        return h
+
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, search_one)                        # 4 chunks x 3 models
+    monkeypatch.setattr(annotate, "_rows", lambda hits, mlen, c, off, scale: [
+        (c, 100 + i, 150 + i, "+", "fam", 1.0, 1e-9, 1, 100, 100, 1.0) for i in range(hits[0].rank + 1)])
+    cost = {}
+    annotate.search_genome(hmms, g, 3, 1e-5, cost=cost, **kw)
+    assert list(cost) == ["m0", "m1", "m2"]
+    assert {f: (c["model_len"], c["searches"]) for f, c in cost.items()} == {f: (100, 4) for f in cost}
+    assert [c["hits"] for c in cost.values()] == [4, 8, 12]
+    assert cost["m2"]["cpu_s"] >= 4 * 0.02 and cost["m1"]["cpu_s"] >= 4 * 0.01       # computing counts as CPU ...
+    assert cost["m0"]["cpu_s"] < 4 * 0.01 and cost["m0"]["wall_s"] >= 4 * 0.03       # ... waiting as wall time only
+    assert cost["m2"]["cpu_s"] > cost["m1"]["cpu_s"] > cost["m0"]["cpu_s"]
+
+
+class _YieldingFloat(float):
+    """A float that gives up the interpreter while it is added to a total, as a thread switch in the middle of
+    `total += x` would."""
+
+    def __radd__(self, other):
+        time.sleep(0.0005)
+        return float(self) + other
+
+    def __sub__(self, other):
+        return _YieldingFloat(float(self) - other)
+
+
+def test_search_cost_loses_no_search_when_callbacks_run_at_once(monkeypatch, tmp_path):
+    """The done callbacks that add a search to its family's totals run on the worker threads, several at once. Every CPU
+    time here yields the interpreter halfway through its addition to a total, so without a lock two callbacks of one
+    family would both add to the old total and a search would be lost."""
+    import threading
+    import cenfuse.sat.annotate as annotate
+    ticks = threading.local()
+
+    def thread_time():                                  # advances 0.25 s (exact in binary) per reading of a thread
+        ticks.n = getattr(ticks, "n", 0) + 1
+        return _YieldingFloat(0.25 * ticks.n)
+
+    def search_one(h):
+        time.sleep(0.001)
+        return h
+
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, search_one, chunks=40)             # 40 searches per model
+    monkeypatch.setattr(annotate, "time", SimpleNamespace(thread_time=thread_time, perf_counter=time.perf_counter,
+                                                          time=time.time))
+    cost = {}
+    annotate.search_genome(hmms, g, 4, 1e-5, cost=cost, **kw)
+    assert {f: (c["searches"], c["hits"], c["cpu_s"]) for f, c in cost.items()} == {f: (40, 40, 10.0) for f in cost}
+
+
+def test_failed_and_cancelled_searches_add_no_cost(monkeypatch, tmp_path):
+    """The totals are the searches that finished: the one that failed and the queued ones cancelled add nothing."""
+    from cenfuse.sat.annotate import search_genome
+    count, calls = itertools.count(), []
+
+    def search_one(h):
+        calls.append(h)
+        if next(count) == 0:                         # the first search to start fails (next() is atomic)
+            raise RuntimeError("nhmmer died")
+        time.sleep(0.02)
+        return h
+
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, search_one, chunks=40)             # 120 searches
+    cost = {}
+    with pytest.raises(RuntimeError, match="nhmmer died"):
+        search_genome(hmms, g, 2, 1e-5, cost=cost, **kw)
+    assert len(calls) < 60 and sum(c["searches"] for c in cost.values()) == len(calls) - 1
+
+
+def _fake_search(monkeypatch, found=(), **by_family):
+    """Replace search_genome by a stand-in that finds the monomer rows `found` (on sequence c) and reports this cost,
+    family=(model_len, searches, cpu_s, wall_s, hits), as search_genome fills the dict it is given."""
+    import cenfuse.sat.annotate as annotate
+
+    def search_genome(hmms, genome, threads, evalue, cost=None, **kw):
+        cost.update(_costs(**by_family))
+        return {c: _mon(list(found)) for c in genome.chroms}
+
+    monkeypatch.setattr(annotate, "search_genome", search_genome)
+
+
+def _annotate_one_sequence(tmp_path, test_params, fam_len=None, **kw):
+    """annotate_genome of a genome of one sequence, c, with no models: the search is _fake_search's or finds nothing."""
+    from cenfuse.sat.annotate import annotate_genome
+    return annotate_genome(SimpleNamespace(name="g", chroms={"c": 10_000}), [], fam_len or {}, 1, test_params,
+                           tmp_path / "m.tsv.gz", tmp_path / "a.tsv", **kw)
+
+
+def test_annotate_logs_the_costliest_families(caplog, monkeypatch, tmp_path, test_params):
+    """The log says how much CPU the search took and which three families took most (their share of the CPU); the
+    table written beside it has them costliest first, its shares adding up to 1 whatever their digits. Without a table
+    to write the line is still logged."""
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    h = 3600.0                                        # famA 41 CPU hours, famB 20, famC-famF 9 each, famG 2: 99 in all
+    _fake_search(monkeypatch, famG=(90, 4, 2 * h, 2 * h, 5), famA=(172, 4, 41 * h, 44 * h, 10 ** 7),
+                 famB=(1853, 4, 20 * h, 21 * h, 9), famC=(150, 4, 9 * h, 10 * h, 1), famD=(40, 4, 9 * h, 10 * h, 1),
+                 famE=(60, 4, 9 * h, 10 * h, 1), famF=(80, 4, 9 * h, 10 * h, 1))
+    expected = "annotate: g: search CPU 99.0 h; costliest families: famA (41%), famB (20%), famC (9%)"
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        _annotate_one_sequence(tmp_path, test_params, out_cost=tmp_path / "c.tsv")
+        _annotate_one_sequence(tmp_path, test_params)
+    assert [r.getMessage() for r in caplog.records if "search CPU" in r.getMessage()] == [expected, expected]
+    cost = pd.read_csv(tmp_path / "c.tsv", sep="\t")
+    assert cost.family.tolist() == ["famA", "famB", "famC", "famD", "famE", "famF", "famG"]
+    assert cost.cpu_h.tolist() == [41, 20, 9, 9, 9, 9, 2] and abs(cost.cpu_share.sum() - 1) < 1e-6
+    assert cost.hits_reported[0] == 10 ** 7 and (cost.monomers_kept == 0).all()       # nothing was kept
+
+
+def test_monomers_kept_are_those_of_the_written_monomers_table(monkeypatch, tmp_path, test_params):
+    """Hits that no array of >= 3 monomers keeps (a lone monomer, a pair) are reported but not kept."""
+    one = lambda start, fam: ("c", start, start + 150, "+", fam, 90.0, 1e-20, 1, 150, 150, 0.9)
+    found = [one(100 + 150 * i, "a") for i in range(5)] + [one(5000, "b"), one(8000, "c"), one(8150, "c")]
+    _fake_search(monkeypatch, found, a=(150, 1, 3600.0, 3600.0, 5), b=(150, 1, 1800.0, 1800.0, 1),
+                 c=(150, 1, 1800.0, 1800.0, 2))
+    _annotate_one_sequence(tmp_path, test_params, {"a": 150, "b": 150, "c": 150}, out_cost=tmp_path / "c.tsv")
+    cost = pd.read_csv(tmp_path / "c.tsv", sep="\t")
+    assert dict(zip(cost.family, cost.hits_reported)) == {"a": 5, "b": 1, "c": 2}
+    assert dict(zip(cost.family, cost.monomers_kept)) == {"a": 5, "b": 0, "c": 0}
+    assert pd.read_csv(tmp_path / "m.tsv.gz", sep="\t").family.value_counts().to_dict() == {"a": 5}
+
+
+def test_annotate_with_no_cpu_measured_logs_no_cost_and_writes_zero_shares(caplog, monkeypatch, tmp_path, test_params):
+    """Total CPU 0 (no sequence searched): no ranking to log, no division by zero; the table has shares of 0."""
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    _fake_search(monkeypatch, a=(150, 0, 0.0, 0.0, 0), b=(90, 0, 0.0, 0.0, 0))
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        _annotate_one_sequence(tmp_path, test_params, out_cost=tmp_path / "c.tsv")
+    assert not [r for r in caplog.records if "search CPU" in r.getMessage()]
+    assert pd.read_csv(tmp_path / "c.tsv", sep="\t").cpu_share.tolist() == [0, 0]
+
+
+def test_annotate_with_no_models_writes_a_cost_table_of_its_header(caplog, monkeypatch, tmp_path, test_params):
+    """A run with zero families searches nothing: the cost table holds its header only; the log says nothing of cost."""
+    from cenfuse.sat.annotate import COST_COLS
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        _annotate_one_sequence(tmp_path, test_params, out_cost=tmp_path / "c.tsv")
+    assert (tmp_path / "c.tsv").read_text() == "\t".join(COST_COLS) + "\n"
+    assert not [r for r in caplog.records if "search CPU" in r.getMessage()]

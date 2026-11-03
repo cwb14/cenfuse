@@ -1,3 +1,5 @@
+import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -41,12 +43,50 @@ def _gff(cdir, g):
 
 
 def test_outputs_exist_and_gffs_valid(synth_run):
+    from cenfuse.sat.output import FAMTAB_COLS
     cdir, truth, _, _ = synth_run
     out = cdir / "centromere"
     for f in ("satellite_families.tsv", "satellite_families.fa", "satellite_families.hmm", "centromere_overview.pdf"):
         assert (out / f).stat().st_size > 0
     for g in truth["genomes"]:
         assert _gff(cdir, g)
+        assert (out / "work" / "annotate" / f"{g}.search_cost.tsv").stat().st_size > 0       # a fresh run writes it
+    # CPU times differ between runs, so they stay out of the results tables (README, Reproducible)
+    assert pd.read_csv(out / "satellite_families.tsv", sep="\t", nrows=0).columns.tolist() == FAMTAB_COLS
+
+
+def test_search_cost_table_of_a_run(synth_run):
+    """work/annotate/<genome>.search_cost.tsv: one row per family, its monomers add up to the monomers table."""
+    from cenfuse.sat.annotate import COST_COLS
+    cdir, truth, _, _ = synth_run
+    work = cdir / "centromere" / "work"
+    fam_ids = set(pd.read_csv(work / "families" / "families.tsv", sep="\t").fam_id)
+    for g in truth["genomes"]:
+        cost = pd.read_csv(work / "annotate" / f"{g}.search_cost.tsv", sep="\t")
+        assert cost.columns.tolist() == COST_COLS and len(cost) == len(fam_ids) and set(cost.family) == fam_ids
+        assert cost.monomers_kept.sum() == len(pd.read_csv(work / "annotate" / f"{g}.monomers.tsv.gz", sep="\t"))
+        assert abs(cost.cpu_share.sum() - 1) < 1e-6
+
+
+def test_output_stage_logs_the_costliest_searches(synth_run, caplog, monkeypatch):
+    """The output stage names each genome's costliest searches by final family name and role, those of
+    satellite_families.tsv (only the output and plot stages run again here)."""
+    from cenfuse.sat.pipeline import Pipeline
+    from cenfuse.sat.util import log
+    cdir, truth, root, p = synth_run
+    monkeypatch.setattr(log, "propagate", True)
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        Pipeline(cdir, 2, root / "cache", p, force="output").run()
+    msgs = [r.getMessage() for r in caplog.records]
+    fam = pd.read_csv(cdir / "centromere" / "satellite_families.tsv", sep="\t")
+    for g in truth["genomes"]:
+        line = [m for m in msgs if m.startswith(f"output: {g}: costliest searches: ")]
+        assert len(line) == 1, (g, msgs)
+        top = re.findall(r"(\S+) \((\w+), (\d+)%\)", line[0])
+        role = dict(zip(fam[fam.genome == g].family, fam[fam.genome == g].role))
+        assert 1 <= len(top) <= 3 and all(role[name] == r for name, r, _ in top), line
+        shares = [int(s) for _, _, s in top]
+        assert shares == sorted(shares, reverse=True)
 
 
 def test_centromere_boundaries_and_none(synth_run):

@@ -20,6 +20,9 @@ ABC = Alphabet.dna()
 MON_COLS = ["chrom", "start", "end", "strand", "family", "bitscore", "evalue",
             "hmm_from", "hmm_to", "model_len", "identity"]
 ARR_COLS = ["array_id", "chrom", "start", "end", "strand", "family", "n_monomers", "mean_identity", "monomer_len"]
+# what each family's searches cost (search_cost_table). CPU times differ between runs, so this is a work table and never
+# a results table: the results of fresh runs stay identical (README, Reproducible)
+COST_COLS = ["family", "model_len", "searches", "cpu_h", "cpu_share", "wall_h", "hits_reported", "monomers_kept"]
 
 
 _PIPE = threading.local()
@@ -139,7 +142,7 @@ def _search_work(job) -> int:
 
 
 def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_CHUNK, overlap: int = 10_000,
-                  ref_len: int = 0, gap_factor: float = 2.0) -> dict:
+                  ref_len: int = 0, gap_factor: float = 2.0, cost: dict = None) -> dict:
     """{chrom: overlap-resolved monomer hits}. pyhmmer's nhmmer parallelises over query models only, so a few
     long models would leave most threads idle; instead every (chunk x model) job runs on a thread pool (pyhmmer
     releases the GIL). One job per model, not per chunk: a satellite-dense 2-Mb chunk searched with all ~40 models
@@ -151,7 +154,12 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
     as part of a run of copies (run_significant), so short units are found too. The search is the longest stage
     (Panax: > 25 h), so it logs its progress at INFO: each finished search is counted in a done callback, in the order
     searches finish, while their hits are collected in submission order (as Executor.map gave them: the order decides
-    which of two duplicate hits is kept)."""
+    which of two duplicate hits is kept). Which family costs what was not recorded, and a few families take most of the
+    time (CHM13: the 172-bp alpha satellite 62% of the CPU), so with `cost` (a new dict, filled here with
+    {family: dict(model_len, searches, cpu_s, wall_s, hits)}) every finished search adds to its family's totals the
+    thread CPU time and the wall time its nhmmer call took on its worker thread (not the time it queued, nor the
+    conversion of its hits to rows) and the hits `_rows` kept. wall_s is the sum of the searches' own wall times: the
+    time the threads were busy with the family, not the elapsed time of the run."""
     out = {c: [] for c in genome.chroms}
     if hmms:
         mlen = {h.name: h.M for h in hmms}
@@ -166,17 +174,32 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
                                                        .digitize(ABC)])
                 local.key = (c, s, e)
             scale = max(genome.chroms[c], ref_len) / (e - s)
-            return c, _rows([search_one(h, local.blk)], mlen, c, s, scale)
+            wall0, cpu0 = time.perf_counter(), time.thread_time()       # CPU read inside the wall interval: CPU <= wall
+            tophits = search_one(h, local.blk)
+            cpu, wall = time.thread_time() - cpu0, time.perf_counter() - wall0
+            return c, _rows([tophits], mlen, c, s, scale), (cpu, wall)
 
         overlap = max(overlap, 2 * max(mlen.values()))
         jobs = [(c, s, e, h) for c, s, e in _chunks(genome.chroms, chunk, overlap) for h in hmms]
         progress = Progress(f"annotate: {genome.name}", sum(map(_search_work, jobs)))
+        if cost is not None:                                  # every model has its totals, even one never searched
+            cost.update({h.name: dict(model_len=h.M, searches=0, cpu_s=0.0, wall_s=0.0, hits=0) for h in hmms})
+        cost_lock = threading.Lock()
 
         def account(job, fut):
-            """Done callback, run by the thread that finished a search: the one place a finished search is accounted.
-            A search that was cancelled (the run stopped at an error) or failed did no work."""
+            """Done callback, run by the thread that finished a search: the one place a finished search is accounted,
+            for the progress and for the cost of its family (under a lock: callbacks of different threads run at
+            once). A search that was cancelled (the run stopped at an error) or failed did no work."""
             if not fut.cancelled() and fut.exception() is None:
                 progress.add(_search_work(job))
+                if cost is not None:
+                    _, rows, (cpu, wall) = fut.result()
+                    with cost_lock:
+                        total = cost[job[3].name]
+                        total["searches"] += 1
+                        total["cpu_s"] += cpu
+                        total["wall_s"] += wall
+                        total["hits"] += len(rows)
 
         step, t0 = max(1, len(jobs) // 20), time.time()
         with ThreadPoolExecutor(max(1, threads)) as ex:
@@ -186,7 +209,7 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
                 futs[-1].add_done_callback(partial(account, job))
             try:
                 for i in range(1, len(jobs) + 1):             # collected in submission order, as ex.map gave them
-                    c, rows = futs.popleft().result()
+                    c, rows, _ = futs.popleft().result()
                     out[c].extend(rows)
                     if i % step == 0 or i == len(jobs):       # finer progress with -v
                         log.debug(f"annotate: {genome.name}: {i:,}/{len(jobs):,} searches ({time.time() - t0:.0f} s)")
@@ -295,8 +318,35 @@ def chain_arrays(mon: pd.DataFrame, fam_len: dict, p, groups: dict = None):
     return mon[mon.array_id >= 0].drop(columns="_grp").copy(), pd.DataFrame(rows, columns=ARR_COLS)
 
 
-def annotate_genome(genome, hmms, fam_len: dict, threads: int, p, out_mon, out_arr, groups: dict = None):
-    per = search_genome(hmms, genome, threads, p.nhmmer_evalue, ref_len=p.evalue_ref_len, gap_factor=p.array_gap_factor)
+def search_cost_table(cost: dict, monomers: pd.DataFrame) -> pd.DataFrame:
+    """COST_COLS table from the cost search_genome filled and the monomers table annotate_genome writes, costliest
+    family first (equal costs keep the order of the models). cpu_share is a family's part of the CPU of all searches
+    (0 for every family if none was measured); wall_h sums the searches' own wall times (the threads' busy time, not the
+    elapsed time); hits_reported counts what nhmmer reported (E <= NHMMER_REPORT_E, before the significance test,
+    duplicate removal in chunk overlaps, multimer drop and overlap resolution), monomers_kept the family's rows in
+    the final monomers table, after chaining into arrays."""
+    total = sum(c["cpu_s"] for c in cost.values())
+    kept = monomers.family.value_counts()
+    rows = [(f, c["model_len"], c["searches"], c["cpu_s"] / 3600, c["cpu_s"] / total if total > 0 else 0.0,
+             c["wall_s"] / 3600, c["hits"], int(kept.get(f, 0))) for f, c in cost.items()]
+    return pd.DataFrame(rows, columns=COST_COLS).sort_values("cpu_h", ascending=False, kind="stable", ignore_index=True)
+
+
+def costliest(table: pd.DataFrame, n: int = 3) -> list:
+    """[(family, cpu_share)] of the n families whose searches took the most CPU, costliest first; [] when no CPU was
+    measured (nothing to rank). The log names three: enough to show where the time went without a table dump."""
+    top = table.sort_values("cpu_share", ascending=False, kind="stable").head(n)
+    return [(f, float(s)) for f, s in zip(top.family, top.cpu_share) if s > 0]
+
+
+def annotate_genome(genome, hmms, fam_len: dict, threads: int, p, out_mon, out_arr, groups: dict = None, out_cost=None):
+    """Search the genome with every model, resolve overlaps, chain arrays; write the monomers and arrays tables and,
+    with out_cost, the table of what each family's searches cost (search_cost_table). The search dominates the run
+    time and is hard to predict (Panax: 7.9 h predicted, > 25 h actual), so the log names the families that took most
+    of it."""
+    cost = {}
+    per = search_genome(hmms, genome, threads, p.nhmmer_evalue, ref_len=p.evalue_ref_len, gap_factor=p.array_gap_factor,
+                        cost=cost)
     parts = [per[c] for c in genome.chroms if len(per[c])]
     log.debug(f"annotate: {genome.name}: monomer hits on {len(parts)}/{len(genome.chroms)} sequences")
     mon = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=MON_COLS)
@@ -309,4 +359,11 @@ def annotate_genome(genome, hmms, fam_len: dict, threads: int, p, out_mon, out_a
     mon.to_csv(out_mon, sep="\t", index=False)
     arrays.to_csv(out_arr, sep="\t", index=False)
     log.info(f"annotate: {genome.name}: {len(mon)} monomers in {len(arrays)} arrays")
+    table = search_cost_table(cost, mon)
+    if out_cost is not None:
+        table.to_csv(out_cost, sep="\t", index=False, float_format="%.9g")
+    top = costliest(table)
+    if top:
+        log.info(f"annotate: {genome.name}: search CPU {table.cpu_h.sum():.1f} h; costliest families: "
+                 + ", ".join(f"{f} ({100 * share:.0f}%)" for f, share in top))
     return mon, arrays.reset_index(drop=True)

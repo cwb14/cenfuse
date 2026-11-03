@@ -215,7 +215,8 @@ class Pipeline:
         for g in self.genomes:
             annotate.annotate_genome(g, hmms, fam_len, self.threads, self.p,
                                      self._p("annotate", f"{g.name}.monomers.tsv.gz"),
-                                     self._p("annotate", f"{g.name}.arrays.tsv"), groups)
+                                     self._p("annotate", f"{g.name}.arrays.tsv"), groups,
+                                     out_cost=self._p("annotate", f"{g.name}.search_cost.tsv"))
 
     def stage_classify(self):
         """Family character is judged over the complex (one family = one sequence): the subtelomeric vote counts the
@@ -386,6 +387,20 @@ class Pipeline:
             output.write_genome(data[g.name], names, self.out, self.p)
         output.write_families(fam, data, names, self._p("families", "families.hmm"),
                               self._p("families", "families.fa"), self.out)
+        for g in self.genomes:
+            self._log_costliest(g, data[g.name]["fams"], names)
+
+    def _log_costliest(self, g, fams, names: dict) -> None:
+        """Log the searches that cost most CPU (annotate's work table) by final family name and role: a dispersed
+        family that cost much decides nothing, which only the roles, known after annotate, can show. A family without
+        arrays in this genome is 'absent', as in satellite_families.tsv. A folder made before the table existed logs
+        nothing."""
+        path = self._p("annotate", f"{g.name}.search_cost.tsv")
+        top = annotate.costliest(pd.read_csv(path, sep="\t", dtype={"family": str})) if path.exists() else []
+        if top:
+            role = dict(zip(fams.family, fams.role))
+            shown = (f"{names.get(f, f)} ({role.get(f, 'absent')}, {100 * share:.0f}%)" for f, share in top)
+            log.info(f"output: {g.name}: costliest searches: " + ", ".join(shown))
 
     def stage_plot(self):
         names = dict(pd.read_csv(self._p("output", "names.tsv"), sep="\t").itertuples(index=False))

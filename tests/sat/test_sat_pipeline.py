@@ -85,3 +85,35 @@ def test_many_sequences_warn_unless_borrowed(tmp_path, caplog, monkeypatch):
     Pipeline(cdir, 1, tmp_path / "cache", Params(classify_from="Ctg=a"))
     assert [r for r in caplog.records if "60 sequences" in r.message and r.message.startswith("a:")]
     assert not [r for r in caplog.records if r.message.startswith("Ctg:")]
+
+
+def test_output_stage_names_the_costliest_searches_with_their_final_role(tmp_path, caplog, monkeypatch):
+    """The three searches that cost most CPU, by the name and role the family ends with: a dispersed family that cost
+    much decides nothing, and one without arrays in this genome is 'absent' (as in satellite_families.tsv). A folder
+    made before the cost table existed, and a run with no families (a table of its header only), log nothing."""
+    import logging
+    import pandas as pd
+    from cenfuse.sat.annotate import MON_COLS, search_cost_table
+    from cenfuse.sat.pipeline import Pipeline
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    pl = Pipeline(_complex(tmp_path, ["a"]), 1, tmp_path / "cache", Params())
+    g = pl.genomes[0]
+    fams = pd.DataFrame({"family": ["fam001", "fam002"], "role": ["centromeric", "dispersed"]})
+    names = {f"fam00{i}": n for i, n in enumerate(["S_sat01_150", "S_sat02_90", "S_sat03_3000", "S_sat04_40"], 1)}
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        pl._log_costliest(g, fams, names)
+        assert not caplog.records
+        (pl.work / "annotate").mkdir()
+        table = pl._p("annotate", "a.search_cost.tsv")
+        search_cost_table({}, pd.DataFrame(columns=MON_COLS)).to_csv(table, sep="\t", index=False)
+        pl._log_costliest(g, fams, names)
+        assert not caplog.records
+        hours = {"fam001": 1, "fam002": 6, "fam003": 3, "fam004": 0}
+        cost = {f: dict(model_len=100, searches=1, cpu_s=3600.0 * h, wall_s=3600.0 * h, hits=0)
+                for f, h in hours.items()}
+        search_cost_table(cost, pd.DataFrame(columns=MON_COLS)).to_csv(table, sep="\t", index=False)
+        pl._log_costliest(g, fams, names)
+    assert [r.getMessage() for r in caplog.records] == [
+        "output: a: costliest searches: S_sat02_90 (dispersed, 60%), S_sat03_3000 (absent, 30%), "
+        "S_sat01_150 (centromeric, 10%)"]
