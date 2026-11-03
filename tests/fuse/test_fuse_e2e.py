@@ -44,6 +44,9 @@ def test_planted_cases(full):
     assert r.relation == "functional_only" and r.confidence == "high" and r.seq_start == "."
     assert int(r.start) <= fuse_synth.bp(fuse_synth.F["chr10"]) <= int(r.end)
     assert (t.hic_gate == "pass").all()
+    cols = list(t.columns)                         # the array a CRM core replaced: reported right after seq_alt_*
+    assert cols[cols.index("seq_alt_end") + 1:][:2] == ["seq_overruled_start", "seq_overruled_end"]
+    assert (t.seq_overruled_start == ".").all() and (t.seq_overruled_end == ".").all()   # this summary predates them
 
 
 def test_loci_place_the_other_features(full):

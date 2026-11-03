@@ -13,7 +13,8 @@ from .util import log, union_bp
 
 REG_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "evidence", "confidence", "flags", "main_family",
             "main_family_bp", "sat_bp", "second_cluster_bp", "cen_families", "n_gaps", "gap_bp", "n_genes",
-            "gene_ratio", "te_clade", "te_core_start", "te_core_end", "alt_start", "alt_end"]
+            "gene_ratio", "te_clade", "te_core_start", "te_core_end", "alt_start", "alt_end", "overruled_start",
+            "overruled_end", "overruled_family"]
 LOWER = {"high": "medium", "medium": "low", "low": "low"}
 RANK = {"low": 0, "medium": 1, "high": 2}
 EMPTY = np.zeros(0, np.int64)
@@ -78,10 +79,17 @@ def weak_call(call: dict, p) -> bool:
     return call["evidence"] in ("weak_satellite", "long_unit_tandem") or call["sat_bp"] < p.low_sat_bp
 
 
-def te_call(core: dict) -> dict:
-    """Centromere placed by the centromeric retrotransposon core alone (no satellite or long-unit call there)."""
-    return dict(cen_start=int(core["start"]), cen_end=int(core["end"]), evidence="retrotransposon", main_family=".",
-                main_family_bp=0, sat_bp=0, second_cluster_bp=0, cen_families=".")
+def te_call(core: dict, replaced: dict = None) -> dict:
+    """Centromere placed by the centromeric retrotransposon core alone (no satellite or long-unit call there).
+    replaced: the call the core replaces; it is kept as overruled_start/overruled_end/overruled_family, because the
+    outputs showed no trace of the array a core overruled. Never in alt_start/alt_end: fusion lets validated Hi-C move
+    a call to the alternative cluster, so the replaced array there would change calls."""
+    out = dict(cen_start=int(core["start"]), cen_end=int(core["end"]), evidence="retrotransposon", main_family=".",
+               main_family_bp=0, sat_bp=0, second_cluster_bp=0, cen_families=".")
+    if replaced:
+        out.update(overruled_start=int(replaced["cen_start"]), overruled_end=int(replaced["cen_end"]),
+                   overruled_family=replaced["main_family"])
+    return out
 
 
 def honesty_cap(te, borrowed: bool, primary: bool, dominant: bool) -> bool:
@@ -179,7 +187,9 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     core holding CENH3; B. rapa A06: CentBr call holds more CRB than the core, kept); a chromosome
     without a call takes the core; so does a weak satellite call (weak_call) beside a decisive core, agreeing with it but
     not overlapping it (weak_satellite_beside_core: S. verrucosum chr01, Ae. geniculata chr07U, potato chr11 had the core
-    on CENH3 and the weak array 0.8-5 Mb away). Decisive evidence (CRM) sets confidence;
+    on CENH3 and the weak array 0.8-5 Mb away). A call (satellite, weak satellite or long-unit) the core replaces is
+    kept in overruled_start/overruled_end/overruled_family (te_call), never in alt_*; a kept call (te_concordant,
+    te_discordant) and a chromosome without a call record nothing. Decisive evidence (CRM) sets confidence;
     other clades only flag. Without satellite calls the long-unit scan covers the core and its flanks instead of the
     whole chromosome. per_chrom: {chrom: the families classify chose there (its `defines`)}; the call is the cluster
     holding them (satellite_call), so a family chosen on a few chromosomes cannot take the call elsewhere where its
@@ -234,14 +244,14 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                 if call and decisive and not borrowed and weak_call(call, p) and \
                         agrees(call["cen_start"], call["cen_end"], core) and \
                         gap(call["cen_start"], call["cen_end"], core["start"], core["end"]) > 0:
-                    te_flag, call = "weak_satellite_beside_core", te_call(core)   # the core outranks a weak array
+                    te_flag, call = "weak_satellite_beside_core", te_call(core, call)   # the core outranks a weak array
                 elif call and agrees(call["cen_start"], call["cen_end"], core):
                     te_flag = "te_concordant"
                     if decisive and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \
                             gap(call["cen_start"], call["cen_end"], core["start"], core["end"]) > 0 and \
                             core.get("mids") is not None and contradicts(call["cen_start"], call["cen_end"], core):
-                        te_flag, call = "satellite_beside_core", te_call(core)   # the array lies beside the CRM
-                                                                                # centromere (Ae. tauschii Chr2, Chr4)
+                        # the array lies beside the CRM centromere (Ae. tauschii Chr2, Chr4)
+                        te_flag, call = "satellite_beside_core", te_call(core, call)
                 elif call and call["evidence"] != "long_unit_tandem" and (not decisive or borrowed):
                     te_flag = "te_discordant"
                 elif not borrowed:
@@ -254,7 +264,7 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                         else:
                             te_flag = "satellite_away_from_core"  # decisive core outranks a distant satellite array
                     if te_flag != "te_discordant":
-                        call = te_call(core)
+                        call = te_call(core, call)                # a chromosome without a call overrules nothing
             rows[c] = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
                                te_flag, capped, decisive, acro)
             if core:

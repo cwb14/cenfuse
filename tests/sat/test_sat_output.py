@@ -95,3 +95,27 @@ def test_write_genome_without_regions(tmp_path):
     d["fams"] = _fams([("fam001", "other"), ("fam002", "other")])
     write_genome(d, {"fam001": "Sp_sat01_150", "fam002": "Sp_sat02_100"}, tmp_path, Params())
     assert check_gff(tmp_path / "Sp_A_centromeric_repeat.gff", d["genome"].chroms) == []
+
+
+def test_summary_reports_the_overruled_array(tmp_path):
+    """The array a CRM core replaced is in the summary like the other intervals: 1-based start, the family's final
+    name, '.' where nothing was replaced; a regions table from an earlier version (no such columns) reads as absent."""
+    d = _data(tmp_path)
+    names = {"fam001": "Sp_sat01_150", "fam002": "Sp_sat02_100"}
+    over = ["overruled_start", "overruled_end", "overruled_family"]
+    kept = dict(d["regions"]["Sp_A01"])
+    d["regions"]["Sp_A01"] = dict(kept, evidence="retrotransposon", main_family=".", overruled_start=5000,
+                                  overruled_end=7500, overruled_family="fam001")
+    write_genome(d, names, tmp_path, Params())
+    s = pd.read_csv(tmp_path / "Sp_A_centromere_summary.tsv", sep="\t", dtype=str).set_index("chrom")
+    assert list(s.columns[-3:]) == over
+    assert s.loc["Sp_A01", over].tolist() == ["5001", "7500", "Sp_sat01_150"]
+    assert s.loc["Sp_A02", over].tolist() == [".", ".", "."]                     # no call
+    d["regions"]["Sp_A01"] = dict(kept, overruled_start=".", overruled_end=".", overruled_family=".")
+    write_genome(d, names, tmp_path, Params())                                  # a call that was not replaced
+    s = pd.read_csv(tmp_path / "Sp_A_centromere_summary.tsv", sep="\t", dtype=str).set_index("chrom")
+    assert s.loc["Sp_A01", over].tolist() == [".", ".", "."]
+    d["regions"]["Sp_A01"] = {k: v for k, v in kept.items() if k not in over}
+    write_genome(d, names, tmp_path, Params())                              # regions made before the columns existed
+    s = pd.read_csv(tmp_path / "Sp_A_centromere_summary.tsv", sep="\t", dtype=str).set_index("chrom")
+    assert s.loc["Sp_A01", over].tolist() == [".", ".", "."] and s.loc["Sp_A01", "cen_start"] == "5001"

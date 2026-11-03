@@ -65,6 +65,8 @@ def basis(r, ctx: dict) -> str:
         return "."
     flags, sflags, sup = set(_toks(r.flags)), set(_toks(r.seq_flags)), _toks(r.support)
     s, e = int(r.start) - 1, int(r.end)
+    over = _int(getattr(r, "seq_overruled_start", None)), _int(getattr(r, "seq_overruled_end", None))
+    where = f" ({interval(*over)})" if None not in over else ""    # where the replaced array lay (older tables: absent)
     out = []
     if r.call_source == "sequence":
         ev = r.seq_evidence
@@ -79,11 +81,12 @@ def basis(r, ctx: dict) -> str:
             replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"}
             out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)"))
         if "weak_satellite_beside_core" in sflags:
-            out.append("the CRM core replaced a weak satellite array beside it")
+            out.append("the CRM core replaced a weak satellite array beside it" + where)
         if "satellite_away_from_core" in sflags:
-            out.append("the CRM core replaced a satellite array elsewhere")
+            out.append("the CRM core replaced a satellite array elsewhere" + where)
         if "satellite_beside_core" in sflags:
-            out.append("the CRM core replaced a satellite array beside it that holds significantly fewer CRM elements")
+            out.append("the CRM core replaced a satellite array beside it that holds significantly fewer CRM elements"
+                       + where)
         if "hic_chose_alt" in flags:
             out.append("the second satellite cluster, chosen by validated Hi-C")
         if "acrocentric" in sflags:

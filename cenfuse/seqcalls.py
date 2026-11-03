@@ -14,13 +14,14 @@ from .sat.classify import make_clusters
 from .util import CenfuseError, log
 
 CALL_COLS = ["chrom", "chrom_len", "start", "end", "evidence", "confidence", "flags", "main_family", "sat_bp",
-             "te_clade", "te_start", "te_end", "alt_start", "alt_end"]
+             "te_clade", "te_start", "te_end", "alt_start", "alt_end", "overruled_start", "overruled_end"]
 
 
 @dataclass
 class SeqLine:
     genome: str
-    calls: pd.DataFrame        # CALL_COLS; start/end -1 without a call, te_start/te_end -1 without a core
+    calls: pd.DataFrame        # CALL_COLS; start/end -1 without a call, te_start/te_end -1 without a core,
+                               # overruled_start/_end -1 where no core replaced a call (or the summary predates them)
     arrays: pd.DataFrame       # chrom, start, end, family, role, rdna, monomer_len, n_monomers, in_centromere
     families: pd.DataFrame     # satellite_families.tsv rows of this genome (empty when absent)
     source: Path
@@ -58,7 +59,7 @@ def read_calls(path: Path, chroms: dict) -> pd.DataFrame:
         if r is None:
             rows.append(dict(chrom=c, chrom_len=L, start=-1, end=-1, evidence="none", confidence="none", flags=".",
                              main_family=".", sat_bp=0, te_clade=".", te_start=-1, te_end=-1, alt_start=-1,
-                             alt_end=-1))
+                             alt_end=-1, overruled_start=-1, overruled_end=-1))
             continue
         call = r["evidence"] != "none"
         rows.append(dict(chrom=c, chrom_len=L, start=_int(r["cen_start"], 1) if call else -1,
@@ -67,7 +68,9 @@ def read_calls(path: Path, chroms: dict) -> pd.DataFrame:
                          main_family=r.get("main_family", "."), sat_bp=max(0, _int(r.get("cen_sat_bp"))),
                          te_clade=r.get("te_clade", ".") or ".", te_start=_int(r.get("te_core_start"), 1),
                          te_end=_int(r.get("te_core_end")), alt_start=_int(r.get("alt_start"), 1) if call else -1,
-                         alt_end=_int(r.get("alt_end")) if call else -1))
+                         alt_end=_int(r.get("alt_end")) if call else -1,
+                         overruled_start=_int(r.get("overruled_start"), 1) if call else -1,
+                         overruled_end=_int(r.get("overruled_end")) if call else -1))
     missing = sorted(set(chroms) - set(by))
     if missing:
         log.warning(f"{path.name}: no row for {len(missing)} chromosomes (e.g. {', '.join(missing[:3])}): no "

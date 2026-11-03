@@ -55,9 +55,19 @@ def test_longunit_call_requires_concentration():
 def test_regions_roundtrip(tmp_path):
     rows = {"c1": finalize("c1", 1000, None, None, None, None, Params())}
     rows["c2"] = dict(rows["c1"], chrom="c2", cen_start=10, cen_end=500, evidence="satellite", confidence="high")
+    rows["c3"] = dict(rows["c2"], chrom="c3", evidence="retrotransposon", overruled_start=100, overruled_end=300,
+                      overruled_family="fam001")
     write_regions(rows, tmp_path / "r.tsv")
     back = load_regions(tmp_path / "r.tsv")
     assert back["c1"]["evidence"] == "none" and back["c2"]["cen_end"] == 500 and back["c2"]["chrom_len"] == 1000
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    assert [back["c3"][k] for k in over] == ["100", "300", "fam001"]            # the replaced array survives
+    assert all(back[c][k] == "." for c in ("c1", "c2") for k in over)           # nothing replaced: absent
+    # a regions file written before these columns existed (0.8) loads, and its rows read as absent
+    older = pd.read_csv(tmp_path / "r.tsv", sep="\t", dtype=str).drop(columns=list(over))
+    older.to_csv(tmp_path / "older.tsv", sep="\t", index=False)
+    back = load_regions(tmp_path / "older.tsv")
+    assert back["c3"]["cen_end"] == 500 and all(back["c3"].get(k, ".") == "." for k in over)
 
 
 def test_diffuse_region_is_flagged_and_not_high(tmp_path):
@@ -161,21 +171,30 @@ def test_a_decisive_core_replaces_a_weak_array_beside_it(tmp_path, monkeypatch):
     """A weak satellite call that agrees with a decisive (CRM) core without overlapping it is replaced by the core
     (S. verrucosum chr01, Ae. geniculata chr07U, potato chr11: the core on CENH3, the weak array 0.8-5 Mb away). A
     strong array beside the core is kept here (te_concordant: these cores carry no element midpoints, so the
-    head-to-head test of the next tests cannot run), and a flags-only marker replaces nothing."""
+    head-to-head test of the next tests cannot run), and a flags-only marker replaces nothing. The replaced array is
+    kept as overruled_*; a chromosome that had no call takes its core and overrules nothing."""
     from cenfuse.sat import centromere, longunit
     from cenfuse.sat.seeds import COLS
     g, arrays = _contigs(tmp_path)
     monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
-    cores = {"c1": dict(start=70_000, end=100_000), "c2": dict(start=70_000, end=120_000)}
+    cores = {"c1": dict(start=70_000, end=100_000), "c2": dict(start=70_000, end=120_000),
+             "c3": dict(start=70_000, end=100_000)}                       # c3: a core and no call at all
     trf = pd.DataFrame(columns=COLS)
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
                                       te=("CRM", cores, True))
     assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
+    assert rows["c3"]["evidence"] == "retrotransposon" and rows["c3"]["flags"] == "."
     assert rows["c2"]["evidence"] == "retrotransposon" and "weak_satellite_beside_core" in rows["c2"]["flags"]
     assert (rows["c2"]["cen_start"], rows["c2"]["cen_end"]) == (70_000, 120_000) and rows["c2"]["confidence"] == "medium"
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    assert [rows["c2"][k] for k in over] == [50_000, 58_000, "A"]               # the weak call the core replaced
+    # never in alt_*: fusion lets validated Hi-C move a call to the alternative cluster, which would change calls
+    assert rows["c2"]["alt_start"] == rows["c2"]["alt_end"] == "."
+    assert all(rows[c][k] == "." for c in ("c1", "c3") for k in over)           # a kept call; the core of no call
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
                                       te=("Athila", cores, False))
     assert rows["c2"]["evidence"] == "weak_satellite" and "te_concordant" in rows["c2"]["flags"]
+    assert all(rows[c][k] == "." for c in rows for k in over)                   # a flags-only marker replaces nothing
 
 
 
@@ -199,11 +218,17 @@ def test_a_decisive_core_replaces_a_confident_call_only_if_the_clade_marks_it_mo
                                       te=("CRM", {"c1": plateau}, True))
     assert rows["c1"]["evidence"] == "satellite" and "te_discordant" in rows["c1"]["flags"]
     assert rows["c1"]["confidence"] == level[alone]
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    assert all(rows["c1"][k] == "." for k in over)                      # kept (te_discordant): nothing overruled
     marked = dict(start=150_000, end=170_000, k=40, mids=Mids(sorted(in_call[:2] + list(range(150_200, 170_000, 500))), 42))
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
                                       te=("CRM", {"c1": marked}, True))
     assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_away_from_core" in rows["c1"]["flags"]
     assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (150_000, 170_000)
+    assert [rows["c1"][k] for k in over] == [0, 60_000, "A"]                    # replaced: the satellite call
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t3", 1, Params(),
+                                      te=("Athila", {"c1": marked}, False))
+    assert "te_discordant" in rows["c1"]["flags"] and all(rows["c1"][k] == "." for k in over)   # flags only: kept
 
 
 def test_a_decisive_core_replaces_a_distant_call_that_is_low_on_its_own(tmp_path, monkeypatch):
@@ -224,6 +249,7 @@ def test_a_decisive_core_replaces_a_distant_call_that_is_low_on_its_own(tmp_path
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, p,
                                       te=("CRM", {"c1": plateau}, True))
     assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_away_from_core" in rows["c1"]["flags"]
+    assert [rows["c1"][k] for k in ("overruled_start", "overruled_end", "overruled_family")] == [0, 60_000, "A"]
 
 
 def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_the_core(tmp_path, monkeypatch):
@@ -243,9 +269,40 @@ def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_t
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
                                       te=("CRM", {"c1": plain}, True))
     assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    assert all(rows["c1"][k] == "." for k in over)                              # kept: nothing overruled
     rich = dict(start=70_000, end=100_000, k=60,
                 mids=Mids(sorted(in_call[:2] + list(np.linspace(70_500, 99_500, 60).astype(int))), 62))
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, Params(),
                                       te=("CRM", {"c1": rich}, True))
     assert rows["c1"]["evidence"] == "retrotransposon" and "satellite_beside_core" in rows["c1"]["flags"]
     assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (70_000, 100_000)
+    assert [rows["c1"][k] for k in over] == [0, 60_000, "A"]                    # replaced: the satellite call beside it
+
+
+def test_a_long_unit_call_replaced_by_a_core_is_overruled(tmp_path, monkeypatch):
+    """A long-unit tandem call that a decisive (CRM) core replaces is recorded as overruled like a satellite call (the
+    earlier audit recorded satellite arrays only): one beside the core (weak_satellite_beside_core), and one far from
+    it, which the core replaces without a flag. A long-unit call that overlaps the core is kept (te_concordant)."""
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    g, _ = _contigs(tmp_path)
+    lu = pd.DataFrame([("c1", 80_000, 140_000, 3000, 20.0, 0.95), ("c2", 20_000, 60_000, 3000, 13.0, 0.95),
+                       ("c3", 80_000, 140_000, 3000, 20.0, 0.95)], columns=LU_COLS)
+    monkeypatch.setattr(longunit, "detect", lambda *a: lu)
+    cores = {"c1": dict(start=150_000, end=170_000), "c2": dict(start=150_000, end=170_000),
+             "c3": dict(start=100_000, end=120_000)}
+    rows, _ = centromere.call_regions(g, pd.DataFrame(columns=ARR_COLS), {"A"}, None, pd.DataFrame(columns=COLS),
+                                      tmp_path / "t1", 1, Params(), te=("CRM", cores, True))
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    assert rows["c1"]["evidence"] == "retrotransposon" and "weak_satellite_beside_core" in rows["c1"]["flags"]
+    assert [rows["c1"][k] for k in over] == [80_000, 140_000, "long_unit"]
+    assert rows["c2"]["evidence"] == "retrotransposon" and (rows["c2"]["cen_start"], rows["c2"]["cen_end"]) == \
+        (150_000, 170_000)
+    assert [rows["c2"][k] for k in over] == [20_000, 60_000, "long_unit"]
+    assert rows["c3"]["evidence"] == "long_unit_tandem" and "te_concordant" in rows["c3"]["flags"]
+    assert all(rows["c3"][k] == "." for k in over)
+    assert all(rows[c]["alt_start"] == rows[c]["alt_end"] == "." for c in rows)
+    rows, _ = centromere.call_regions(g, pd.DataFrame(columns=ARR_COLS), {"A"}, None, pd.DataFrame(columns=COLS),
+                                      tmp_path / "t2", 1, Params(), te=("CRM", cores, True), borrowed=True)
+    assert all(rows[c][k] == "." for c in rows for k in over)                   # borrowed: no long-unit call at all

@@ -9,7 +9,8 @@ from cenfuse import interpret as it
 BASE = dict(chrom="c1", chrom_len=100_000_000, start=40_000_001, end=42_000_000, length=2_000_000,
             call_source="sequence", relation="sequence_only", confidence="high", support="satellite", against=".",
             flags=".", offset_bp=".", seq_start=40_000_001, seq_end=42_000_000, seq_evidence="satellite",
-            seq_confidence="high", seq_flags=".", seq_alt_start=".", seq_alt_end=".", main_family="g_sat01_171",
+            seq_confidence="high", seq_flags=".", seq_alt_start=".", seq_alt_end=".", seq_overruled_start=".",
+            seq_overruled_end=".", main_family="g_sat01_171",
             te_clade=".", te_start=".", te_end=".", hic_gate=".", hic_anch_peak_start=".", hic_anch_peak_end=".",
             hic_denovo_peak_start=".", hic_denovo_peak_end=".", fold_core_start=".", fold_core_end=".",
             cpg_kt_start=".", cpg_kt_end=".", call_gaps=0)
@@ -81,6 +82,23 @@ def test_satellite_engine_flags():
     for flag in ("weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"):
         assert "no satellite call" not in it.basis(row(seq_flags=flag, seq_evidence="retrotransposon", te_clade="CRM"),
                                                    ctx()), flag
+
+
+def test_overruled_array_is_named():
+    """The three sentences that say a CRM core replaced a satellite array end with where that array was, in the position
+    style of this module (1-based table columns -> 'a-b Mb'). Without an interval (a table made before the columns
+    existed, or no array to name) the sentence is as it was."""
+    sentences = {"weak_satellite_beside_core": "the CRM core replaced a weak satellite array beside it",
+                 "satellite_away_from_core": "the CRM core replaced a satellite array elsewhere",
+                 "satellite_beside_core": "the CRM core replaced a satellite array beside it that holds "
+                                          "significantly fewer CRM elements"}
+    for flag, text in sentences.items():
+        kw = dict(seq_flags=flag, seq_evidence="retrotransposon", te_clade="CRM")
+        r = row(seq_overruled_start=21_123_181, seq_overruled_end=21_170_900, **kw)
+        assert it.basis(r, ctx()) == f"CRM retrotransposon core; {text} (21.12-21.17 Mb)", flag
+        assert it.basis(row(**kw), ctx()) == f"CRM retrotransposon core; {text}", flag          # "."
+        older = SimpleNamespace(**{k: v for k, v in vars(row(**kw)).items() if not k.startswith("seq_overruled")})
+        assert it.basis(older, ctx()) == f"CRM retrotransposon core; {text}", flag              # no such column
 
 
 def test_moves_and_placements():

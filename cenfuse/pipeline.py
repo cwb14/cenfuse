@@ -507,7 +507,9 @@ class Run:
                                                                     evidence=r.evidence, confidence=r.confidence,
                                                                     flags=r.flags, main_family=r.main_family,
                                                                     alt_start=int(r.alt_start),
-                                                                    alt_end=int(r.alt_end)),
+                                                                    alt_end=int(r.alt_end),
+                                                                    overruled_start=int(r.overruled_start),
+                                                                    overruled_end=int(r.overruled_end)),
                                      te, h, meth, sat_bp(r.chrom), f))
         return out
 

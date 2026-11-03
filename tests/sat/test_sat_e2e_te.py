@@ -71,11 +71,16 @@ def test_decisive_core_replaces_a_satellite_call_far_from_it(tmp_path):
     the core far more than the array (te.contradicts)."""
     at, away = (135_000, 165_000), (30_000, 50_000)
     truth, summ, fams = _run(tmp_path, {"01": at, "02": at, "03": away, "04": at})
+    cen = fams[(fams.consensus_len.astype(int) - 150).abs() <= 3]
+    over = ["overruled_start", "overruled_end", "overruled_family"]
     for g, s in summ.items():
         for c in (f"{g}01", f"{g}02"):
             assert s.loc[c, "evidence"] == "satellite" and "te_concordant" in s.loc[c, "flags"], (g, c)
         r = s.loc[f"{g}03"]
         assert r.evidence == "retrotransposon" and "satellite_away_from_core" in r["flags"], g
         assert 25_000 <= int(r.cen_start) and int(r.cen_end) <= 55_000, g
-    cen = fams[(fams.consensus_len.astype(int) - 150).abs() <= 3]
+        lo, hi = truth["genomes"][g][f"{g}03"]["cen"]          # the replaced array is reported: the planted one
+        assert abs(int(r.overruled_start) - 1 - lo) <= 100 and abs(int(r.overruled_end) - hi) <= 100, g  # 1-based
+        assert r.overruled_family in set(cen.family[cen.genome == g]), g                # by its final name
+        assert all(s.loc[c, over].eq(".").all() for c in (f"{g}01", f"{g}02", f"{g}04")), g   # kept, or no satellite
     assert set(cen["class"]) == {"centromeric"}

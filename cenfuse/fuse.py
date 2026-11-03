@@ -53,8 +53,8 @@ from .util import gap, level_shift
 
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
               "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
-              "seq_alt_start", "seq_alt_end", "main_family", "te_clade", "te_start", "te_end", "hic_gate", "hic_gate_k",
-              "hic_gate_n", "hic_gate_p", "hic_gate_refs",
+              "seq_alt_start", "seq_alt_end", "seq_overruled_start", "seq_overruled_end", "main_family", "te_clade",
+              "te_start", "te_end", "hic_gate", "hic_gate_k", "hic_gate_n", "hic_gate_p", "hic_gate_refs",
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "fold_gate", "fold_point", "fold_core_start",
@@ -68,7 +68,8 @@ class Evidence:
     chrom: str
     chrom_len: int
     seq: dict                 # start, end, evidence, confidence, flags, main_family; alt_start/alt_end (competing
-                              # cluster, -1 = none)
+                              # cluster, -1 = none); overruled_start/overruled_end (the satellite array a CRM core
+                              # replaced, -1 = none): reported only, never a candidate for the call
     te: dict | None           # clade, start, end, decisive (the marker clade's core)
     hic: dict | None          # one row of the hicfuse table, or None (no Hi-C, or not a callable chromosome)
     meth: dict | None = None  # item -> {'label', 'score'} pooled over samples (methfuse.support), or None
@@ -261,6 +262,7 @@ def row(ev: Evidence, d: dict) -> dict:
     alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
     if call and seq_iv and call != seq_iv and not (alt_iv and call == alt_iv):
         off = gap(*call, *seq_iv)
+    over_iv = _iv(ev.seq, "overruled_start", "overruled_end") if seq_iv and "overruled_start" in ev.seq else None
     return dict(
         chrom=ev.chrom, chrom_len=ev.chrom_len, start=one(call[0]) if call else na, end=end(call[1]) if call else na,
         length=call[1] - call[0] if call else na, call_source=d["source"], relation=d["relation"],
@@ -269,6 +271,7 @@ def row(ev: Evidence, d: dict) -> dict:
         seq_start=one(seq_iv[0]) if seq_iv else na, seq_end=end(seq_iv[1]) if seq_iv else na,
         seq_evidence=ev.seq["evidence"], seq_confidence=ev.seq["confidence"], seq_flags=ev.seq["flags"],
         seq_alt_start=one(alt_iv[0]) if alt_iv else na, seq_alt_end=end(alt_iv[1]) if alt_iv else na,
+        seq_overruled_start=one(over_iv[0]) if over_iv else na, seq_overruled_end=end(over_iv[1]) if over_iv else na,
         main_family=ev.seq["main_family"], te_clade=ev.te["clade"] if ev.te else na,
         te_start=one(ev.te["start"]) if ev.te else na, te_end=end(ev.te["end"]) if ev.te else na,
         hic_gate=gate_status(h) if h else na,

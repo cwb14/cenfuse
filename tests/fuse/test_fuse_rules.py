@@ -193,6 +193,72 @@ def test_satellite_outputs_are_read_0_based(tmp_path):
     assert s.arrays.iloc[0][["start", "end", "role"]].tolist() == [100, 150, "centromeric"]
 
 
+def test_overruled_array_is_read_0_based(tmp_path):
+    """seq_overruled: the satellite array a CRM core replaced, read like the other intervals (1-based in the summary,
+    0-based here), -1 where nothing was replaced, on a chromosome without a call, and on one with no row."""
+    head = ("chrom\tchrom_len\tcen_start\tcen_end\tevidence\tconfidence\tflags\tmain_family\tcen_sat_bp\tte_clade\t"
+            "te_core_start\tte_core_end\talt_start\talt_end\toverruled_start\toverruled_end\toverruled_family\n")
+    (tmp_path / "G_centromere_summary.tsv").write_text(
+        head + "c1\t1000\t151\t300\tretrotransposon\tmedium\tsatellite_away_from_core\t.\t0\tCRM\t151\t300\t.\t.\t"
+        "51\t120\tG_sat01_171\n"
+        "c2\t900\t101\t200\tsatellite\thigh\t.\tf1\t90\t.\t.\t.\t.\t.\t.\t.\t.\n"
+        "c3\t900\t.\t.\tnone\tnone\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\n")
+    (tmp_path / "G_satellite_arrays.gff").write_text("##gff-version 3\n")
+    calls = seqcalls.read(tmp_path, "G", {"c1": 1000, "c2": 900, "c3": 900, "c4": 800}).calls.set_index("chrom")
+    assert calls.loc["c1", ["overruled_start", "overruled_end"]].tolist() == [50, 120]
+    assert calls.loc["c1", ["alt_start", "alt_end"]].tolist() == [-1, -1]            # never the alternative cluster
+    for c in ("c2", "c3", "c4"):
+        assert calls.loc[c, ["overruled_start", "overruled_end"]].tolist() == [-1, -1], c
+
+
+def test_read_calls_without_overruled_columns(tmp_path):
+    """A summary made before these columns existed (satellite engine 0.8, or an older --satellite-dir) is read, and
+    nothing is overruled anywhere."""
+    (tmp_path / "S.tsv").write_text(
+        "chrom\tchrom_len\tcen_start\tcen_end\tevidence\tconfidence\tflags\tmain_family\tcen_sat_bp\tte_clade\t"
+        "te_core_start\tte_core_end\talt_start\talt_end\nc1\t1000\t151\t300\tretrotransposon\tmedium\t"
+        "satellite_away_from_core\t.\t0\tCRM\t151\t300\t.\t.\nc2\t900\t.\t.\tnone\tnone\t.\t.\t.\t.\t.\t.\t.\t.\n")
+    calls = seqcalls.read_calls(tmp_path / "S.tsv", {"c1": 1000, "c2": 900})
+    assert list(calls.columns[-2:]) == ["overruled_start", "overruled_end"]
+    assert calls.overruled_start.tolist() == [-1, -1] and calls.overruled_end.tolist() == [-1, -1]
+    assert calls.start.tolist() == [150, -1]                                          # the rest is read as before
+
+
+def test_overruled_array_is_reported_and_never_moves_the_call(tmp_path):
+    """The array a CRM core replaced goes to seq_overruled_*, from the summary to the fused table, and nowhere else:
+    fusion lets validated Hi-C move a call to the alternative cluster (hic_chose_alt), so a replaced array kept in
+    seq_alt_* would change calls. Here the strong Hi-C peak sits on the replaced array: the decision is the one made
+    without it."""
+    from cenfuse.pipeline import Run
+    head = ("chrom\tchrom_len\tcen_start\tcen_end\tevidence\tconfidence\tflags\tmain_family\tcen_sat_bp\tte_clade\t"
+            "te_core_start\tte_core_end\talt_start\talt_end\toverruled_start\toverruled_end\toverruled_family\n")
+    row = ("c1\t50000000\t1000001\t1400000\tretrotransposon\thigh\tsatellite_away_from_core\t.\t0\tCRM\t1000001\t"
+           "1400000\t.\t.\t{}\n")
+    tables, decisions = [], []
+    for k, over in enumerate(("30000001\t30250000\tG_sat01_171", ".\t.\t.")):
+        d = tmp_path / str(k)
+        d.mkdir()
+        (d / "G_centromere_summary.tsv").write_text(head + row.format(over))
+        (d / "G_satellite_arrays.gff").write_text("##gff-version 3\n")
+        evs = Run.evidences(None, seqcalls.read(d, "G", {"c1": 50_000_000}), {}, None)
+        evs[0].hic = dict(bin_size=BIN, gate_pass=True, anch_strong=True, anch_level="high", anch_peak_start=30_000_000,
+                          anch_peak_end=30_000_000 + BIN, anch_core_start=30_000_000, anch_core_end=30_000_000 + BIN)
+        decisions.append(fuse.decide(evs[0]))
+        tables.append(fuse.table(evs, decisions[-1:]))
+    with_over, without = decisions
+    same = ("call", "relation", "confidence", "source", "support", "against", "flags", "second")
+    assert {k: with_over[k] for k in same} == {k: without[k] for k in same}
+    assert "hic_chose_alt" not in with_over["flags"]
+    assert with_over["call"] == (1_000_000, 1_400_000) and with_over["relation"] == "contested"
+    r = tables[0].iloc[0]
+    assert (r.seq_overruled_start, r.seq_overruled_end) == (30_000_001, 30_250_000)   # 1-based like seq_start
+    assert (r.seq_alt_start, r.seq_alt_end, r.offset_bp) == (".", ".", ".")
+    r = tables[1].iloc[0]
+    assert (r.seq_overruled_start, r.seq_overruled_end) == (".", ".")
+    cols = list(tables[0].columns)
+    assert cols[cols.index("seq_alt_end") + 1:][:2] == ["seq_overruled_start", "seq_overruled_end"]
+
+
 def test_telomere_unit_found_de_novo(tmp_path):
     import random
     from cenfuse import telomere

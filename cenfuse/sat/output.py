@@ -14,7 +14,7 @@ SUMMARY_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "cen_len", "eviden
                 "main_family", "main_family_bp", "cen_sat_bp", "sat_fraction", "n_arrays", "largest_array_bp",
                 "n_monomers", "mean_identity", "hor_monomers", "hor_fraction", "top_tandem_hor", "n_gaps",
                 "gap_bp", "n_genes", "gene_ratio", "other_tandem_bp", "te_clade", "te_core_start", "te_core_end",
-                "alt_start", "alt_end"]
+                "alt_start", "alt_end", "overruled_start", "overruled_end", "overruled_family"]
 FAMTAB_COLS = ["family", "fam_id", "superfamily", "consensus_len", "hmm_mode", "rdna", "genome", "class", "role", "strength",
                "defines", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
                "median_main_bp", "eligible", "dominant", "in_ltr", "ltr_clade", "reason"]
@@ -207,7 +207,12 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
                          te_core_start=int(rg["te_core_start"]) + 1 if rg.get("te_core_start", ".") != "." else ".",
                          te_core_end=rg.get("te_core_end", "."),
                          alt_start=int(rg["alt_start"]) + 1 if rg.get("alt_start", ".") not in (".", "") else ".",
-                         alt_end=rg.get("alt_end", ".") or "."))
+                         alt_end=rg.get("alt_end", ".") or ".",
+                         overruled_start=int(rg["overruled_start"]) + 1
+                         if rg.get("overruled_start", ".") not in (".", "") else ".",   # regions of 0.8: absent
+                         overruled_end=rg.get("overruled_end", ".") or ".",
+                         overruled_family=nm(rg["overruled_family"])
+                         if rg.get("overruled_family", ".") not in (".", "") else "."))
     pd.DataFrame(rows, columns=SUMMARY_COLS).to_csv(outdir / f"{g.name}_centromere_summary.tsv", sep="\t", index=False)
     hu = d["hor_units"].copy()
     hu["family"] = hu.family.map(nm)
