@@ -52,7 +52,7 @@ def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
     when the genome cannot be analyzed: methylation is optional evidence, so it never stops the run."""
     try:
         fai = io.read_fai(f"{g.fasta}.fai")                 # the whole assembly: genome size G for D
-        names, G, D = track.chromosome_set(fai)
+        names, G, D = track.chromosome_set(fai, n=len(g.chroms))     # D divides by the chromosomes cenfuse analyzes
         chroms = {c: fai[c] for c in names if c in g.chroms}
         if not chroms:
             log.warning(f"methylation {g.name}: no chromosome long enough for the methylation engine (>= {mp.MIN_LEN_D} D); skipped")

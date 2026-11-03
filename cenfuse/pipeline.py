@@ -32,7 +32,7 @@ from .meth import params as mp
 from .meth import track as mtrack
 from .params import ANCHOR_LEVELS, HIC_MAX_THREADS, KARYO_WINDOW
 from .sat.genomes import load_gene_gff
-from .sat.params import Params
+from .sat.params import Params, parse_borrow
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
@@ -132,7 +132,11 @@ class Run:
         self.seed_engine, self.seed_cache, self.classify_from = seed_engine, seed_cache, classify_from
         self.force = force
         self.sat_params = sat_params or {}           # tests only: satellite-engine Params overrides (scaled-down constants)
-        self.genomes = inputs.discover(self.gdir)
+        try:
+            legacy = frozenset(parse_borrow(classify_from))      # --classify-from targets keep the 0.8 chromosome rule
+        except SatelliteError as e:
+            raise CenfuseError(str(e)) from None
+        self.genomes = inputs.discover(self.gdir, legacy=legacy)
         self._prep = {}
         self._nors = {}
         self._chg_ok = {}                            # genome -> the CHG methylation line can run (tes/, CHG files)
@@ -452,7 +456,8 @@ class Run:
         if samples and g.tes and not self._chg_ok[g.name]:       # without tes/ the input note says it already
             log.info(f"{g.name}: the CHG methylation line needs a CHG file for every sample: skipped" +
                      ("; CG files locate kinetochores (CpG line)" if any("CG" in s.files for s in samples) else ""))
-        D = mtrack.chromosome_set(mio.read_fai(f"{g.fasta}.fai"))[2]
+        # the same D as the methylation line's (methfuse.prepare): it divides by the chromosomes cenfuse analyzes
+        D = mtrack.chromosome_set(mio.read_fai(f"{g.fasta}.fai"), n=len(g.chroms))[2]
         avoid = avoid_intervals(seq, D)
         geno = {}
         if samples:

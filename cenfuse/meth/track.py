@@ -15,23 +15,56 @@ def d_formula(genome_size: float, n_chrom: int) -> float:
     return params.D_REF_BP * (genome_size / params.D_REF_G) ** params.D_SLOPE / n_chrom
 
 
-def chromosome_count(lengths) -> int:
-    """Chromosomes in a chromosome-level assembly: the sequences above the first >= GAP_FOLD drop in sorted length
-    once half the assembly is accounted for (chromosomes hold most of it; unplaced scaffolds are far shorter).
-    Every sequence when there is no such drop."""
+def _half_index(L: np.ndarray) -> int:
+    """Index of the sequence that takes the running total of L (sorted descending) to half the assembly."""
+    return int(np.searchsorted(np.cumsum(L), L.sum() / 2))
+
+
+def tenfold_count(lengths) -> int:
+    """Chromosomes in a chromosome-level assembly by the rule of cenfuse 0.8: the sequences above the first >= GAP_FOLD
+    drop in sorted length once half the assembly is accounted for (chromosomes hold most of it; unplaced scaffolds are
+    far shorter). Every sequence when there is no such drop. Kept for the --classify-from targets and for old output
+    folders; a gradual scaffold tail has no such drop, so it takes the whole tail (chromosome_count)."""
     L = np.sort(np.asarray(list(lengths), float))[::-1]
-    half = int(np.searchsorted(np.cumsum(L), L.sum() / 2))
+    half = _half_index(L)
     drop = L[:-1] >= params.GAP_FOLD * L[1:]
     drop[:half] = False
     hit = np.flatnonzero(drop)
     return int(hit[0]) + 1 if hit.size else len(L)
 
 
-def chromosome_set(fai: dict[str, int]) -> tuple[list[str], float, float]:
+def _median_cut(L: np.ndarray) -> int:
+    """First index k, at or after the half index (and not 0), whose length is under 1/GAP_FOLD of the median of the k
+    longer sequences; len(L) when there is none. L is sorted descending, so each median is read off two positions
+    ((L[(k-1)//2] + L[k//2]) / 2, what np.median gives): one pass for assemblies of 10^6 sequences."""
+    k = np.arange(max(_half_index(L), 1), len(L))
+    hit = np.flatnonzero(params.GAP_FOLD * L[k] < (L[(k - 1) // 2] + L[k // 2]) / 2)
+    return int(k[hit[0]]) if hit.size else len(L)
+
+
+def chromosome_count(lengths) -> int:
+    """Chromosomes in a chromosome-level assembly (cenfuse 0.9): the tenfold_count set, unless its small members form a
+    gradual scaffold tail. Small = under 1/GAP_FOLD of the median length of the sequences before them (the first is at
+    _median_cut); they are a tail when they span a GAP_FOLD range or more (no clean gap separates them), and the set
+    then ends at the first of them. A few small sequences of similar size before a clean gap stay (dot chromosomes:
+    D. melanogaster chr4, chicken microchromosomes; the median cut alone drops them).
+    Why: 383 assemblies: the 0.8 set on all 234 benchmark and batch genomes; on 121 polyploid assemblies with project
+    chromosome lists, extra sequences 5,614 -> 31, none missing."""
+    L = np.sort(np.asarray(list(lengths), float))[::-1]
+    n0, n2 = tenfold_count(L), _median_cut(L)
+    if n2 >= n0:
+        return n0
+    small = L[n2:n0]
+    return n0 if small.max() < params.GAP_FOLD * small.min() else n2
+
+
+def chromosome_set(fai: dict[str, int], n: int | None = None) -> tuple[list[str], float, float]:
     """Analysed chromosomes = sequences >= MIN_LEN_D x D, where D = d_formula(G, n), G = all sequences in the .fai
-    and n = chromosome_count. Returns (names in .fai order, G, D); names is empty when nothing is long enough."""
+    and n = chromosome_count unless given (cenfuse passes the size of its own chromosome set: a --classify-from
+    target's 0.8 set, a set the user listed). Returns (names in .fai order, G, D); names is empty when nothing is
+    long enough."""
     G = float(sum(fai.values()))
-    D = d_formula(G, chromosome_count(fai.values()))
+    D = d_formula(G, chromosome_count(fai.values()) if n is None else n)
     return [c for c, L in fai.items() if L >= params.MIN_LEN_D * D], G, D
 
 

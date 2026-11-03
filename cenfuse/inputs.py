@@ -3,27 +3,34 @@ and the chromosome set every evidence line uses.
 
 The chromosome set: an assembly also holds unplaced scaffolds, and every line needs whole chromosomes (the satellite
 engine's prevalence tests count chromosomes; Hi-C and methylation need chromosome-scale sequences). cenfuse takes the
-methylation engine's rule (the sequences above the first tenfold drop in sorted length once half the assembly is accounted for; all
-sequences when there is no such drop) and hands the same set to all three engines through a view of the genome
-directory: the FASTA is a symlink and its .fai lists the chromosomes only, so nothing is copied.
+sequences GENOME_DIR/<genome>.chromosomes.txt lists (one name per line), else the methylation engine's rule
+(track.chromosome_count: the sequences above the first tenfold drop in sorted length once half the assembly is
+accounted for, all sequences when there is no such drop, unless the small ones among them are a gradual scaffold tail;
+the --classify-from targets keep cenfuse 0.8's rule, which has no tail test). It hands the same set to all three
+engines through a view of the genome directory: the FASTA is a symlink and its .fai lists the chromosomes only, so
+nothing is copied.
 
 Hi-C libraries: hic/<g>.tsv lists them (columns sample, file; sample names the plant, as in the methylation table),
 or the lone hic/<g>.<ext> is one library named 'hic' (docs/plants.md)."""
 from __future__ import annotations
 
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 
-from .meth.track import chromosome_count
+from .meth.track import chromosome_count, tenfold_count
 from .sat.genomes import GENE_EXT, _fasta_name, load_fai
 from .sat.te import TE_EXT
 from .sat.util import SatelliteError
 from .util import CenfuseError, log
 
 HIC_EXT = (".pairs.gz", ".pairs", ".mcool", ".cool")
+CHROM_LIST = ".chromosomes.txt"      # GENOME_DIR/<genome>.chromosomes.txt: the user's chromosomes, one name per line
+RULE_SOURCE = "length rule"          # GenomeInputs.chrom_source: what set the chromosomes
+LEGACY_SOURCE = "length rule of cenfuse 0.8 (--classify-from target)"
 # Hi-C files cenfuse does not read, and how to make one it does (README recipe): better a clear stop than a silent run
 # without the Hi-C the user gave
 HIC_CONVERT = {".hic": "convert it: hictk convert {f} {stem}.mcool (or hic2cool convert {f} {stem}.mcool)",
@@ -48,6 +55,7 @@ class GenomeInputs:
     fasta: Path                     # the user's FASTA
     fai: dict                       # every sequence in its .fai (name -> length), file order
     chroms: dict                    # the chromosome set (name -> length), .fai order
+    chrom_source: str = RULE_SOURCE     # what set it: RULE_SOURCE, LEGACY_SOURCE or the list file's name
     genes: Path | None = None
     tes: Path | None = None
     hic: list = field(default_factory=list)     # HicLibrary per library
@@ -110,14 +118,68 @@ def hic_libraries(folder: Path, name: str) -> list:
     return out
 
 
-def chromosome_set(fai: dict) -> dict:
-    """The n longest sequences, n = the methylation engine's chromosome count (tenfold length gap), in .fai order."""
-    n = chromosome_count(fai.values())
+def chromosome_set(fai: dict, legacy: bool = False) -> dict:
+    """The n longest sequences, in .fai order; n = the methylation engine's chromosome count (track.chromosome_count),
+    or cenfuse 0.8's (track.tenfold_count) when legacy: a --classify-from target is a contig assembly, with no
+    chromosome/scaffold distinction for the tail test to find."""
+    n = (tenfold_count if legacy else chromosome_count)(fai.values())
     keep = set(sorted(fai, key=lambda c: -fai[c])[:n])
     return {c: L for c, L in fai.items() if c in keep}
 
 
-def discover(genome_dir) -> list[GenomeInputs]:
+def _quoted_names(names: list, k: int = 5) -> str:
+    """The first k names, quoted, and how many more."""
+    return ", ".join(repr(n) for n in names[:k]) + (f" and {len(names) - k} more" if len(names) > k else "")
+
+
+def read_chromosome_list(path: Path, fai: dict) -> dict:
+    """The chromosome set the user lists in <genome>.chromosomes.txt: one sequence name per line; blank lines, lines
+    starting with '#', CRLF, a byte-order mark and blanks around a name are accepted (written by hand or on Windows).
+    Returns name -> length in .fai order. A name absent from the .fai, a name listed twice and a list without names
+    stop the run: a list is the user's decision, never guessed at."""
+    try:
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as e:                  # e.g. PowerShell's default UTF-16
+        raise CenfuseError(f"{path}: not UTF-8 text ({e}); save the list as plain UTF-8 text") from None
+    except OSError as e:
+        raise CenfuseError(f"{path}: cannot read ({e})") from None
+    names = [x for x in (line.strip() for line in text.splitlines()) if x and not x.startswith("#")]
+    if not names:
+        raise CenfuseError(f"{path}: no sequence names (one per line; blank lines and # comments are ignored)")
+    twice = [n for n, k in Counter(names).items() if k > 1]
+    if twice:
+        raise CenfuseError(f"{path}: listed more than once: {_quoted_names(twice)}")
+    unknown = [n for n in names if n not in fai]
+    if unknown:
+        raise CenfuseError(f"{path}: not sequences of the genome's .fai: {_quoted_names(unknown)}")
+    keep = set(names)
+    return {c: L for c, L in fai.items() if c in keep}
+
+
+def _chromosomes(gdir: Path, name: str, fai: dict, legacy: bool) -> tuple[dict, str, list]:
+    """A genome's chromosome set, what set it (GenomeInputs.chrom_source), and the notes that say so for the log and
+    the report: the user's <genome>.chromosomes.txt, else the length rule (cenfuse 0.8's when legacy)."""
+    listed = gdir / f"{name}{CHROM_LIST}"
+    from_list = listed.is_file()
+    if from_list:
+        chroms, source = read_chromosome_list(listed, fai), listed.name
+    else:
+        chroms, source = chromosome_set(fai, legacy), LEGACY_SOURCE if legacy else RULE_SOURCE
+    dropped, left_bp = len(fai) - len(chroms), sum(fai.values()) - sum(chroms.values())
+    if from_list:
+        note = f"chromosome set from {source}: {len(chroms)} of {len(fai)} sequences"
+        if dropped:
+            note += f"; the other {dropped} sequences ({left_bp:,} bp) are not analyzed"
+        return chroms, source, [note]
+    notes = [f"chromosome set by the {source}"]
+    if dropped:
+        notes.append(f"{dropped} shorter sequences (unplaced scaffolds; {left_bp:,} bp) are not analyzed")
+    return chroms, source, notes
+
+
+def discover(genome_dir, legacy: frozenset = frozenset()) -> list[GenomeInputs]:
+    """The genomes of GENOME_DIR with their inputs and chromosome sets. legacy: the genomes that keep cenfuse 0.8's
+    chromosome rule (the --classify-from targets); a <genome>.chromosomes.txt overrides either rule."""
     gdir = Path(genome_dir)
     if not gdir.is_dir():
         raise CenfuseError(f"{gdir}: not a directory")
@@ -136,20 +198,21 @@ def discover(genome_dir) -> list[GenomeInputs]:
             fai = load_fai(f)
         except SatelliteError as e:
             raise CenfuseError(str(e)) from None
-        g = GenomeInputs(name, f, fai, chromosome_set(fai))
+        chroms, source, notes = _chromosomes(gdir, name, fai, name in legacy)
+        g = GenomeInputs(name, f, fai, chroms, source, notes=notes)
         g.genes = _one(gdir / "genes", name, GENE_EXT)
         g.tes = _one(gdir / "tes", name, TE_EXT)
         g.hic = hic_libraries(gdir / "hic", name)
         g.meth = _one(gdir / "meth", name, (".tsv",))
         g.exclude = _one(gdir / "meth", name, (".exclude.bed",))
-        dropped = len(fai) - len(g.chroms)
-        if dropped:
-            g.notes.append(f"{dropped} shorter sequences (unplaced scaffolds; {sum(fai.values()) - sum(g.chroms.values()):,} bp)"
-                           f" are not analyzed")
         if g.meth and not g.tes:
             g.notes.append("meth/ without tes/: the CHG line needs LTR retrotransposon classes and is skipped; CG "
                            "files still locate kinetochores (CpG line)")
         out.append(g)
+    for f in sorted(gdir.iterdir()):                 # a list under a misspelled genome name would be ignored silently
+        if f.is_file() and f.name.endswith(CHROM_LIST) and f.name[:-len(CHROM_LIST)] not in seen:
+            log.warning(f"{f}: no genome {f.name[:-len(CHROM_LIST)]} in {gdir} (genomes: {', '.join(sorted(seen))}); "
+                        f"not used")
     return out
 
 
