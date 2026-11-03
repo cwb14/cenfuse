@@ -87,8 +87,8 @@ def quick_pages(monkeypatch):
 
 def test_overview_keeps_one_page_open_at_a_time(tmp_path, monkeypatch, quick_pages):
     """A genome of more pages than matplotlib's open-figure limit (20; the 670-sequence Cissus run had 28) is drawn,
-    saved and closed one page at a time: no "More than 20 figures" RuntimeWarning, at most one figure open at any
-    save (two allowed: a page drawn ahead), none left, and every page in the PDF."""
+    saved and closed one page at a time: no "More than 20 figures" RuntimeWarning, exactly one figure open at every
+    save (a page is closed before the next is drawn), none left, and every page in the PDF."""
     n_pages, n_legend_pages = 25, 2                           # the figure pages; the short and the long legend
     f = _fig(dict(nors=[], five_s=[]), n=n_pages * plot.ROWS_PER_PAGE)
     open_at_save = []
@@ -110,7 +110,8 @@ def test_overview_keeps_one_page_open_at_a_time(tmp_path, monkeypatch, quick_pag
     finally:
         plt.close("all")                                      # a leak fails this test, not the next one
     assert len(open_at_save) >= n_pages + n_legend_pages      # the spy saw every save
-    assert max(open_at_save) <= 2 and left == []
+    # a PDF page is counted twice (PdfPages.savefig calls Figure.savefig), both times with that page alone open
+    assert max(open_at_save) == 1 and left == []
     pdf = (tmp_path / "cenfuse_overview.pdf").read_bytes()
     assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == n_pages + n_legend_pages     # page objects, not /Pages
     assert (tmp_path / "g.overview.png").is_file()

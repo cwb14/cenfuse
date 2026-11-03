@@ -131,6 +131,10 @@ def unit_consensus(units: list, period: int) -> str:
     return _POA.msa(ok, out_cons=True, out_msa=False).cons_seq[0]
 
 
+class ChunkFailed(SatelliteError):
+    """FasTAN crashed on every piece of a chunk longer than twice the split overlap: no part of it was searched."""
+
+
 def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: list | None = None,
                overlap: int = Params.seed_overlap) -> list:
     """Seed-table rows (seeds.COLS) of the FasTAN arrays of one chunk at offset, units up to SEED_MAX_PERIOD (longer
@@ -140,8 +144,25 @@ def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: l
     retried, recursively (seeds.dedupe merges what both halves report, as for chunk overlaps); with the overlap
     >= 2 x SEED_MAX_PERIOD no array of a seed-length unit is lost at the cut. A piece of at most 2 x overlap that still
     crashes is skipped with a warning. Each crash is appended to events as (chrom, start, end, signal name, 'split' |
-    'skipped'), 0-based absolute. Any other failure (an exit status, a kill) stops the run."""
-    seq = seq.upper()
+    'skipped'), 0-based absolute. Any other failure (an exit status, a kill) stops the run, and so does a chunk longer
+    than 2 x overlap of which no piece was searched (ChunkFailed; pieces without bases are never searched)."""
+    events = [] if events is None else events
+    first, searched = len(events), []
+    rows = _piece_rows(chrom, seq.upper(), offset, tmpdir, trims, events, overlap, searched)
+    if not searched and len(events) > first and len(seq) > 2 * overlap:
+        # FasTAN's known crash is local to one array (Oryza minuta lost 0 bp after 4 splits), so a whole chunk
+        # failing means FasTAN is broken
+        sigs = ", ".join(sorted({e[3] for e in events[first:]}))
+        raise ChunkFailed(f"FasTAN crashed ({sigs}) on every piece of {chrom}:{offset:,}-{offset + len(seq):,}, down "
+                          f"to {2 * overlap:,} bp, so none of it was searched: its known crash is local to one array, "
+                          f"so FasTAN itself is failing; check it, or rerun with --seed-engine trf")
+    return rows
+
+
+def _piece_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: list, overlap: int,
+                searched: list) -> list:
+    """chunk_rows on one piece of a chunk (seq upper-cased); the offset of each piece FasTAN finishes goes to
+    searched."""
     if not any(b in seq for b in "ACGT"):
         return []                                    # FAtoGDB rejects a sequence without bases
     try:
@@ -155,15 +176,14 @@ def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: l
         if len(seq) <= 2 * overlap:
             log.warning(f"seeds: FasTAN crashed ({name}) on {where} ({len(seq):,} bp), too short to split further: "
                         f"skipped, no seeds from this piece")
-            if events is not None:
-                events.append((chrom, offset, stop, name, "skipped"))
+            events.append((chrom, offset, stop, name, "skipped"))
             return []
         log.info(f"seeds: FasTAN crashed ({name}) on {where}; retrying its two halves, overlapping by {overlap:,} bp")
-        if events is not None:
-            events.append((chrom, offset, stop, name, "split"))
+        events.append((chrom, offset, stop, name, "split"))
         h, half = len(seq) // 2, overlap // 2
-        return chunk_rows(chrom, seq[:h + half], offset, tmpdir, trims, events, overlap) + \
-            chunk_rows(chrom, seq[h - half:], offset + h - half, tmpdir, trims, events, overlap)
+        return _piece_rows(chrom, seq[:h + half], offset, tmpdir, trims, events, overlap, searched) + \
+            _piece_rows(chrom, seq[h - half:], offset + h - half, tmpdir, trims, events, overlap, searched)
+    searched.append(offset)
     out = []
     for beg, end, unit, diff, cuts in parse_ano(ano):
         if unit > SEED_MAX_PERIOD:

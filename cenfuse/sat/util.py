@@ -42,9 +42,11 @@ _FLOAT_NOISE = 1e-12          # 3 x 0.1 != 0.3, and sums of float work are off b
 
 class Progress:
     """INFO lines for a long job whose work is done in pieces on many threads: one line each time another `step` of
-    the work is done, and one if `heartbeat` seconds pass without a line (checked when work is added), so the log never
-    goes silent for hours. Each line gives the elapsed time and the time left: the work left is assumed to cost per
-    unit what the work done did, which jobs of unequal cost only approximate, so the line says it is an estimate.
+    the work is done, and a heartbeat line when `heartbeat` seconds (default: an hour) pass without one: due at least
+    hourly, but checked only when a piece of work finishes (add), so while every thread is busy with a long piece the
+    log can stay quiet for longer. Each line gives the elapsed time and the time left: the work left is assumed to
+    cost per unit what the work done did, which jobs of unequal cost only approximate, so the line says it is an
+    estimate.
     The caller chooses the unit of work and adds it as each piece finishes, in whatever order they finish. A total
     of 0 (nothing to do) is silent."""
 

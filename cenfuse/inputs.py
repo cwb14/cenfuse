@@ -172,7 +172,12 @@ def _chromosomes(gdir: Path, name: str, fai: dict, legacy: bool) -> tuple[dict, 
             note += f"; the other {dropped} sequences ({left_bp:,} bp) are not analyzed"
         return chroms, source, [note]
     notes = [f"chromosome set by the {source}"]
-    if dropped:
+    if dropped and not legacy and len(chroms) < tenfold_count(fai.values()):
+        # the 0.9 tail cut fired: length cannot tell a small chromosome cut with the tail from a scaffold, so say so
+        notes.append(f"the set ends at a gradual tail of short sequences: {dropped} shorter sequences ({left_bp:,} bp) "
+                     f"are not analyzed, and the shortest one kept is {min(chroms.values()):,} bp; if chromosomes were "
+                     f"left out, list every chromosome in {name}{CHROM_LIST}")
+    elif dropped:
         notes.append(f"{dropped} shorter sequences (unplaced scaffolds; {left_bp:,} bp) are not analyzed")
     return chroms, source, notes
 

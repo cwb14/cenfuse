@@ -1,5 +1,6 @@
 """S1: tandem-repeat seeds on chunked chromosomes, from FasTAN (default) or TRF, cached by genome md5. Where FasTAN
-crashes on a piece, fastan.chunk_rows recovers it and the crashed intervals are listed beside the cache file."""
+crashes on a piece, fastan.chunk_rows recovers it and the crashed intervals are listed beside the cache file; a chunk
+FasTAN searched no piece of stops the run."""
 import gzip
 import hashlib
 import json
@@ -15,7 +16,7 @@ import pandas as pd
 import pysam
 
 from . import fastan, trf
-from .util import log, md5_file, union_bp
+from .util import SatelliteError, log, md5_file, union_bp
 
 ENGINES = {"fastan": fastan, "trf": trf}
 POLL = 15   # seconds between checks while another process holds a genome's seed lock
@@ -36,17 +37,22 @@ def chunks(chroms: dict, size: int, overlap: int):
 
 
 def _run_chunk(job):
-    """(fasta, seed rows, crash events) of one chunk. Only FasTAN crashes by signal on some arrays and recovers from
-    it (fastan.chunk_rows splits the piece); TRF has no such failure to route around."""
+    """(fasta, seed rows, crash events, failure) of one chunk. Only FasTAN crashes by signal on some arrays and
+    recovers from it (fastan.chunk_rows splits the piece); TRF has no such failure to route around. failure: the
+    message of a chunk FasTAN searched no piece of (fastan.ChunkFailed), returned with its crash events so the run can
+    list them before it stops; None otherwise."""
     fasta, chrom, s, e, tmpdir, engine, opt, overlap = job
     with pysam.FastaFile(str(fasta)) as fa:
         seq = fa.fetch(chrom, s, e)
     events = []
     if engine == "fastan":
-        rows = fastan.chunk_rows(chrom, seq, s, tmpdir, opt, events, overlap)
+        try:
+            rows = fastan.chunk_rows(chrom, seq, s, tmpdir, opt, events, overlap)
+        except fastan.ChunkFailed as err:
+            return str(fasta), [], events, str(err)
     else:
         rows = ENGINES[engine].chunk_rows(chrom, seq, s, tmpdir, opt)
-    return str(fasta), rows, events
+    return str(fasta), rows, events, None
 
 
 def dedupe(rows: list, tol: float = 0) -> list:
@@ -179,7 +185,8 @@ def _write_cache(path: Path, g, rows: list, tol: float, events=()) -> None:
 
 def _compute(todo: dict, cache_dir: Path, threads: int, p) -> None:
     """Jobs run genome by genome and results arrive in job order, so each genome is cached as soon as its
-    last chunk is back: a later failure loses only the unfinished genomes."""
+    last chunk is back: a later failure loses only the unfinished genomes. A chunk FasTAN searched no piece of stops
+    the run once its genome's crashes so far are in the crash table, which the error names (no seed table is cached)."""
     engine = ENGINES[p.seed_engine]
     tmp = tempfile.mkdtemp(prefix="seeds_tmp_", dir=cache_dir)
     try:
@@ -196,10 +203,14 @@ def _compute(todo: dict, cache_dir: Path, threads: int, p) -> None:
         for fa in [fa for fa, n in left.items() if not n]:          # only zero-length sequences: nothing to run
             _write_cache(*target[fa], rows.pop(fa), engine.DUP_TOL)
         with ProcessPoolExecutor(threads) as ex:
-            for i, (fa, r, ev) in enumerate(ex.map(_run_chunk, jobs, chunksize=1), 1):
+            for i, (fa, r, ev, failed) in enumerate(ex.map(_run_chunk, jobs, chunksize=1), 1):
                 rows[fa].extend(r)
                 if ev:
                     crashes[fa].append(ev)
+                if failed:
+                    path, g = target[fa]
+                    _write_crashes(crash_path(path), g.name, crashes[fa])
+                    raise SatelliteError(f"{failed} (crash table: {crash_path(path)})")
                 left[fa] -= 1
                 log.debug(f"seeds: chunk {i}/{len(jobs)}")
                 if not left[fa]:

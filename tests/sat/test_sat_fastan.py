@@ -226,12 +226,85 @@ def test_a_piece_that_always_crashes_is_skipped(monkeypatch, tmp_path, caplog):
 @pytest.mark.parametrize("n, actions", [(20_000, ["skipped"]), (20_001, ["split", "skipped", "skipped"])])
 def test_a_piece_is_split_only_while_longer_than_twice_the_overlap(monkeypatch, tmp_path, n, actions):
     """FasTAN dies on every piece. At exactly 2 x overlap the chunk is skipped as it is; one base more and it is cut
-    in two halves (15,000 and 15,001 bp), which are then skipped."""
+    in two halves (15,000 and 15,001 bp), which are then skipped, and since no piece of a chunk longer than
+    2 x overlap was searched, the run stops (ChunkFailed, below)."""
     seq = dna(np.random.default_rng(4), n)
     crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
     events = []
-    assert fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000) == []
+    if n > 2 * 10_000:
+        with pytest.raises(fastan.ChunkFailed):
+            fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000)
+    else:
+        assert fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000) == []
     assert [e[4] for e in events] == actions
+
+
+# ---- a chunk FasTAN searched no piece of stops the run: its known crash is local to one array, so a whole chunk
+# failing means FasTAN itself is failing, and a run without the chunk's seeds could read as a satellite-free genome
+
+def _searched(done: list, n: int) -> np.ndarray:
+    covered = np.zeros(n, bool)
+    for _, a, b in done:
+        covered[a:b] = True
+    return covered
+
+
+def test_a_chunk_where_every_piece_crashes_stops_the_run(monkeypatch, tmp_path, caplog):
+    """FasTAN dies on every piece of a 200-kb chunk at 7 Mb: every piece is split down to the skip floor and skipped,
+    so none of the chunk was searched. Instead of going on without its seeds, the run stops with an error that names
+    the chunk and suggests TRF; the crashes up to then are recorded as usual (the skipped pieces cover the chunk)."""
+    monkeypatch.setattr(log, "propagate", True)
+    seq = dna(np.random.default_rng(5), 200_000)
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
+    events = []
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        with pytest.raises(SatelliteError, match=r"every piece of c1:7,000,000-7,200,000") as err:
+            fastan.chunk_rows("c1", seq, 7_000_000, tmp_path, False, events, 10_000)
+    assert isinstance(err.value, fastan.ChunkFailed) and "SIGABRT" in str(err.value)
+    assert "--seed-engine trf" in str(err.value)
+    assert done == [] and events[0] == ("c1", 7_000_000, 7_200_000, "SIGABRT", "split")
+    skipped = [(a - 7_000_000, b - 7_000_000) for _, a, b, _, action in events if action == "skipped"]
+    assert all(b - a <= 2 * 10_000 for a, b in skipped)
+    assert _searched([("c1", a, b) for a, b in skipped], 200_000).all()
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == len(skipped)
+
+
+def test_one_crashing_piece_among_searched_ones_gives_rows_as_before(monkeypatch, tmp_path):
+    """FasTAN dies only on the pieces that hold one position, the middle of a 200-kb chunk (so both halves of the
+    first cut hold it): the pieces at the skip floor that hold it are skipped and the rest of the chunk is searched,
+    so the chunk gives its rows and the run goes on."""
+    seq = dna(np.random.default_rng(6), 200_000)
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: a <= 100_000 < b)
+    events = []
+    rows = fastan.chunk_rows("c1", seq, 7_000_000, tmp_path, False, events, 10_000)
+    assert len(rows) == len(done) > 0
+    skipped = [("c1", a - 7_000_000, b - 7_000_000) for _, a, b, _, action in events if action == "skipped"]
+    assert skipped and all(a <= 100_000 < b and b - a <= 2 * 10_000 for _, a, b in skipped)
+    assert not (~_searched(done, 200_000) & ~_searched(skipped, 200_000)).any()     # only skipped pieces are lost
+
+
+def test_a_short_crashing_sequence_is_skipped_with_a_warning(monkeypatch, tmp_path, caplog):
+    """A lone sequence (or chunk) of at most 2 x overlap that crashes is skipped with a warning, as before: it is too
+    short to split, and a crash on one short piece says nothing about the rest of the genome."""
+    monkeypatch.setattr(log, "propagate", True)
+    seq = dna(np.random.default_rng(7), 15_000)
+    crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
+    events = []
+    with caplog.at_level(logging.WARNING, logger="cenfuse-sat"):
+        assert fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000) == []
+    assert events == [("c1", 0, 15_000, "SIGABRT", "skipped")]
+    assert [r.getMessage() for r in caplog.records if "c1:0-15,000" in r.getMessage()]
+
+
+def test_pieces_without_bases_are_not_searched_ones(monkeypatch, tmp_path):
+    """A 300-kb chunk that is N apart from its first 15 kb, where FasTAN dies: the N pieces never reach FasTAN, so no
+    piece of the chunk was searched, and the run stops as for a chunk FasTAN crashed on everywhere."""
+    seq = dna(np.random.default_rng(8), 15_000) + "N" * 285_000
+    done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
+    events = []
+    with pytest.raises(fastan.ChunkFailed, match="c1:0-300,000"):
+        fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000)
+    assert done == [] and [e[4] for e in events].count("skipped") >= 1
 
 
 @pytest.mark.parametrize("code", [1, -signal.SIGKILL, -signal.SIGTERM, -signal.SIGINT])

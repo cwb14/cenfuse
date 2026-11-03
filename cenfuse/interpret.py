@@ -4,9 +4,9 @@ here changes a call.
 
 - basis: the sequence evidence (satellite family and unit, its bp in the call; a retrotransposon core), a move or
   placement by validated 3D lines and its second line, each supporting line, the CpG kinetochore.
-- caveat: each confidence-lowering flag and opposing line, gaps in the call, and the input that would decide where
-  cenfuse's own tests say which one can (CENP-A/CENH3 data for two arrays of one satellite: neither Hi-C nor CpG
-  methylation chooses between them when no mappable bins separate them)."""
+- caveat: the array a TE core overruled, each confidence-lowering flag and opposing line, gaps in the call, and the
+  input that would decide where cenfuse's own tests say which one can (CENP-A/CENH3 data for two arrays of one
+  satellite: neither Hi-C nor CpG methylation chooses between them when no mappable bins separate them)."""
 from __future__ import annotations
 
 from datetime import date
@@ -149,6 +149,10 @@ def caveat(r, ctx: dict) -> str:
                 (f" -> {' or '.join(need)} can place one" if need else ""))
     flags, sflags, against = set(_toks(r.flags)), set(_toks(r.seq_flags)), _toks(r.against)
     out, hint = [], None
+    over = _int(getattr(r, "seq_overruled_start", None)), _int(getattr(r, "seq_overruled_end", None))
+    if None not in over:      # the call a TE core replaced: a satellite or a long-unit array (older tables: absent)
+        out.append(f"the tandem array at {interval(*over)} was overruled by the "
+                   f"{r.te_clade if _toks(r.te_clade) else 'TE'} core")
     te_iv = (_int(r.te_start), _int(r.te_end))
     alt_iv = (_int(r.seq_alt_start), _int(r.seq_alt_end))
     te_in_alt = None not in te_iv + alt_iv and te_iv[0] <= alt_iv[1] and te_iv[1] >= alt_iv[0]

@@ -42,8 +42,15 @@ def _gff(cdir, g):
     return check_gff(cdir / "centromere" / f"{g}_centromeric_repeat.gff", load_fai(cdir / f"{g}.fa"))
 
 
+# satellite_families.tsv columns of cenfuse 0.8 (satellite engine 0.9.0), written out: comparing with FAMTAB_COLS itself
+# could not fail if cost columns were added to it
+FAMTAB_COLS_08 = ["family", "fam_id", "superfamily", "consensus_len", "hmm_mode", "rdna", "genome", "class", "role",
+                  "strength", "defines", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
+                  "median_main_bp", "eligible", "dominant", "in_ltr", "ltr_clade", "reason"]
+
+
 def test_outputs_exist_and_gffs_valid(synth_run):
-    from cenfuse.sat.output import FAMTAB_COLS
+    from cenfuse.sat.annotate import COST_COLS
     cdir, truth, _, _ = synth_run
     out = cdir / "centromere"
     for f in ("satellite_families.tsv", "satellite_families.fa", "satellite_families.hmm", "centromere_overview.pdf"):
@@ -52,7 +59,8 @@ def test_outputs_exist_and_gffs_valid(synth_run):
         assert _gff(cdir, g)
         assert (out / "work" / "annotate" / f"{g}.search_cost.tsv").stat().st_size > 0       # a fresh run writes it
     # CPU times differ between runs, so they stay out of the results tables (README, Reproducible)
-    assert pd.read_csv(out / "satellite_families.tsv", sep="\t", nrows=0).columns.tolist() == FAMTAB_COLS
+    cols = pd.read_csv(out / "satellite_families.tsv", sep="\t", nrows=0).columns.tolist()
+    assert cols == FAMTAB_COLS_08 and not set(cols) & (set(COST_COLS) - {"family"})
 
 
 def test_search_cost_table_of_a_run(synth_run):

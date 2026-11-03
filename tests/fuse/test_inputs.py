@@ -76,6 +76,28 @@ def test_the_notes_say_which_source_set_the_chromosomes(tmp_path):
     assert "2 shorter sequences (unplaced scaffolds; 10,000 bp) are not analyzed" in g.notes
 
 
+def test_the_notes_say_when_the_set_ends_at_a_gradual_tail(tmp_path):
+    """Where the tail test cut 0.8's set, the notes (log and report) say that the set ends at a gradual tail, how many
+    sequences were left out and the length of the shortest one kept, and how to bring back a chromosome cut with the
+    tail. They do not call the sequences left out unplaced scaffolds: dot chromosomes can be among them. A clean gap
+    (the 0.8 set) and a --classify-from target (0.8's rule) keep the 0.8 wording."""
+    _assembly(tmp_path, "asm", GRADUAL)
+    for name in ("clean", "T"):
+        (tmp_path / name).mkdir()
+    _assembly(tmp_path / "clean", "asm", ASM)
+    _assembly(tmp_path / "T", "T", GRADUAL)
+    g = inputs.discover(tmp_path)[0]
+    assert len(g.chroms) == 25 and g.notes[0] == "chromosome set by the length rule" and len(g.notes) == 2
+    assert g.notes[1] == ("the set ends at a gradual tail of short sequences: 644 shorter sequences "
+                          f"({sum(GRADUAL.values()) - sum(g.chroms.values()):,} bp) are not analyzed, and the shortest "
+                          "one kept is 7,680,000 bp; if chromosomes were left out, list every chromosome in "
+                          "asm.chromosomes.txt")
+    assert inputs.discover(tmp_path / "clean")[0].notes == [
+        "chromosome set by the length rule", "2 shorter sequences (unplaced scaffolds; 10,000 bp) are not analyzed"]
+    assert inputs.discover(tmp_path / "T", legacy=frozenset({"T"}))[0].notes == [
+        "chromosome set by the length rule of cenfuse 0.8 (--classify-from target)"]
+
+
 @pytest.mark.parametrize("text, msg", [
     (b"c1\nnope\n", "'nope'"),                                       # not a sequence of the .fai
     (b"c1\nc2\nc1\n", "more than once: 'c1'"),

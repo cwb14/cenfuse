@@ -18,7 +18,8 @@ from .util import (SatelliteError, canonical_rotation, log, merge_intervals, par
 ABC = Alphabet.dna()
 RRNA_CM = Path(__file__).resolve().parent / "data" / "rfam_rrna.cm"   # Rfam 5S/5.8S/SSU/LSU (package data, data/README.md)
 BLAST_FMT = "6 qseqid sseqid pident length qstart qend sstart send qlen slen bitscore"
-THREADS_PER_BUILD = 4   # MAFFT, Panax fam006 (65 monomers): 3.6x faster at 4 threads, 5.6x at 16, same alignment at 1-16
+THREADS_PER_BUILD = 4   # the fewest per build while families remain: MAFFT (Panax fam006, 65 monomers) is 3.6x faster at
+                        # 4 threads and 5.6x at 16, same alignment at 1-16, so 4 builds of 4 beat 1 of 16 (model_workers)
 FAM_COLS = ["fam_id", "rep_seed", "base_seed", "consensus_len", "n_seeds", "max_genome_span",
             "genome_spans", "hmm_mode", "n_hmm_seqs", "superfamily", "rdna", "chain_group"]
 
@@ -517,9 +518,12 @@ def rotations_unchanged(frames: list, refs: dict, workdir: Path, ident: float) -
 
 def model_workers(threads: int, n_jobs: int) -> tuple:
     """(workers, threads per build) for n_jobs family models: builds of THREADS_PER_BUILD threads (all of them if
-    fewer are given), as many at once as the threads allow and there are families; spare threads stay unused."""
+    fewer are given), as many at once as the threads allow and there are families; then the threads are shared out
+    among those builds, so with fewer families than builds the spare threads still work (MAFFT: 5.6x at 16 threads
+    against 3.6x at 4). Results do not depend on it: MAFFT --threadit 0 and BLAST give the same output at any count."""
     per = max(1, min(THREADS_PER_BUILD, threads))
-    return max(1, min(n_jobs, threads // per)), per
+    workers = max(1, min(n_jobs, threads // per))
+    return workers, max(per, threads // workers)
 
 
 def build_models(jobs: list, fastas: dict, workdir: Path, threads: int, p, on_accept=None) -> list:

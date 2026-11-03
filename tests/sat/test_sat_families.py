@@ -448,7 +448,8 @@ def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_
     families.hmm apart from its DATE and COM lines (build time, command), and the stage's log lines in the same order.
     The synthetic fam003 (98 bp) is within 15% of fam002 (90 bp); at 4 threads (one per build) it starts before fam002
     is final, is flagged and its frame rotation replayed with fam002: unrelated, the rotation is unchanged and the
-    build kept. 16 threads on 2 families (THREADS_PER_BUILD as shipped): more threads than families."""
+    build kept. 16 threads on 2 families (THREADS_PER_BUILD as shipped): more threads than families, two builds of 8
+    threads each."""
     import gzip
     import logging
     from dataclasses import replace
@@ -498,13 +499,15 @@ def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_
 
 
 def test_model_workers_split_threads_into_builds_of_threads_per_build():
-    """Builds of THREADS_PER_BUILD threads (fewer when fewer are given), as many at once as the threads allow and there
-    are families; spare threads are not handed out (MAFFT gains little past 4)."""
+    """Builds of at least THREADS_PER_BUILD threads (fewer when fewer are given), as many at once as the threads allow
+    and there are families; once that number is fixed the threads are shared out among them, so with few families no
+    thread idles (MAFFT is still faster at 16 threads than at 4)."""
     from cenfuse.sat.families import THREADS_PER_BUILD, model_workers
     assert THREADS_PER_BUILD == 4
     assert [model_workers(t, 40) for t in (1, 3, 4, 16)] == [(1, 1), (1, 3), (1, 4), (4, 4)]
-    assert model_workers(16, 2) == (2, 4) and model_workers(16, 1) == (1, 4)     # more threads than families
-    assert model_workers(64, 40) == (16, 4)
+    assert model_workers(16, 2) == (2, 8) and model_workers(16, 1) == (1, 16)    # more threads than families
+    assert model_workers(64, 40) == (16, 4) and model_workers(18, 40) == (4, 4)  # 2 left: fewer than a build's 4
+    assert model_workers(7, 40) == (1, 7) and model_workers(10, 2) == (2, 5)
 
 
 @pytest.mark.skipif(not have("blastn", "makeblastdb"), reason="blast missing")

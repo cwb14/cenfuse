@@ -277,6 +277,36 @@ def test_crash_table_beside_the_cache(tmp_path, monkeypatch, caplog, overlap, ch
     assert df[df.chrom == "chr2"].start.tolist() == chr2_starts
 
 
+def test_a_chunk_fastan_searched_no_piece_of_stops_the_run(tmp_path, monkeypatch):
+    """FasTAN aborts on every piece of chr1's first 200-kb chunk, down to the skip floor. The run stops with an error
+    that names the chunk, the crash table and --seed-engine trf. The table is written (the chunk's crashes, for a
+    report) and no seed table is cached, so a rerun recomputes the genome."""
+    import cenfuse.sat.seeds as seeds
+    from cenfuse.sat import fastan
+    from cenfuse.sat.genomes import Genome
+    from cenfuse.sat.util import SatelliteError
+    from sat_common import crashing_fastan, dna
+    rng = np.random.default_rng(9)
+    chroms = {c: dna(rng, 300_000) for c in ("chr1", "chr2")}
+    fa = tmp_path / "g.fa"
+    fa.write_text("".join(f">{c}\n{s}\n" for c, s in chroms.items()))
+    pysam.faidx(str(fa))
+    g = Genome("g", fa, {c: len(s) for c, s in chroms.items()})
+    monkeypatch.setattr(fastan, "setup", lambda tmpdir: False)
+    crashing_fastan(monkeypatch, chroms, lambda name, a, b: name == "chr1" and b <= 200_000)   # chunk 1 of chr1 only
+    p = Params(seed_chunk=200_000, seed_overlap=10_000)
+    cache = seeds.cache_path(tmp_path / "cache", seeds.genome_key(g), p)
+    with pytest.raises(SatelliteError) as err:
+        seeds.seed_genomes([g], tmp_path / "cache", 2, p)
+    msg, table = str(err.value), seeds.crash_path(cache)
+    assert "every piece of chr1:0-200,000" in msg and str(table) in msg and "--seed-engine trf" in msg
+    assert not cache.exists() and not seeds.lock_path(cache).exists()
+    rows = [x.split("\t") for x in table.read_text().splitlines()]
+    assert rows[0] == seeds.CRASH_COLS and rows[1] == ["chr1", "0", "200000", "SIGABRT", "split"]
+    assert {r[4] for r in rows[1:]} == {"split", "skipped"}
+    assert all(r[0] == "chr1" and int(r[2]) <= 200_000 for r in rows[1:])
+
+
 def test_write_cache_lists_the_crashes_and_summarizes_them(tmp_path, monkeypatch, caplog):
     """events: one list per chunk FasTAN crashed on. The table has a row per event; the log line counts the chunks, the
     pieces split and the bp of skipped pieces (skipped pieces that overlap are counted once)."""

@@ -101,6 +101,29 @@ def test_overruled_array_is_named():
         assert it.basis(older, ctx()) == f"CRM retrotransposon core; {text}", flag              # no such column
 
 
+@pytest.mark.parametrize("flag, clade, decisive", [
+    ("satellite_away_from_core", "CRM", True), ("satellite_beside_core", "CRM", True),
+    ("weak_satellite_beside_core", "CRM", True),
+    (".", "CRM", True),                 # a long-unit call that disagrees with a decisive core: replaced, no flag
+    (".", "Athila", False),             # ... or with a flags-only marker's core
+    (".", ".", False)])                 # a TE line not given in this run (--satellite-dir of a run with tes/)
+def test_caveat_names_the_overruled_array(flag, clade, decisive):
+    """The array a TE core replaced is known against the call, so the caveat opens with it and its interval, in words
+    true for every case that fills seq_overruled_*: a satellite, weak-satellite or long-unit call that a decisive CRM
+    core replaced, and a long-unit call that a core of any clade replaced. The rest of the caveat is unchanged. Without
+    the columns ('.', or a table made before they existed) the caveat is as it was; the basis keeps its interval."""
+    kw = dict(seq_flags=flag, seq_evidence="retrotransposon", te_clade=clade, support="te", main_family=".",
+              confidence="medium", seq_confidence="medium", te_start=40_000_001, te_end=42_000_000)
+    c = ctx(decisive=decisive, marker=clade)
+    before = it.caveat(row(**kw), c)                                                    # seq_overruled_* = "."
+    older = SimpleNamespace(**{k: v for k, v in vars(row(**kw)).items() if not k.startswith("seq_overruled")})
+    assert it.caveat(older, c) == before and "overruled" not in before
+    r = row(seq_overruled_start=21_123_181, seq_overruled_end=21_170_900, **kw)
+    clause = f"the tandem array at 21.12-21.17 Mb was overruled by the {clade if clade != '.' else 'TE'} core"
+    assert it.caveat(r, c) == (clause if before == "." else f"{clause}; {before}")
+    assert "(21.12-21.17 Mb)" in it.basis(r, c) or flag == "."
+
+
 def test_moves_and_placements():
     r = row(call_source="hic", relation="offset", flags="moved_with_te", offset_bp=10_000_000, te_clade="CRM",
             support="te,hic", start=60_000_001, end=60_500_000)

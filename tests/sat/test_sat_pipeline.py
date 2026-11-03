@@ -117,3 +117,61 @@ def test_output_stage_names_the_costliest_searches_with_their_final_role(tmp_pat
     assert [r.getMessage() for r in caplog.records] == [
         "output: a: costliest searches: S_sat02_90 (dispersed, 60%), S_sat03_3000 (absent, 30%), "
         "S_sat01_150 (centromeric, 10%)"]
+
+
+@pytest.mark.parametrize("table, with_role", [
+    ("", True),                                                  # an empty file (a run killed while writing it)
+    ("family\tmodel_len\nfam001\t100\n", True),                  # no cpu_share column
+    ("family\tcpu_share\nfam001\tmost\n", True),                 # a share that is not a number
+    ("family\tcpu_share\nfam001\t0.5\n", False),                 # a families table without roles
+    (None, True)],                                               # a folder where the table should be
+    ids=["empty", "no-cpu-share", "share-not-a-number", "no-roles", "a-folder"])
+def test_a_cost_table_or_role_that_cannot_be_read_only_warns(tmp_path, caplog, monkeypatch, table, with_role):
+    """The costliest-search line is a diagnostic: a malformed cost table, or families without roles, give one warning
+    that names the table, and the output stage goes on."""
+    import logging
+    import pandas as pd
+    from cenfuse.sat.pipeline import Pipeline
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    pl = Pipeline(_complex(tmp_path, ["a"]), 1, tmp_path / "cache", Params())
+    (pl.work / "annotate").mkdir()
+    path = pl._p("annotate", "a.search_cost.tsv")
+    path.mkdir() if table is None else path.write_text(table)
+    fams = pd.DataFrame({"family": ["fam001"], **({"role": ["centromeric"]} if with_role else {})})
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        pl._log_costliest(pl.genomes[0], fams, {"fam001": "a_sat01_100"})
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "a.search_cost.tsv" in caplog.records[0].getMessage()
+
+
+def test_the_output_stage_completes_with_a_malformed_cost_table(tmp_path, caplog, monkeypatch):
+    """A run whose cost table is malformed (no cpu_share column) still finishes the output stage: output.done is
+    written and the plot stage runs. The stages up to hor are checkpointed, and the output writers and the plot are
+    stand-ins, so only the stage's own steps run."""
+    import json
+    import logging
+    import pandas as pd
+    from cenfuse.sat import output, pipeline
+    from cenfuse.sat.pipeline import Pipeline
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    pl = Pipeline(_complex(tmp_path, ["a"]), 1, tmp_path / "cache", Params())
+    for st in STAGES[:STAGES.index("output")]:
+        (pl.work / st).mkdir()
+        (pl.work / f"{st}.done").write_text(json.dumps(pl.fingerprint(st)))
+    pl._p("annotate", "a.search_cost.tsv").write_text("family\tmodel_len\nfam001\t100\n")
+    plotted = []
+    monkeypatch.setattr(pipeline, "require_tools", lambda names: None)
+    monkeypatch.setattr(pl, "fam_table", lambda: pd.DataFrame({"fam_id": ["fam001"]}))
+    monkeypatch.setattr(pl, "genome_data", lambda g: dict(arrays=None, fams=pd.DataFrame(
+        {"family": ["fam001"], "role": ["centromeric"]})))
+    monkeypatch.setattr(output, "final_names", lambda fam, arrays, name: {"fam001": "a_sat01_100"})
+    monkeypatch.setattr(output, "write_genome", lambda *a: None)
+    monkeypatch.setattr(output, "write_families", lambda *a: None)
+    monkeypatch.setattr(Pipeline, "stage_plot", lambda self: plotted.append(1))
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        pl.run()
+    assert (pl.work / "output.done").exists() and (pl.work / "plot.done").exists() and plotted
+    warned = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warned) == 1 and "a.search_cost.tsv" in warned[0]

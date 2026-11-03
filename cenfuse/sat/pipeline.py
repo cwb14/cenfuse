@@ -394,12 +394,17 @@ class Pipeline:
         """Log the searches that cost most CPU (annotate's work table) by final family name and role: a dispersed
         family that cost much decides nothing, which only the roles, known after annotate, can show. A family without
         arrays in this genome is 'absent', as in satellite_families.tsv. A folder made before the table existed logs
-        nothing."""
+        nothing; a table or roles that cannot be read log a warning instead."""
         path = self._p("annotate", f"{g.name}.search_cost.tsv")
-        top = annotate.costliest(pd.read_csv(path, sep="\t", dtype={"family": str})) if path.exists() else []
-        if top:
-            role = dict(zip(fams.family, fams.role))
-            shown = (f"{names.get(f, f)} ({role.get(f, 'absent')}, {100 * share:.0f}%)" for f, share in top)
+        try:
+            top = annotate.costliest(pd.read_csv(path, sep="\t", dtype={"family": str})) if path.exists() else []
+            role = dict(zip(fams.family, fams.role)) if top else {}
+            shown = [f"{names.get(f, f)} ({role.get(f, 'absent')}, {100 * share:.0f}%)" for f, share in top]
+        except Exception as e:          # a diagnostic line: it must never stop the output stage before output.done
+            log.warning(f"output: {g.name}: costliest searches not logged, {path} or the family roles cannot be read "
+                        f"({type(e).__name__}: {e})")
+            return
+        if shown:
             log.info(f"output: {g.name}: costliest searches: " + ", ".join(shown))
 
     def stage_plot(self):
