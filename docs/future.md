@@ -169,24 +169,43 @@ of the chromosome-set evidence as a no-change control.
 ## 11. The LTR retrotransposon line
 
 A check of the LTR line on stored results (17 genomes with `tes/` truth, 190 chromosomes; the 106-genome set) points to
-three changes worth testing. Caveat: all the gains were on genomes that were used to build the rules, so these are
-leads, not a test.
+three changes worth testing. Caveat: the 17 genomes are a development set, not a test set: all 20 gains are on genomes
+the rules were built or developed on, and the rest only check that nothing breaks. They cannot support a change of a rule
+(11b, 11c); that needs a `tes/` truth set made after the rules are fixed (new CENH3 data with an LTRquest annotation, or
+genomes never cited as rule cases).
 
-**11a. Show which families the CRM line rejected.** 30 calls moved with `tes/`; 19 of them had a family in the FASTA-only
-arm that the CRM line had rejected at classify. The rejection leaves no flag, so the share of calls the TE line changed
-(22% of the 106-genome audit) is a floor, and two high-confidence wrong calls (potato chr04, *Ae. tauschii* Chr5) had no
-TE support and no flag to say so. *Approach:* write the rejected families per call (a column, or in `caveat`). *Check:*
-`classify` rerun on the truth genomes and the 106; the count must reproduce 19/30. No call changes.
+**11a. Show which families the CRM line rejected.** 30 calls moved with `tes/`; 19 of them had a family in the
+FASTA-only arm that the CRM line had rejected at classify (13 labeled family-level, and 6 of the 8 moves that carry a
+replacement flag). The rejection leaves no flag, so the share of calls the TE line changed (at least 22% of the
+106-genome audit) is a floor, and no gain can be credited to a flagged rule alone: all 5 flagged gains also had a
+rejected family. The family-level rule also left two `high` wrong calls with no TE support: potato chr04 (no CRM core on
+the chromosome) and *Ae. tauschii* Chr5 (an array at the edge of a 7-Mb core, `te_concordant`, CENH3 1-3 Mb away).
+*Approach:* write the rejected families per call (a `te_rejected_family` flag or a caveat); output only. *Check:* rerun
+the centromeres stage on the stored satellite folders and compare tables (no call changes); a diagnostic switch that
+turns each TE rule off would let the gains be attributed.
 
 **11b. The head-to-head bar for `low` calls.** A decisive core replaces a disagreeing call that is `low` on its own
-without the bar a `high` or `medium` call has to pass (the clade marks the core significantly more, P <= 0.01). Applying
-the bar to `low` calls would change 3 truth cases (+1, -1 and 0 right calls). *Approach:* apply the same bar.
-*Check:* 3 cases cannot decide; it needs truth beyond the development genomes.
+(`satellite_away_from_core`) without the test a `high` or `medium` call has to pass (the clade marks the core
+significantly more, P <= 0.01). That branch fired in 3 truth cases: potato chr10 (core right, array wrong: +1), soybean
+chr13 (array right, core wrong: -1; 13 vs 7 elements, P = 0.13, so the bar would have kept the array) and *Ae. tauschii*
+Chr6 (right in both arms: 0). Two of them (chr10, Chr6) also had a rejected family, so only chr13 is purely call-level.
+The replaced call's confidence and the element counts are not stored, so the 83 audited `satellite_away_from_core` calls
+of the 106-genome run cannot be split into tested and untested ones. *Approach:* one standard for replacing a call
+whatever its confidence: the same bar for `low` calls. *Check:* the `seq_overruled_*` columns on a replay of the
+106-genome run, plus new CRM-plateau genomes with truth; at least 10 cases, since 3 cannot decide.
 
 **11c. A decisive `te_discordant` call with an inconclusive test.** When a decisive core disagrees with a `high` or
-`medium` call and the head-to-head test is inconclusive, the call stays, flagged `te_discordant` and one level lower. In
-the truth set that lowered 6 calls, and all 6 were right (*B. rapa* A09 in four accessions, soybean chr1 and chr6): an
-under-confidence cost, since an inconclusive test is no evidence against a call. *Approach:* keep the flag and the
-confidence when the marker is decisive and the test is inconclusive; flags-only markers keep lowering (their
-`te_discordant` calls were right 1/16). *Check:* those 6 are the chromosomes the rule was built on; it needs held-out
-truth.
+`medium` call and the head-to-head test is not significant (equal marking, or too few elements), the call stays, flagged
+`te_discordant` and one level lower. In the truth set that lowered 6 calls from `high` to `medium`, and all 6 were right
+in both arms: an under-confidence cost. They are 3 loci in 2 species (*B. rapa* A09, one locus in four accessions;
+soybean chr1 and chr6), all of them conflict cases the head-to-head rule was built on. In the 106-genome run 16 calls
+were lowered this way (12 agree with the homoeolog's call). *Approach:* keep the flag and the level when a decisive
+marker's test is inconclusive: a non-significant test is absence of evidence, and a clade that marks the call as much as
+the core supports it. The counter-argument: two equally marked loci are an unresolved conflict. A flags-only marker never
+lowers a call; its `te_discordant` calls (right 1/16) stay a flag, and lowering them was considered and not proposed (see
+below). *Check:* store the element counts (`k_core`, `k_call`) per call first, then new genomes with a broad CRM plateau
+and truth.
+
+Considered, not proposed: lowering confidence under a flags-only `te_discordant` (15/16 wrong in moss, tomato and
+Chlorella, but pericentromeric non-CRM clades are common, rice Tekay cores lay off CENH3, and the proxies favor the
+satellite call); raising a flags-only core-only call above `low` (Chlorella 8/8 right, tomato 0/7).
