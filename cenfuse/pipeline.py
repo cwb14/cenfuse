@@ -1,10 +1,11 @@
 """Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> karyotype ->
 provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot.
 
-The satellite engine keeps its own checkpoints (OUT/satellite/work). The telomere, rdna, rdna5s, gaps, genotype, hic,
-fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl + .done), keyed by
-cenfuse's version and fingerprints of every input they read (including the calls they are anchored on), so a changed
-input recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
+The satellite engine keeps its own checkpoints (OUT/satellite/work), and next to them the chromosome set they were
+made on (chromosome_set.json): a resume on another set stops (Run._check_chromosome_set). The telomere, rdna, rdna5s,
+gaps, genotype, hic, fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl +
+.done), keyed by cenfuse's version and fingerprints of every input they read (including the calls they are anchored
+on), so a changed input recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -38,6 +39,7 @@ from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
 STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
+CHROM_RECORD = "chromosome_set.json"      # in satellite/work: {genome: sorted names} the checkpoints stand on
 _PKG = Path(__file__).parent
 
 
@@ -180,12 +182,81 @@ class Run:
         return dict(samples=file_fingerprint(g.meth), files=[file_fingerprint(f) for f in files if Path(f).exists()],
                     ann=[file_fingerprint(x) for x in (g.tes, arrays, g.genes, g.exclude) if x])
 
+    # ------------------------------------------------------------------ satellite chromosome set
+    def _check_chromosome_set(self, sat_work: Path) -> None:
+        """Stop when the satellite checkpoints in sat_work were made on another chromosome set than this run analyzes.
+        Why: the engine's resume check covers its code and parameters, not the chromosomes, and 0.9 changes the set
+        (gradual scaffold tails, <genome>.chromosomes.txt): a resume would reuse seeds, families and calls made on other
+        sequences. The earlier set is the record's (CHROM_RECORD) or, in a folder made before 0.9 (no record), the 0.8
+        rule's on the .fai. No seeds.done: nothing is checkpointed. A force that redoes the seeds, the first stage the
+        set shapes, allows the change."""
+        if not (sat_work / "seeds.done").exists() or self.force in ("satellite", "all", "seeds"):
+            return
+        record, now = sat_work / CHROM_RECORD, {g.name: set(g.chroms) for g in self.genomes}
+        if record.exists():
+            try:
+                then = {name: set(names) for name, names in json.loads(record.read_text()).items()}
+            except (OSError, ValueError, AttributeError, TypeError):
+                raise CenfuseError(f"{record}: cannot be read, so the chromosomes the satellite checkpoints were made "
+                                   "on are unknown; rerun with --force satellite") from None
+            how = ""
+        else:
+            then = {g.name: set(inputs.chromosome_set(g.fai, legacy=True)) for g in self.genomes}
+            how = " (cenfuse 0.8's rule)"
+        source, changed = {g.name: g.chrom_source for g in self.genomes}, []
+        for name in [*then, *(n for n in now if n not in then)]:           # the record's genomes, then the new ones
+            old, new = then.get(name), now.get(name)
+            if old == new:
+                continue
+            if old is None:
+                changed.append(f"{name}: not among the genomes of the checkpoints, {len(new)} chromosomes now")
+            elif new is None:
+                changed.append(f"{name}: {len(old)} chromosomes when they were made, no longer in {self.gdir}")
+            else:
+                changed.append(f"{name}: {len(old)} chromosomes when they were made{how}, {len(new)} now "
+                               f"({source[name]}): {len(old - new)} dropped, {len(new - old)} added")
+        if changed:
+            raise CenfuseError(f"{sat_work}: the satellite checkpoints (seeds, families, calls) were made on another "
+                               f"chromosome set: {'; '.join(changed)}; rerun with --force satellite")
+        log.debug(f"satellite: the chromosome set is the one the checkpoints in {sat_work} were made on")
+
+    def _record_chromosome_set(self, sat_work: Path) -> None:
+        """Write {genome: sorted chromosome names} beside the satellite checkpoints (CHROM_RECORD), the set
+        _check_chromosome_set compares on the next run. Called once the engine has finished, so a failed run leaves the
+        earlier record; written to a temporary file and moved over it, so a record is never torn."""
+        sat_work.mkdir(parents=True, exist_ok=True)
+        path = sat_work / CHROM_RECORD
+        tmp = path.with_name(f"{path.name}.tmp")
+        tmp.write_text(json.dumps({g.name: sorted(g.chroms) for g in self.genomes}, indent=1))
+        tmp.replace(path)
+
+    def _warn_imported_set(self, sat_dir: Path) -> None:
+        """Warn when an imported satellite summary (--satellite-dir) has rows for other sequences than the chromosome
+        set analyzed now. Why: its families, prevalence tests and calls were made on those sequences (cenfuse 0.8's
+        set, or a list), and an import is taken as it is. A summary that is absent or not one is left to seqcalls.read,
+        which stops the run with the reason."""
+        for g in self.genomes:
+            path = sat_dir / f"{g.name}_centromere_summary.tsv"
+            try:
+                rows = set(pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, usecols=["chrom"]).chrom)
+            except (OSError, ValueError):
+                continue
+            outside, without = rows - set(g.chroms), set(g.chroms) - rows
+            if outside or without:
+                log.warning(f"{g.name}: the imported {path.name} has rows for {len(rows)} sequences, but cenfuse "
+                            f"analyzes {len(g.chroms)} chromosomes ({len(outside)} rows on sequences outside the set, "
+                            f"{len(without)} chromosomes without a row): the satellite calls were made on another "
+                            f"chromosome set; rerun without --satellite-dir to make them on this one")
+
     # ------------------------------------------------------------------ stages
     def stage_satellite(self) -> Path:
         if self.sat_import:
             log.info(f"satellite: reading earlier satellite outputs from {self.sat_import} (--satellite-dir)")
+            self._warn_imported_set(self.sat_import)
             return self.sat_import
         from .sat.pipeline import STAGES as SAT_STAGES, Pipeline
+        sat_work = self.out / "satellite" / "work"
+        self._check_chromosome_set(sat_work)          # first, before anything is written: a stopped run changes nothing
         view = inputs.make_view(self.genomes, self.gdir, self.work / "genomes" / self.gdir.name)
         force = self.force if self.force in SAT_STAGES else ("seeds" if self.force in ("satellite", "all") else None)
         try:
@@ -194,6 +265,7 @@ class Run:
                      force=force, out_dir=self.out / "satellite").run()
         except SatelliteError as e:
             raise CenfuseError(f"satellite engine: {e}") from None
+        self._record_chromosome_set(sat_work)
         return self.out / "satellite"
 
     def stage_telomere(self, g) -> dict:
