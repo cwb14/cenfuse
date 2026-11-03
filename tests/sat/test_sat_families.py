@@ -331,3 +331,151 @@ def test_only_clusters_with_an_array_seed_found_families():
     seeds = pd.DataFrame({"rep": ["r1", "r1", "r2", "r2", "r3"], "copies": [2.0, 2.7, 2.0, 2.86, 40.0]})
     assert arrayed(seeds, Params()) == {"r2", "r3"}
     assert arrayed(seeds, Params(min_array_monomers=2)) == {"r1", "r2", "r3"}
+
+
+def test_needs_rebuild():
+    """A model built before an earlier family was final is the serial one unless that family's consensus length is
+    within RELATED_LEN_TOL of one of the build's frame_rotation queries (the only references it would have consulted);
+    the boundary is inclusive, as in frame_rotation."""
+    from cenfuse.sat.families import needs_rebuild
+    assert needs_rebuild([170, 340], [160])
+    assert not needs_rebuild([170, 340], [500])
+    assert not needs_rebuild([170], [])
+    assert needs_rebuild([100], [115])
+    assert not needs_rebuild([100], [116])
+
+
+def _fake_build_hmm(calls: list, slow: str = "fam001", fail: str = None):
+    """Stand-in for build_hmm with its signature: records (family, references it was given), sleeps 0.3 s for `slow`,
+    raises for `fail`, queries its unit length as frame_rotation queries a consensus, and returns a result that
+    depends on the references within RELATED_LEN_TOL of that query (what a frame rotation can depend on) and on its
+    random generator; one note per build."""
+    import time
+    from cenfuse.sat.params import RELATED_LEN_TOL
+    from cenfuse.sat.util import SatelliteError
+
+    def fake(fam_id, rep_seq, intervals, fastas, workdir, threads, p, rng, refs=None, queries=None, notes=None):
+        calls.append((fam_id, list(refs)))
+        if fam_id == slow:
+            time.sleep(0.3)
+        if fam_id == fail:
+            raise SatelliteError(f"{fam_id}: build failed")
+        queries.append(len(rep_seq))
+        frame = [f for f, c in refs.items() if abs(len(c) / len(rep_seq) - 1) <= RELATED_LEN_TOL]
+        notes.append(f"families: {fam_id}: frame of {frame}")
+        return f"hmm {fam_id} {frame}", rep_seq, "profile", rng.randint(0, 10 ** 9)
+    return fake
+
+
+def test_build_models_rebuilds_when_a_late_reference_matters(monkeypatch, tmp_path, caplog):
+    """At 3 threads all three families start before any is final. fam002 (175 bp) started without fam001 (170 bp,
+    within 15%), so it is rebuilt once with fam001 as its reference; fam003 (900 bp) started without both, but no
+    reference that short could have changed it, so it is kept. Results, and the notes logged in family order at
+    acceptance, equal those of one thread (the serial order)."""
+    import logging
+    import random
+    from cenfuse.sat import families
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    calls = []
+    monkeypatch.setattr(families, "build_hmm", _fake_build_hmm(calls))
+    jobs = [("fam001", "A" * 170, []), ("fam002", "C" * 175, []), ("fam003", "G" * 900, [])]
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        par = families.build_models(jobs, {}, tmp_path / "t3", 3, None)
+    notes = [r.getMessage() for r in caplog.records if r.name == "cenfuse-sat" and r.levelno == logging.WARNING]
+    assert [c for c in calls if c[0] == "fam002"] == [("fam002", []), ("fam002", ["fam001"])]
+    assert [c for c in calls if c[0] == "fam003"] == [("fam003", [])]
+    calls.clear()
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        ser = families.build_models(jobs, {}, tmp_path / "t1", 1, None)
+    assert calls == [("fam001", []), ("fam002", ["fam001"]), ("fam003", ["fam001", "fam002"])]
+    assert par == ser
+    assert [r["fid"] for r in par] == ["fam001", "fam002", "fam003"]
+    assert [r["n"] for r in par] == [random.Random(i).randint(0, 10 ** 9) for i in (1, 2, 3)]   # as the serial loop
+    assert notes == [r.getMessage() for r in caplog.records if r.name == "cenfuse-sat"] == [
+        "families: fam001: frame of []", "families: fam002: frame of ['fam001']", "families: fam003: frame of []"]
+
+
+def test_build_models_never_references_an_unaccepted_family(monkeypatch, tmp_path):
+    """At 2 threads fam003 starts when fam002's first build ends, while fam001 (slow) is not final: fam002 is finished
+    but not accepted (it must be rebuilt with fam001), so it is not a reference of fam003. Only accepted families are
+    final; a finished one may still be rebuilt."""
+    from cenfuse.sat import families
+    calls = []
+    monkeypatch.setattr(families, "build_hmm", _fake_build_hmm(calls))
+    jobs = [("fam001", "A" * 170, []), ("fam002", "C" * 175, []), ("fam003", "G" * 900, [])]
+    families.build_models(jobs, {}, tmp_path, 2, None)
+    fam003 = [refs for f, refs in calls if f == "fam003"]
+    assert len(fam003) == 1 and "fam002" not in fam003[0]
+    assert [refs for f, refs in calls if f == "fam002"] == [[], ["fam001"]]
+
+
+def test_build_models_surfaces_errors(monkeypatch, tmp_path):
+    """A family whose build raises stops the stage with that error within 10 s, at one thread or many, with jobs still
+    waiting for a worker, instead of waiting forever for that family to be accepted. build_models runs in a thread so
+    that a hang fails the test instead of stalling the suite."""
+    import threading
+    from cenfuse.sat import families
+    from cenfuse.sat.util import SatelliteError
+    monkeypatch.setattr(families, "build_hmm", _fake_build_hmm([], fail="fam002"))
+    jobs = [(f"fam{i:03d}", "A" * (170 + 50 * i), []) for i in range(1, 6)]
+    for threads in (1, 2, 8):
+        raised = []
+
+        def call():
+            try:
+                families.build_models(jobs, {}, tmp_path / f"t{threads}", threads, None)
+            except Exception as e:                           # noqa: BLE001 -- the test inspects it
+                raised.append(e)
+
+        t = threading.Thread(target=call, daemon=True)
+        t.start()
+        t.join(10)
+        assert not t.is_alive(), f"no error after 10 s at {threads} threads"
+        assert len(raised) == 1 and isinstance(raised[0], SatelliteError), (threads, raised)
+        assert "fam002: build failed" in str(raised[0])
+
+
+@pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
+def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_params, tmp_path, caplog,
+                                               monkeypatch):
+    """Concurrent family models are the serial ones: families.tsv, families.fa and the seed table byte for byte,
+    families.hmm apart from its DATE and COM lines (build time, command), and the stage's log lines in the same order.
+    The synthetic fam003 (98 bp) is within 15% of fam002 (90 bp); at 4 threads it starts before fam002 is final and is
+    rebuilt. 16 threads on 2 families: more threads than families."""
+    import gzip
+    import logging
+    from dataclasses import replace
+    from cenfuse.sat import families
+    from cenfuse.sat.genomes import discover_genomes
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    genomes = discover_genomes(synth_complex[0])
+    calls = []
+    real = families.build_hmm
+
+    def spy(fam_id, *a, **k):
+        calls.append(fam_id)
+        return real(fam_id, *a, **k)
+
+    monkeypatch.setattr(families, "build_hmm", spy)
+
+    def run(name, threads, p):
+        calls.clear()
+        caplog.clear()
+        d = tmp_path / name
+        with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+            families.build_families(synth_seeds, genomes, d, threads, p)
+        hmm = [x for x in (d / "families.hmm").read_text().splitlines(True) if not x.startswith(("DATE", "COM"))]
+        lines = [(r.levelname, r.getMessage()) for r in caplog.records if r.name == "cenfuse-sat"]
+        return ((d / "families.tsv").read_bytes(), (d / "families.fa").read_bytes(), "".join(hmm),
+                gzip.decompress((d / "seeds.tsv.gz").read_bytes()), lines), list(calls)
+
+    one, built1 = run("t1", 1, test_params)
+    four, built4 = run("t4", 4, test_params)
+    assert one == four
+    assert built1 == ["fam001", "fam002", "fam003"] and sorted(built4) == ["fam001", "fam002", "fam003", "fam003"]
+    assert ("WARNING", "families: fam003: only 0 monomers sampled; single-sequence HMM") in one[4]
+    two = replace(test_params, max_families=2)
+    assert run("two1", 1, two)[0] == run("two16", 16, two)[0]

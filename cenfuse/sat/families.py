@@ -1,5 +1,6 @@
 """S2: satellite family library from tandem-repeat seeds (rotation-invariant, multimer-aware)."""
 import random
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -283,13 +284,25 @@ def trim_overhang(seq: str, workdir: Path, threads: int, min_len: int = OVERHANG
     return seq[:best] if best else seq
 
 
-def frame_rotation(seq: str, refs: dict, workdir: Path, threads: int, ident: float, _flipped: bool = False) -> str:
+def related_len(ref_len: int, query_len: int, tol: float = RELATED_LEN_TOL) -> bool:
+    """Whether a reference of length ref_len is a frame candidate for a query of length query_len. frame_rotation and
+    needs_rebuild share this one test, so a parallel build's exactness check cannot drift from the references a frame
+    rotation consults."""
+    return abs(ref_len / query_len - 1) <= tol
+
+
+def frame_rotation(seq: str, refs: dict, workdir: Path, threads: int, ident: float, _flipped: bool = False,
+                   queries: list | None = None) -> str:
     """Rotate (and orient) a monomer consensus into the frame of the most similar related reference family
     (length within 15%, HSP >= ident over >= 80% of seq); canonical rotation if none is related. Independent
     lexicographic rotations put near-identical subfamilies out of phase (110/178 bp), so their hits
-    half-overlapped and a tenth or more of the array bp stayed unannotated."""
+    half-overlapped and a tenth or more of the array bp stayed unannotated. With queries (a list), the length of seq is
+    appended: it alone decides which references are consulted, so a reference outside its window cannot change the
+    result (build_models)."""
     seq = seq.upper()
-    cand = {k: v for k, v in refs.items() if abs(len(v) / len(seq) - 1) <= RELATED_LEN_TOL}
+    if queries is not None:
+        queries.append(len(seq))
+    cand = {k: v for k, v in refs.items() if related_len(len(v), len(seq))}
     if cand:
         pairs = blast_pairs({"q": seq}, cand, workdir, threads)
         best = None
@@ -301,7 +314,7 @@ def frame_rotation(seq: str, refs: dict, workdir: Path, threads: int, ident: flo
             _, qs, ss, se, L = best
             if se < ss:                                   # opposite orientation: flip once and realign
                 if not _flipped:
-                    return frame_rotation(revcomp(seq), refs, workdir, threads, ident, True)
+                    return frame_rotation(revcomp(seq), refs, workdir, threads, ident, True, queries)
             else:
                 r = ((qs - 1) - (ss - 1) % L) % len(seq)
                 return seq[r:] + seq[:r]
@@ -449,28 +462,93 @@ def sample_monomers(hmm, intervals: list, fastas: dict, p, rng: random.Random) -
     return out[:p.hmm_sample]
 
 
-def build_hmm(fam_id: str, rep_seq: str, intervals, fastas, workdir: Path, threads: int, p, rng, refs=None):
+def build_hmm(fam_id: str, rep_seq: str, intervals, fastas, workdir: Path, threads: int, p, rng, refs=None,
+              queries=None, notes=None):
     """Two-pass family model in the monomer frame of the most similar earlier family (refs: {fam: consensus}).
+    queries (a list) gets the length of every frame_rotation query; notes (a list) gets the warnings instead of the
+    log, so that a model built concurrently with others is reported with its family, in family order (build_models).
     Returns (hmm, consensus, mode, n_sampled)."""
     refs = refs or {}
+    warn = log.warning if notes is None else notes.append
     c0 = frame_rotation(trim_overhang(rep_seq, workdir / "trim0", threads), refs, workdir / "frame0", threads,
-                        p.superfam_ident)
+                        p.superfam_ident, queries=queries)
     h = single_hmm(fam_id, c0)
     s1 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s1) < p.min_hmm_seqs:
-        log.warning(f"families: {fam_id}: only {len(s1)} monomers sampled; single-sequence HMM")
+        warn(f"families: {fam_id}: only {len(s1)} monomers sampled; single-sequence HMM")
         return h, c0, "single", len(s1)
     rows1 = mafft(s1, workdir, threads)
     c1 = frame_rotation(trim_overhang(msa_consensus(rows1), workdir / "trim1", threads), refs,
-                        workdir / "frame1", threads, p.superfam_ident)
+                        workdir / "frame1", threads, p.superfam_ident, queries=queries)
     h = single_hmm(fam_id, c1)
     s2 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s2) < p.min_hmm_seqs:                     # a refinement never replaces its model with a worse one:
-        log.warning(f"families: {fam_id}: only {len(s2)} monomers in pass 2; profile from pass 1")   # (Arachis:
+        warn(f"families: {fam_id}: only {len(s2)} monomers in pass 2; profile from pass 1")   # (Arachis:
         h = msa_hmm(fam_id, rows1)                   # pass-1 consensus collapsed to 20 bp, pass 2 found nothing)
         return h, h.consensus.upper(), "profile", len(s1)
     h = msa_hmm(fam_id, mafft(s2, workdir, threads))
     return h, h.consensus.upper(), "profile", len(s2)
+
+
+def needs_rebuild(queries: list, late_lengths: list, tol: float = RELATED_LEN_TOL) -> bool:
+    """Whether a model built without some earlier families (late_lengths: their consensus lengths) may differ from the
+    one built with all of them: True iff one of them is a frame candidate (related_len) for one of the build's
+    frame_rotation queries. Earlier families reach a model only through frame_rotation, and a family outside every
+    query's window is not even in its BLAST database, so without such a pair the build is the serial one."""
+    return any(related_len(L, q, tol) for q in queries for L in late_lengths)
+
+
+def build_models(jobs: list, fastas: dict, workdir: Path, threads: int, p, on_accept=None) -> list:
+    """Family models built concurrently, each identical to the serial build (family order, every earlier family's
+    final consensus as a frame reference). jobs: [(fid, unit, intervals)] in family order; job k samples with
+    random.Random(k + 1), so a model never depends on another's sampling. The families stage built one model at a time
+    (Panax: 29 min for 40 models), and neither nhmmer sampling (one thread) nor MAFFT keeps the threads busy.
+    A build starts with the families already accepted as references (final; a family finished but not accepted is
+    never one) and records its frame_rotation queries. Families are accepted in family order: a finished build is
+    kept unless an earlier family it started without could have been a frame candidate for it (needs_rebuild), and
+    is then rebuilt with all earlier families, which are final by then. min(threads, families) workers run the
+    builds with threads // workers threads each (MAFFT --threadit 0 and BLAST give the same results at any thread
+    count) and free their search workspace after each build. A build's warnings are logged at its acceptance, then
+    on_accept(k, result) is called, in family order. A failed build raises its error once the running builds end.
+    Returns [dict(fid, hmm, cons, mode, n, notes)] in job order."""
+    workdir = Path(workdir)
+    if not jobs:
+        return []
+    workers = max(1, min(threads, len(jobs)))
+    per = max(1, threads // workers)
+
+    def build(k: int, refs: dict):
+        fid, unit, intervals = jobs[k]
+        queries, notes = [], []
+        try:
+            hmm, cons, mode, n = build_hmm(fid, unit, intervals, fastas, workdir / fid, per, p, random.Random(k + 1),
+                                           refs, queries, notes)
+        finally:
+            release_pipeline()                        # free the worker's search workspace (~2 GB for a long model)
+        return dict(fid=fid, hmm=hmm, cons=cons, mode=mode, n=n, notes=notes), set(refs), queries
+
+    accepted, out, finished, running, nxt = {}, [], {}, {}, 0      # accepted: {fid: consensus}, in family order
+    with ThreadPoolExecutor(workers) as ex:
+        while len(out) < len(jobs):
+            while nxt < len(jobs) and len(running) < workers:
+                running[ex.submit(build, nxt, dict(accepted))] = nxt
+                nxt += 1
+            done, _ = wait(running, return_when=FIRST_COMPLETED)
+            for fut in done:
+                finished[running.pop(fut)] = fut.result()          # a failed build raises here
+            while len(out) in finished:
+                k = len(out)
+                res, seen, queries = finished.pop(k)
+                if needs_rebuild(queries, [len(c) for f, c in accepted.items() if f not in seen]):
+                    running[ex.submit(build, k, dict(accepted))] = k    # every earlier family: the serial model
+                    break
+                accepted[res["fid"]] = res["cons"]
+                for note in res["notes"]:
+                    log.warning(note)
+                if on_accept is not None:
+                    on_accept(k, res)
+                out.append(res)
+    return out
 
 
 def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) -> pd.DataFrame:
@@ -507,21 +585,26 @@ def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) 
         log.info(f"families: {len(seeds)} seeds -> {len(set(assign.values()))} clusters; "
                  f"{len(top)} carried forward" + (f"; {len(dropped)} more >= min_fam_span dropped by max_families "
                                                   f"(largest {dropped[0][0]} bp)" if dropped else ""))
-        refs = {}                                        # frame references: final consensus of earlier families
+        jobs, members = [], []
         for i, (mx, rep) in enumerate(top, 1):
-            fid = f"fam{i:03d}"
             mem = seeds[seeds.rep == rep]
             base, unit = base_unit(mem, fastas)
-            hmm, cons, mode, n = build_hmm(fid, unit, seed_intervals(mem, p), fastas,     # per-family seed: a model
-                                           workdir / fid, threads, p, random.Random(i), refs)   # never depends on others
-            refs[fid] = cons
+            jobs.append((f"fam{i:03d}", unit, seed_intervals(mem, p)))
+            members.append((mx, rep, mem, base))
+
+        def announce(k, m):                              # logged as each model is final, in family order
+            mx, _, mem, _ = members[k]
+            log.info(f"families: {m['fid']} {m['hmm'].M} bp, {len(mem)} seeds, max span {mx} bp, hmm={m['mode']} "
+                     f"(n={m['n']})")
+
+        for (mx, rep, mem, base), m in zip(members, build_models(jobs, fastas, workdir, threads, p, announce)):
+            fid, hmm = m["fid"], m["hmm"]
             seeds.loc[mem.index, "fam_id"] = fid
             fams.append(dict(fam_id=fid, rep_seed=rep, base_seed=base.seed_id, consensus_len=hmm.M,
-                             consensus=cons, n_seeds=len(mem), max_genome_span=mx,
+                             consensus=m["cons"], n_seeds=len(mem), max_genome_span=mx,
                              genome_spans=",".join(f"{g}:{v}" for g, v in sorted(spans[rep].items())),
-                             hmm_mode=mode, n_hmm_seqs=n))
+                             hmm_mode=m["mode"], n_hmm_seqs=m["n"]))
             hmms.append(hmm)
-            log.info(f"families: {fid} {hmm.M} bp, {len(mem)} seeds, max span {mx} bp, hmm={mode} (n={n})")
         if fams:
             merged = dedup_families({f["fam_id"]: f["consensus"] for f in fams}, [f["fam_id"] for f in fams],
                                     workdir / "blast_dedup", threads, p.dedup_ident)
