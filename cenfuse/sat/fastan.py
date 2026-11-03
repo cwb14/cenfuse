@@ -145,13 +145,14 @@ def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: l
     >= 2 x SEED_MAX_PERIOD no array of a seed-length unit is lost at the cut. A piece of at most 2 x overlap that still
     crashes is skipped with a warning. Each crash is appended to events as (chrom, start, end, signal name, 'split' |
     'skipped'), 0-based absolute. Any other failure (an exit status, a kill) stops the run, and so does a chunk longer
-    than 2 x overlap of which no piece was searched (ChunkFailed; pieces without bases are never searched)."""
+    than 2 x overlap of which no piece was searched (ChunkFailed): every piece with sequence crashed down to the skip
+    floor. A piece of N only has nothing to search and counts as searched."""
     events = [] if events is None else events
     first, searched = len(events), []
     rows = _piece_rows(chrom, seq.upper(), offset, tmpdir, trims, events, overlap, searched)
     if not searched and len(events) > first and len(seq) > 2 * overlap:
-        # FasTAN's known crash is local to one array (Oryza minuta lost 0 bp after 4 splits), so a whole chunk
-        # failing means FasTAN is broken
+        # FasTAN's known crash is local to one array (Oryza minuta lost 0 bp after 4 splits), so a chunk where every
+        # piece with sequence crashed means FasTAN is broken (one crashing array beside N is skipped, not stopped)
         sigs = ", ".join(sorted({e[3] for e in events[first:]}))
         raise ChunkFailed(f"FasTAN crashed ({sigs}) on every piece of {chrom}:{offset:,}-{offset + len(seq):,}, down "
                           f"to {2 * overlap:,} bp, so none of it was searched: its known crash is local to one array, "
@@ -161,9 +162,10 @@ def chunk_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: l
 
 def _piece_rows(chrom: str, seq: str, offset: int, tmpdir, trims: bool, events: list, overlap: int,
                 searched: list) -> list:
-    """chunk_rows on one piece of a chunk (seq upper-cased); the offset of each piece FasTAN finishes goes to
-    searched."""
+    """chunk_rows on one piece of a chunk (seq upper-cased); the offset of each piece FasTAN finishes, or that has no
+    bases to search, goes to searched."""
     if not any(b in seq for b in "ACGT"):
+        searched.append(offset)                      # nothing to search, so nothing failed
         return []                                    # FAtoGDB rejects a sequence without bases
     try:
         ano = run_fastan(seq, tmpdir)

@@ -296,15 +296,19 @@ def test_a_short_crashing_sequence_is_skipped_with_a_warning(monkeypatch, tmp_pa
     assert [r.getMessage() for r in caplog.records if "c1:0-15,000" in r.getMessage()]
 
 
-def test_pieces_without_bases_are_not_searched_ones(monkeypatch, tmp_path):
-    """A 300-kb chunk that is N apart from its first 15 kb, where FasTAN dies: the N pieces never reach FasTAN, so no
-    piece of the chunk was searched, and the run stops as for a chunk FasTAN crashed on everywhere."""
+def test_a_mostly_n_chunk_whose_only_array_crashes_is_skipped_not_stopped(monkeypatch, tmp_path, caplog):
+    """A 300-kb chunk that is N apart from its first 15 kb, where FasTAN dies: a crash local to one array, the case
+    the stop must not catch. A piece of N only has nothing to search and counts as searched, so the pieces with
+    sequence are skipped with a warning each and the run goes on, without seeds from them."""
+    monkeypatch.setattr(log, "propagate", True)
     seq = dna(np.random.default_rng(8), 15_000) + "N" * 285_000
     done = crashing_fastan(monkeypatch, {"c1": seq}, lambda name, a, b: True)
     events = []
-    with pytest.raises(fastan.ChunkFailed, match="c1:0-300,000"):
-        fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000)
-    assert done == [] and [e[4] for e in events].count("skipped") >= 1
+    with caplog.at_level(logging.WARNING, logger="cenfuse-sat"):
+        assert fastan.chunk_rows("c1", seq, 0, tmp_path, False, events, 10_000) == []
+    skipped = [(a, b) for _, a, b, _, action in events if action == "skipped"]
+    assert done == [] and skipped and all(b - a <= 2 * 10_000 and a < 15_000 for a, b in skipped)
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == len(skipped)
 
 
 @pytest.mark.parametrize("code", [1, -signal.SIGKILL, -signal.SIGTERM, -signal.SIGINT])

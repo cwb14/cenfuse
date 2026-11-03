@@ -99,18 +99,19 @@ How the stages run (none of this changes a call):
   SIGSEGV, SIGBUS, SIGFPE or SIGILL is cut in two halves that overlap by 10 kb, and each is retried, recursively
   (`fastan.chunk_rows`); `seeds.dedupe` merges what both halves report, as for chunk overlaps. A piece of at most 20 kb
   (2 x the overlap) that still crashes is skipped with a warning. A chunk longer than that of which no piece was
-  searched (FasTAN crashed on every piece down to 20 kb; pieces without bases never reach FasTAN) stops the run
-  (`fastan.ChunkFailed`): FasTAN's known crash is local to one array (the *Oryza minuta* chunk lost 0 bp after 4
-  splits), so a whole chunk failing means FasTAN itself is failing, and a run without the chunk's seeds could pass for
-  a satellite-free genome. The error names the chunk, the signal and the crash table, written first with the genome's
-  crashes so far, and suggests `--seed-engine trf`; no seed table is cached. Each crash (chromosome, start, end,
-  signal, `split` or `skipped`; 0-based) goes to `<seed cache file>.fastan_crashes.tsv` beside the cached seeds, so a
-  shared `--seed-cache` keeps it, linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the genome's summary
-  line in the log counts the chunks crashed, the pieces split and the bp skipped. SIGKILL (the OOM killer), SIGTERM,
-  SIGINT and every other failure still stop the run. A piece FasTAN does not crash on gives the rows cenfuse 0.8 gave,
-  so FasTAN's cache key (`fastan.KEY`) and the seeds stage version are unchanged; the genome part of the key changed
-  only for a FASTA indexed beside a symlink (seed cache key, below). An *Oryza minuta* 5-Mb piece that aborts FasTAN
-  gives 757 seed rows after 4 splits.
+  searched (FasTAN crashed on every piece with sequence, down to 20 kb) stops the run (`fastan.ChunkFailed`):
+  FasTAN's known crash is local to one array (the *Oryza minuta* chunk lost 0 bp after 4 splits), so a whole chunk
+  failing means FasTAN itself is failing, and a run without the chunk's seeds could pass for a satellite-free genome.
+  A piece of N only has nothing to search and counts as searched, so a mostly-N chunk whose one array crashes is
+  skipped with warnings, as a local crash. The error names the chunk, the signal and the crash table, written first
+  with the genome's crashes so far, and suggests `--seed-engine trf`; no seed table is cached. Each crash (chromosome,
+  start, end, signal, `split` or `skipped`; 0-based) goes to `<seed cache file>.fastan_crashes.tsv` beside the cached
+  seeds, so a shared `--seed-cache` keeps it, linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the
+  genome's summary line in the log counts the chunks crashed, the pieces split and the bp skipped. SIGKILL (the OOM
+  killer), SIGTERM, SIGINT and every other failure still stop the run. A piece FasTAN does not crash on gives the rows
+  cenfuse 0.8 gave, so FasTAN's cache key (`fastan.KEY`) and the seeds stage version are unchanged; the genome part of
+  the key changed only for a FASTA indexed beside a symlink (seed cache key, below). An *Oryza minuta* 5-Mb piece that
+  aborts FasTAN gives 757 seed rows after 4 splits.
 - **Seed clustering** (`cluster_seeds`, `absorb_multimers`). BLAST is 97.7% of the wall time, driven by the HSP volume
   of multimeric seeds; Python is about 2%. *Acanthus* (5,456 seeds) took 76 min at 16 threads, against a median of 0.7 min
   over the 106 genomes of an allotetraploid plant set. No speedup that keeps the clusters exact was found, so 0.9 only
@@ -491,7 +492,7 @@ first kind that matches:
 - FasTAN crashes (a stub that dies by signal): the recursion, absolute offsets, the 20-kb floor, pieces at a
   sequence's edges and mostly N, kills and exit statuses that still stop the run, the crash table beside the cache; a
   chunk crashing on every piece stops the run with the chunk and the crash table named, while one crashing piece among
-  searched ones and a short crashing sequence do not.
+  searched ones, a short crashing sequence and a mostly-N chunk whose one array crashes do not.
 - Parallel family models: the acceptance and replay rules, output byte for byte equal at 1 (the serial build), 4 and
   16 threads, a failing build that raises instead of hanging, no reference that is not accepted; the thread split.
 - Progress and cost: each tenth once, the hourly line, no line for no work, thread safety; one cost row per family and
