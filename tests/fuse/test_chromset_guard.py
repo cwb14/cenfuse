@@ -4,7 +4,7 @@ The satellite engine's checkpoints (seeds, families, calls) are made on one set 
 covers only the code version and the parameters. cenfuse 0.9 changes the set on assemblies with a gradual scaffold tail
 and takes a <genome>.chromosomes.txt, so a resumed folder would reuse seeds, families and calls made on other
 sequences. The run stops instead and says to redo the satellite stages. The engine is replaced by a stand-in that
-writes its seeds checkpoint and nothing else."""
+writes its seeds checkpoint and nothing else (or fails right after it)."""
 import json
 import logging
 import os
@@ -43,17 +43,25 @@ def _earlier_summary(d, genome, chroms):
     return d
 
 
+class Engine(list):
+    """One entry per run of the stand-in engine: the chromosome-set record on disk while it ran (None: there was none).
+    With fail_after_seeds set, the runs write the seeds checkpoint and then fail, as an engine does that dies in the
+    stage after the seeds."""
+    fail_after_seeds = False
+
+
 @pytest.fixture
 def engine(monkeypatch):
     """The satellite engine's run replaced by a stand-in that writes the seeds checkpoint, with the real fingerprint so
-    the engine's own resume check accepts it. The list it returns holds, per run, the chromosome-set record on disk
-    while the engine ran (None: there was none)."""
-    runs = []
+    the engine's own resume check accepts it."""
+    runs = Engine()
 
     def run(self):
         record = self.work / "chromosome_set.json"
         runs.append(record.read_text() if record.exists() else None)
         (self.work / "seeds.done").write_text(json.dumps(self.fingerprint("seeds")))
+        if runs.fail_after_seeds:
+            raise SatelliteError("families: tool crashed")
 
     monkeypatch.setattr(Pipeline, "run", run)
     return runs
@@ -138,14 +146,14 @@ def test_a_genome_added_or_removed_is_a_change(tmp_path, engine):
 
 def test_pre09_folder_same_set_resumes_and_records(tmp_path, engine):
     """A folder made before 0.9 has seeds.done and no record. Its set was the 0.8 rule's, here the same as 0.9's:
-    resume, and record the set once the engine finished (so the next run reads the record)."""
+    resume, and record the set (before the engine runs, see the failure tests below) so the next run reads it."""
     _assembly(tmp_path, "S", CLEAN)
     out = tmp_path / "out"
     Run(tmp_path, out).stage_satellite()
     (out / RECORD).unlink()
     Run(tmp_path, out).stage_satellite()
     assert _record(out) == {"S": ["c1", "c2", "c3"]}
-    assert engine == [None, None]                                    # no record while the engine ran: written after it
+    assert [json.loads(r) for r in engine] == [{"S": ["c1", "c2", "c3"]}] * 2        # on disk when the engine ran
 
 
 def test_pre09_folder_with_a_gradual_tail_stops(tmp_path, engine):
@@ -195,20 +203,53 @@ def test_force_satellite_proceeds_and_rewrites_the_record(tmp_path, engine, forc
     assert len(engine) == 3
 
 
-def test_a_failed_engine_run_does_not_record(tmp_path, engine, monkeypatch):
+def test_an_engine_that_cannot_be_set_up_leaves_the_record(tmp_path, engine):
+    """The record follows the engine's construction, which applies the force wipe and the stale-fingerprint check: a
+    run that stops before it has wiped nothing, so the record must still describe the checkpoints on disk (here a
+    seed engine that does not exist stops the forced run)."""
     _assembly(tmp_path, "S", GRADUAL)
     out = tmp_path / "out"
     Run(tmp_path, out).stage_satellite()
     before = (out / RECORD).read_text()
     (tmp_path / "S.chromosomes.txt").write_text("s0\ns1\ns2\n")
+    with pytest.raises(CenfuseError, match="satellite engine: seed engine 'nope'"):
+        Run(tmp_path, out, seed_engine="nope", force="satellite").stage_satellite()
+    assert (out / RECORD).read_text() == before and (out / "satellite/work/seeds.done").exists()
+    with pytest.raises(CenfuseError, match=HINT):                    # the old seeds are still guarded
+        Run(tmp_path, out).stage_satellite()
 
-    def fails(self):
-        raise SatelliteError("FasTAN: command failed")
 
-    monkeypatch.setattr(Pipeline, "run", fails)
-    with pytest.raises(CenfuseError, match="satellite engine: FasTAN: command failed"):
+def test_a_first_run_that_fails_after_the_seeds_resumes_on_the_same_set(tmp_path, engine):
+    """The engine dies in the stage after the seeds: seeds.done stands, made on the 25. The rerun on the same set must
+    resume, not fall back to the 0.8 comparison (669 vs 25 here) as for a folder made before 0.9."""
+    _assembly(tmp_path, "S", GRADUAL)
+    out = tmp_path / "out"
+    engine.fail_after_seeds = True
+    with pytest.raises(CenfuseError, match="satellite engine: families: tool crashed"):
+        Run(tmp_path, out).stage_satellite()
+    engine.fail_after_seeds = False
+    Run(tmp_path, out).stage_satellite()                             # resumes: no stop
+    assert len(engine) == 2 and _record(out) == {"S": sorted(SET_09)}
+
+
+def test_a_forced_run_that_fails_after_the_seeds_still_stops_a_revert(tmp_path, engine):
+    """Set A finished. A forced run on set B redid the seeds and died in the next stage; the user goes back to A. The
+    seeds on disk were made on B: the guard must stop, not resume on them (the old record said A)."""
+    _assembly(tmp_path, "S", GRADUAL)
+    out = tmp_path / "out"
+    Run(tmp_path, out).stage_satellite()                             # A: the rule's 25, finished
+    (tmp_path / "S.chromosomes.txt").write_text("s0\ns1\ns2\n")      # B
+    engine.fail_after_seeds = True
+    with pytest.raises(CenfuseError, match="satellite engine: families: tool crashed"):
         Run(tmp_path, out, force="satellite").stage_satellite()
-    assert (out / RECORD).read_text() == before                      # the old record stays
+    (tmp_path / "S.chromosomes.txt").unlink()                        # back to A
+    engine.fail_after_seeds = False
+    with pytest.raises(CenfuseError) as e:
+        Run(tmp_path, out).stage_satellite()
+    assert "S: 3 chromosomes when they were made, 25 now (length rule): 0 dropped, 22 added" in str(e.value)
+    assert str(e.value).endswith(HINT) and len(engine) == 2          # the engine did not run again
+    Run(tmp_path, out, force="satellite").stage_satellite()          # the way out
+    assert len(engine) == 3 and _record(out) == {"S": sorted(SET_09)}
 
 
 def test_a_record_without_a_seeds_checkpoint_is_not_checked(tmp_path, engine):

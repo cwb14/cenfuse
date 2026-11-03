@@ -222,8 +222,10 @@ class Run:
 
     def _record_chromosome_set(self, sat_work: Path) -> None:
         """Write {genome: sorted chromosome names} beside the satellite checkpoints (CHROM_RECORD), the set
-        _check_chromosome_set compares on the next run. Called once the engine has finished, so a failed run leaves the
-        earlier record; written to a temporary file and moved over it, so a record is never torn."""
+        _check_chromosome_set compares on the next run. Called after the engine is constructed and before it runs:
+        what its stages checkpoint stands on this set whether the run ends or not, while the earlier record would
+        describe checkpoints already wiped (a failed forced run, then a return to the earlier set, would resume on
+        them). Written to a temporary file and moved over the record, so it is never torn."""
         sat_work.mkdir(parents=True, exist_ok=True)
         path = sat_work / CHROM_RECORD
         tmp = path.with_name(f"{path.name}.tmp")
@@ -260,12 +262,14 @@ class Run:
         view = inputs.make_view(self.genomes, self.gdir, self.work / "genomes" / self.gdir.name)
         force = self.force if self.force in SAT_STAGES else ("seeds" if self.force in ("satellite", "all") else None)
         try:
-            Pipeline(view, self.threads, self.seed_cache, Params(seed_engine=self.seed_engine,
-                                                                 classify_from=self.classify_from, **self.sat_params),
-                     force=force, out_dir=self.out / "satellite").run()
+            pipe = Pipeline(view, self.threads, self.seed_cache,
+                            Params(seed_engine=self.seed_engine, classify_from=self.classify_from, **self.sat_params),
+                            force=force, out_dir=self.out / "satellite")
+            # after construction (force wipe, stale check done) every checkpoint, present or future, stands on this set
+            self._record_chromosome_set(sat_work)
+            pipe.run()
         except SatelliteError as e:
             raise CenfuseError(f"satellite engine: {e}") from None
-        self._record_chromosome_set(sat_work)
         return self.out / "satellite"
 
     def stage_telomere(self, g) -> dict:
