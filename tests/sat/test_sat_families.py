@@ -349,12 +349,13 @@ def _fake_build_hmm(calls: list, slow: str = "fam001", fail: str = None):
     """Stand-in for build_hmm with its signature: records (family, references it was given), sleeps 0.3 s for `slow`,
     raises for `fail`, queries its unit length as frame_rotation queries a consensus, and returns a result that
     depends on the references within RELATED_LEN_TOL of that query (what a frame rotation can depend on) and on its
-    random generator; one note per build."""
+    random generator; one note per build. It records no frame rotation, so a flagged build is rebuilt."""
     import time
     from cenfuse.sat.params import RELATED_LEN_TOL
     from cenfuse.sat.util import SatelliteError
 
-    def fake(fam_id, rep_seq, intervals, fastas, workdir, threads, p, rng, refs=None, queries=None, notes=None):
+    def fake(fam_id, rep_seq, intervals, fastas, workdir, threads, p, rng, refs=None, queries=None, notes=None,
+             frames=None):
         calls.append((fam_id, list(refs)))
         if fam_id == slow:
             time.sleep(0.3)
@@ -377,6 +378,7 @@ def test_build_models_rebuilds_when_a_late_reference_matters(monkeypatch, tmp_pa
     from cenfuse.sat import families
     from cenfuse.sat.util import log
     monkeypatch.setattr(log, "propagate", True)
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", 1)          # 3 threads = 3 concurrent builds
     calls = []
     monkeypatch.setattr(families, "build_hmm", _fake_build_hmm(calls))
     jobs = [("fam001", "A" * 170, []), ("fam002", "C" * 175, []), ("fam003", "G" * 900, [])]
@@ -402,6 +404,7 @@ def test_build_models_never_references_an_unaccepted_family(monkeypatch, tmp_pat
     but not accepted (it must be rebuilt with fam001), so it is not a reference of fam003. Only accepted families are
     final; a finished one may still be rebuilt."""
     from cenfuse.sat import families
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", 1)          # 2 threads = 2 concurrent builds
     calls = []
     monkeypatch.setattr(families, "build_hmm", _fake_build_hmm(calls))
     jobs = [("fam001", "A" * 170, []), ("fam002", "C" * 175, []), ("fam003", "G" * 900, [])]
@@ -418,6 +421,7 @@ def test_build_models_surfaces_errors(monkeypatch, tmp_path):
     import threading
     from cenfuse.sat import families
     from cenfuse.sat.util import SatelliteError
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", 1)          # 2 and 8 threads: builds run concurrently
     monkeypatch.setattr(families, "build_hmm", _fake_build_hmm([], fail="fam002"))
     jobs = [(f"fam{i:03d}", "A" * (170 + 50 * i), []) for i in range(1, 6)]
     for threads in (1, 2, 8):
@@ -442,8 +446,9 @@ def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_
                                                monkeypatch):
     """Concurrent family models are the serial ones: families.tsv, families.fa and the seed table byte for byte,
     families.hmm apart from its DATE and COM lines (build time, command), and the stage's log lines in the same order.
-    The synthetic fam003 (98 bp) is within 15% of fam002 (90 bp); at 4 threads it starts before fam002 is final and is
-    rebuilt. 16 threads on 2 families: more threads than families."""
+    The synthetic fam003 (98 bp) is within 15% of fam002 (90 bp); at 4 threads (one per build) it starts before fam002
+    is final, is flagged and its frame rotation replayed with fam002: unrelated, the rotation is unchanged and the
+    build kept. 16 threads on 2 families (THREADS_PER_BUILD as shipped): more threads than families."""
     import gzip
     import logging
     from dataclasses import replace
@@ -451,18 +456,26 @@ def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_
     from cenfuse.sat.genomes import discover_genomes
     from cenfuse.sat.util import log
     monkeypatch.setattr(log, "propagate", True)
+    shipped = families.THREADS_PER_BUILD
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", 1)          # 4 threads = 3 concurrent builds
     genomes = discover_genomes(synth_complex[0])
-    calls = []
-    real = families.build_hmm
+    calls, replays = [], []
+    real, real_replay = families.build_hmm, families.rotations_unchanged
 
     def spy(fam_id, *a, **k):
         calls.append(fam_id)
         return real(fam_id, *a, **k)
 
+    def replay_spy(frames, refs, workdir, ident):
+        replays.append((workdir.name, list(refs), real_replay(frames, refs, workdir, ident)))
+        return replays[-1][2]
+
     monkeypatch.setattr(families, "build_hmm", spy)
+    monkeypatch.setattr(families, "rotations_unchanged", replay_spy)
 
     def run(name, threads, p):
         calls.clear()
+        replays.clear()
         caplog.clear()
         d = tmp_path / name
         with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
@@ -470,12 +483,70 @@ def test_families_identical_at_1_and_4_threads(synth_seeds, synth_complex, test_
         hmm = [x for x in (d / "families.hmm").read_text().splitlines(True) if not x.startswith(("DATE", "COM"))]
         lines = [(r.levelname, r.getMessage()) for r in caplog.records if r.name == "cenfuse-sat"]
         return ((d / "families.tsv").read_bytes(), (d / "families.fa").read_bytes(), "".join(hmm),
-                gzip.decompress((d / "seeds.tsv.gz").read_bytes()), lines), list(calls)
+                gzip.decompress((d / "seeds.tsv.gz").read_bytes()), lines), list(calls), list(replays)
 
-    one, built1 = run("t1", 1, test_params)
-    four, built4 = run("t4", 4, test_params)
+    one, built1, replayed1 = run("t1", 1, test_params)
+    four, built4, replayed4 = run("t4", 4, test_params)
     assert one == four
-    assert built1 == ["fam001", "fam002", "fam003"] and sorted(built4) == ["fam001", "fam002", "fam003", "fam003"]
+    assert built1 == ["fam001", "fam002", "fam003"] and replayed1 == []
+    assert sorted(built4) == ["fam001", "fam002", "fam003"]                   # flagged, replayed, kept
+    assert replayed4 == [("fam003", ["fam001", "fam002"], True)]
     assert ("WARNING", "families: fam003: only 0 monomers sampled; single-sequence HMM") in one[4]
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", shipped)
     two = replace(test_params, max_families=2)
     assert run("two1", 1, two)[0] == run("two16", 16, two)[0]
+
+
+def test_model_workers_split_threads_into_builds_of_threads_per_build():
+    """Builds of THREADS_PER_BUILD threads (fewer when fewer are given), as many at once as the threads allow and there
+    are families; spare threads are not handed out (MAFFT gains little past 4)."""
+    from cenfuse.sat.families import THREADS_PER_BUILD, model_workers
+    assert THREADS_PER_BUILD == 4
+    assert [model_workers(t, 40) for t in (1, 3, 4, 16)] == [(1, 1), (1, 3), (1, 4), (4, 4)]
+    assert model_workers(16, 2) == (2, 4) and model_workers(16, 1) == (1, 4)     # more threads than families
+    assert model_workers(64, 40) == (16, 4)
+
+
+@pytest.mark.skipif(not have("blastn", "makeblastdb"), reason="blast missing")
+def test_build_models_replays_the_frame_rotations_of_a_flagged_family(monkeypatch, tmp_path, test_params):
+    """fam002 starts before fam001 (within 15% of its length) is final, so it is flagged; its two recorded frame
+    rotations are replayed in order with fam001 (real BLAST). The first (a 120-bp piece: no family near that length)
+    is unchanged either way. An unrelated sequence of fam001's length keeps its canonical rotation: the build is kept,
+    not rebuilt. A relative of fam001 in another frame is rotated into fam001's frame by the second call: the build is
+    rebuilt with fam001. Either way the result is the serial one, and the replay writes only to its own folders."""
+    from cenfuse.sat import families
+    from cenfuse.sat.util import canonical_rotation
+    rng = np.random.default_rng(7)
+    a = canonical_rotation(rseq(rng, 170))           # fam001's model: its own canonical rotation (no reference)
+    r = "TTTTTT" + a[6:]                              # without a's smallest k-mer the relative's canonical rotation
+    relative = mutate(rng, r[60:] + r[:60], 0.02)     # starts elsewhere: out of phase with fam001 (as TRF seeds are)
+    unrelated = rseq(rng, 175)
+    ident = test_params.superfam_ident
+    rotated = {q: families.frame_rotation(q, {"fam001": a}, tmp_path / f"pre{i}", 1, ident)
+               for i, q in enumerate((unrelated, relative))}
+    assert rotated[unrelated] == canonical_rotation(unrelated) and rotated[relative] != canonical_rotation(relative)
+    calls = []
+
+    def build_hmm(fam_id, rep_seq, intervals, fastas, workdir, threads, p, rng, refs=None, queries=None, notes=None,
+                  frames=None):
+        """build_hmm reduced to its two reference-dependent steps, recorded: real frame rotations of a 120-bp piece of
+        the unit (as of a trimmed seed) and of the whole unit (as of the pass-1 consensus)."""
+        calls.append((fam_id, list(refs)))
+        out = []
+        for i, q in enumerate((rep_seq[:120], rep_seq)):
+            out.append(families.frame_rotation(q, refs, workdir / f"frame{i}", threads, p.superfam_ident,
+                                               queries=queries))
+            frames.append((q, out[-1]))
+        return f"hmm {out}", out[-1], "profile", rng.randint(0, 10 ** 9)
+
+    monkeypatch.setattr(families, "build_hmm", build_hmm)
+    monkeypatch.setattr(families, "THREADS_PER_BUILD", 1)          # 2 threads = 2 concurrent builds
+    for name, second, rebuilt in (("unrelated", unrelated, False), ("relative", relative, True)):
+        jobs = [("fam001", a, []), ("fam002", second, [])]
+        calls.clear()
+        par = families.build_models(jobs, {}, tmp_path / name, 2, test_params)
+        assert [c for c in calls if c[0] == "fam002"] == [("fam002", [])] + [("fam002", ["fam001"])] * rebuilt, name
+        wd = tmp_path / name / "fam002"         # BLAST runs only with a candidate: for the whole unit, after fam001
+        assert (wd / "replay1").is_dir() and (wd / "frame1").exists() == rebuilt, name     # frame1: the rebuild's
+        calls.clear()
+        assert par == families.build_models(jobs, {}, tmp_path / f"{name}_serial", 1, test_params), name

@@ -18,6 +18,7 @@ from .util import (SatelliteError, canonical_rotation, log, merge_intervals, par
 ABC = Alphabet.dna()
 RRNA_CM = Path(__file__).resolve().parent / "data" / "rfam_rrna.cm"   # Rfam 5S/5.8S/SSU/LSU (package data, data/README.md)
 BLAST_FMT = "6 qseqid sseqid pident length qstart qend sstart send qlen slen bitscore"
+THREADS_PER_BUILD = 4   # MAFFT, Panax fam006 (65 monomers): 3.6x faster at 4 threads, 5.6x at 16, same alignment at 1-16
 FAM_COLS = ["fam_id", "rep_seed", "base_seed", "consensus_len", "n_seeds", "max_genome_span",
             "genome_spans", "hmm_mode", "n_hmm_seqs", "superfamily", "rdna", "chain_group"]
 
@@ -463,23 +464,29 @@ def sample_monomers(hmm, intervals: list, fastas: dict, p, rng: random.Random) -
 
 
 def build_hmm(fam_id: str, rep_seq: str, intervals, fastas, workdir: Path, threads: int, p, rng, refs=None,
-              queries=None, notes=None):
+              queries=None, notes=None, frames=None):
     """Two-pass family model in the monomer frame of the most similar earlier family (refs: {fam: consensus}).
-    queries (a list) gets the length of every frame_rotation query; notes (a list) gets the warnings instead of the
-    log, so that a model built concurrently with others is reported with its family, in family order (build_models).
+    For build_models: queries (a list) gets the length of every frame_rotation query, frames (a list) the (query,
+    rotation) of each of the two frame_rotation calls, the only steps that read refs; notes (a list) gets the warnings
+    instead of the log, so that a model built concurrently with others is reported with its family, in family order.
     Returns (hmm, consensus, mode, n_sampled)."""
     refs = refs or {}
     warn = log.warning if notes is None else notes.append
-    c0 = frame_rotation(trim_overhang(rep_seq, workdir / "trim0", threads), refs, workdir / "frame0", threads,
-                        p.superfam_ident, queries=queries)
+
+    def rotate(seq: str, wd: Path) -> str:
+        out = frame_rotation(seq, refs, wd, threads, p.superfam_ident, queries=queries)
+        if frames is not None:
+            frames.append((seq, out))
+        return out
+
+    c0 = rotate(trim_overhang(rep_seq, workdir / "trim0", threads), workdir / "frame0")
     h = single_hmm(fam_id, c0)
     s1 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s1) < p.min_hmm_seqs:
         warn(f"families: {fam_id}: only {len(s1)} monomers sampled; single-sequence HMM")
         return h, c0, "single", len(s1)
     rows1 = mafft(s1, workdir, threads)
-    c1 = frame_rotation(trim_overhang(msa_consensus(rows1), workdir / "trim1", threads), refs,
-                        workdir / "frame1", threads, p.superfam_ident, queries=queries)
+    c1 = rotate(trim_overhang(msa_consensus(rows1), workdir / "trim1", threads), workdir / "frame1")
     h = single_hmm(fam_id, c1)
     s2 = sample_monomers(h, intervals, fastas, p, rng)
     if len(s2) < p.min_hmm_seqs:                     # a refinement never replaces its model with a worse one:
@@ -498,34 +505,60 @@ def needs_rebuild(queries: list, late_lengths: list, tol: float = RELATED_LEN_TO
     return any(related_len(L, q, tol) for q in queries for L in late_lengths)
 
 
+def rotations_unchanged(frames: list, refs: dict, workdir: Path, ident: float) -> bool:
+    """Whether every recorded frame_rotation call of a build, frames = [(query, rotation)] in call order, gives the same
+    rotation again with refs (every earlier family, in family order). The rotation is all such a call passes on: it
+    logs nothing, its only append is its query length (read by needs_rebuild alone) and its BLAST files (frame0,
+    frame1) are read by no later step. With every rotation unchanged the build with refs is the same computation step
+    for step (same queries, same random generator, same samples): the serial model. Each replay runs in its own folder
+    (workdir/replay<i>), on one thread: one query against a few references (BLAST hits do not depend on threads)."""
+    return all(frame_rotation(q, refs, workdir / f"replay{i}", 1, ident) == r for i, (q, r) in enumerate(frames))
+
+
+def model_workers(threads: int, n_jobs: int) -> tuple:
+    """(workers, threads per build) for n_jobs family models: builds of THREADS_PER_BUILD threads (all of them if
+    fewer are given), as many at once as the threads allow and there are families; spare threads stay unused."""
+    per = max(1, min(THREADS_PER_BUILD, threads))
+    return max(1, min(n_jobs, threads // per)), per
+
+
 def build_models(jobs: list, fastas: dict, workdir: Path, threads: int, p, on_accept=None) -> list:
     """Family models built concurrently, each identical to the serial build (family order, every earlier family's
     final consensus as a frame reference). jobs: [(fid, unit, intervals)] in family order; job k samples with
     random.Random(k + 1), so a model never depends on another's sampling. The families stage built one model at a time
     (Panax: 29 min for 40 models), and neither nhmmer sampling (one thread) nor MAFFT keeps the threads busy.
     A build starts with the families already accepted as references (final; a family finished but not accepted is
-    never one) and records its frame_rotation queries. Families are accepted in family order: a finished build is
-    kept unless an earlier family it started without could have been a frame candidate for it (needs_rebuild), and
-    is then rebuilt with all earlier families, which are final by then. min(threads, families) workers run the
-    builds with threads // workers threads each (MAFFT --threadit 0 and BLAST give the same results at any thread
-    count) and free their search workspace after each build. A build's warnings are logged at its acceptance, then
-    on_accept(k, result) is called, in family order. A failed build raises its error once the running builds end.
-    Returns [dict(fid, hmm, cons, mode, n, notes)] in job order."""
+    never one) and records its frame_rotation queries and rotations. Families are accepted in family order, with all
+    earlier families final: a finished build is kept if no earlier family it started without is a frame candidate for
+    one of its queries (needs_rebuild), or else if each of its rotations replays unchanged with all earlier families
+    (rotations_unchanged); otherwise (also a flagged build without a record) it is rebuilt with all earlier families.
+    The length test alone rebuilt 33 of 40 Panax families, mostly length coincidences, one after another: no faster
+    than one at a time. model_workers sets the workers and their threads (MAFFT --threadit 0 and BLAST give the same
+    results at any thread count); each worker frees its search workspace after a build. A build's warnings are
+    logged at its acceptance, then on_accept(k, result) is called, in family order. A failed build raises its error
+    once the running builds end. Returns [dict(fid, hmm, cons, mode, n, notes)] in job order."""
     workdir = Path(workdir)
     if not jobs:
         return []
-    workers = max(1, min(threads, len(jobs)))
-    per = max(1, threads // workers)
+    workers, per = model_workers(threads, len(jobs))
 
     def build(k: int, refs: dict):
         fid, unit, intervals = jobs[k]
-        queries, notes = [], []
+        queries, notes, frames = [], [], []
         try:
             hmm, cons, mode, n = build_hmm(fid, unit, intervals, fastas, workdir / fid, per, p, random.Random(k + 1),
-                                           refs, queries, notes)
+                                           refs, queries, notes, frames)
         finally:
             release_pipeline()                        # free the worker's search workspace (~2 GB for a long model)
-        return dict(fid=fid, hmm=hmm, cons=cons, mode=mode, n=n, notes=notes), set(refs), queries
+        return dict(fid=fid, hmm=hmm, cons=cons, mode=mode, n=n, notes=notes), set(refs), queries, frames
+
+    def keep(fid: str, seen: set, queries: list, frames: list) -> bool:
+        """The acceptance rule, every earlier family final (in accepted): no earlier family the build started without
+        is a frame candidate for one of its queries, or its rotations replay unchanged with all earlier families. A
+        flagged build without a record of its rotations cannot be replayed."""
+        if not needs_rebuild(queries, [len(c) for f, c in accepted.items() if f not in seen]):
+            return True
+        return bool(frames) and rotations_unchanged(frames, accepted, workdir / fid, p.superfam_ident)
 
     accepted, out, finished, running, nxt = {}, [], {}, {}, 0      # accepted: {fid: consensus}, in family order
     with ThreadPoolExecutor(workers) as ex:
@@ -538,8 +571,8 @@ def build_models(jobs: list, fastas: dict, workdir: Path, threads: int, p, on_ac
                 finished[running.pop(fut)] = fut.result()          # a failed build raises here
             while len(out) in finished:
                 k = len(out)
-                res, seen, queries = finished.pop(k)
-                if needs_rebuild(queries, [len(c) for f, c in accepted.items() if f not in seen]):
+                res, seen, queries, frames = finished.pop(k)
+                if not keep(res["fid"], seen, queries, frames):
                     running[ex.submit(build, k, dict(accepted))] = k    # every earlier family: the serial model
                     break
                 accepted[res["fid"]] = res["cons"]
