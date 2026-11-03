@@ -27,20 +27,20 @@ from .sat.te import TE_EXT
 from .sat.util import SatelliteError
 from .util import CenfuseError, log
 
-HIC_EXT = (".pairs.gz", ".pairs", ".mcool", ".cool")
+HIC_MAIN = (".pairs.gz", ".pairs", ".mcool", ".cool")          # 4DN pairs and cooler: preferred when present
+HIC_OTHER = (".allValidPairs", ".allValidPairs.gz", ".merged_nodups.txt", ".merged_nodups.txt.gz")   # HiC-Pro, Juicer
+HIC_EXT = HIC_MAIN + HIC_OTHER        # hic.io.pairs_format reads the layout
 CHROM_LIST = ".chromosomes.txt"      # GENOME_DIR/<genome>.chromosomes.txt: the user's chromosomes, one name per line
 RULE_SOURCE = "length rule"          # GenomeInputs.chrom_source: what set the chromosomes
 LEGACY_SOURCE = "length rule of cenfuse 0.8 (--classify-from target)"
+READS = ".pairs[.gz], .cool, .mcool, .allValidPairs[.gz] (HiC-Pro) or .merged_nodups.txt[.gz] (Juicer)"
 # Hi-C files cenfuse does not read, and how to make one it does (README recipe): better a clear stop than a silent run
 # without the Hi-C the user gave
 HIC_CONVERT = {".hic": "convert it: hictk convert {f} {stem}.mcool (or hic2cool convert {f} {stem}.mcool)",
                ".bam": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
                ".cram": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
                ".sam": "make pairs: pairtools parse ... | pairtools sort | pairtools dedup (README recipe)",
-               ".merged_nodups.txt": "convert it to 4DN pairs (columns chrom1 pos1 chrom2 pos2), or use the .hic "
-                                     "Juicer made from it (hictk convert)",
-               ".merged_nodups.txt.gz": "convert it to 4DN pairs (columns chrom1 pos1 chrom2 pos2), or use the .hic "
-                                        "Juicer made from it (hictk convert)"}
+               ".validPairs": "use HiC-Pro's deduplicated .allValidPairs (or 4DN pairs)"}
 
 
 @dataclass
@@ -80,13 +80,17 @@ def hic_libraries(folder: Path, name: str) -> list:
     """The Hi-C libraries of genome `name`: the rows of hic/<name>.tsv, or the lone hic/<name>.<ext> as 'hic'."""
     table = folder / f"{name}.tsv"
     if not table.exists():
-        lone = _one(folder, name, HIC_EXT)
+        lone = _one(folder, name, HIC_MAIN)
+        others = [folder / f"{name}{e}" for e in HIC_OTHER if (folder / f"{name}{e}").exists()]
+        if lone is not None and others:     # 0.9 asked to convert Juicer files to pairs: the original may stay beside
+            log.warning(f"{folder}: {', '.join(o.name for o in others)} not used: {lone.name} is")
+        elif lone is None:
+            lone = _one(folder, name, HIC_OTHER)
         if lone is None:
             for ext, how in HIC_CONVERT.items():
                 f = folder / f"{name}{ext}"
                 if f.exists():
-                    raise CenfuseError(f"{f}: cenfuse reads Hi-C as .pairs[.gz], .cool or .mcool; "
-                                       f"{how.format(f=f, stem=name)}")
+                    raise CenfuseError(f"{f}: cenfuse reads Hi-C as {READS}; {how.format(f=f, stem=name)}")
         return [HicLibrary("hic", lone)] if lone else []
     try:
         d = pd.read_csv(table, sep="\t", dtype=str).fillna("")
@@ -101,7 +105,7 @@ def hic_libraries(folder: Path, name: str) -> list:
             raise CenfuseError(f"{table}: bad sample name {n!r} (non-empty, without '/' or whitespace)")
         p = Path(f) if Path(f).is_absolute() else table.parent / f
         if not p.name.endswith(HIC_EXT):
-            raise CenfuseError(f"{table}: {n}: {p.name} is not .pairs[.gz], .cool or .mcool")
+            raise CenfuseError(f"{table}: {n}: {p.name} is not one of {READS}")
         if not p.exists():
             raise CenfuseError(f"{table}: {n}: no file {p}")
         out.append(HicLibrary(n, p))

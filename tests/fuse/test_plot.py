@@ -144,3 +144,30 @@ def test_overview_closes_the_page_that_fails(tmp_path, monkeypatch, quick_pages,
     finally:
         plt.close("all")
     assert left == []
+
+
+def _hic(size, anchored):
+    """A Hi-C result with two 60-bin chromosomes: anchored score all NaN unless `anchored` (no sequence call to anchor
+    partner windows), prior-free score peaking at bin 30."""
+    import numpy as np
+    from cenfuse.hic.bins import Bins
+    b = Bins({"c1": 60 * size, "c2": 60 * size}, size)
+    peak = np.ones(b.N)
+    peak[b.off + 30] = 5.0
+    return dict(bins=b, members=np.array([True, True]), S=peak.copy() if anchored else np.full(b.N, np.nan),
+                denovo_S=peak, bin_size=size)
+
+
+@pytest.mark.filterwarnings("ignore:All-NaN slice")     # grid columns no trace reaches (as before 0.10)
+def test_score_panel_scales_with_the_bin_and_falls_back_to_the_prior_free_score():
+    rows = [dict(chrom=c, call=(30 * 10_000, 31 * 10_000), relation="functional_only") for c in ("c1", "c2")]
+    fig = Figure()
+    ax = fig.add_subplot()
+    plot._overlay(ax, rows, _hic(10_000, anchored=False))
+    assert ax.get_xlim() == (-0.4, 0.4)                       # +/- 40 bins of 10 kb
+    assert ax.get_ylabel().startswith("prior-free Hi-C score")
+    fig = Figure()
+    ax = fig.add_subplot()
+    rows = [dict(chrom=c, call=(30 * 250_000, 31 * 250_000), relation="sequence_only") for c in ("c1", "c2")]
+    plot._overlay(ax, rows, _hic(250_000, anchored=True))
+    assert ax.get_xlim() == (-10.0, 10.0) and ax.get_ylabel().startswith("anchored Hi-C score")   # as before 0.10

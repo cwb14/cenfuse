@@ -109,6 +109,29 @@ def expected_cen_contacts(M, bins: Bins, members: np.ndarray) -> float:
     return float(np.median(np.concatenate(vals)))
 
 
+def fits_memory(size: int, lengths) -> bool:
+    """size keeps the largest chromosome within MAX_CHROM_BINS and the genome within MAX_GENOME_BINS bins."""
+    L = [int(x) for x in lengths]
+    return bool(L) and -(-max(L) // size) <= params.MAX_CHROM_BINS and sum(L) / size <= params.MAX_GENOME_BINS
+
+
+def candidate_sizes(lengths) -> list:
+    """Bin sizes the depth rule (choose_bin_size) may choose from, finest first, for chromosomes of these lengths.
+    When every chromosome has MIN_BINS bins at STD_FLOOR: STD_FLOOR and coarser (cenfuse 0.9's ladder). Otherwise
+    the ladder down to the coarsest size giving the shortest chromosome MIN_BINS bins, but not finer than the finest
+    size within MAX_CHROM_BINS (longest chromosome) and MAX_GENOME_BINS (genome). Sequences shorter than MIN_BINS
+    bins of the finest ladder size can never be called and do not count."""
+    ladder = params.BIN_LADDER
+    L = sorted(int(x) for x in lengths if x >= params.MIN_BINS * ladder[0])
+    std = [s for s in ladder if s >= params.STD_FLOOR]
+    if not L or L[0] >= params.MIN_BINS * params.STD_FLOOR:
+        return std
+    need = max(s for s in ladder if params.MIN_BINS * s <= L[0])
+    mem = [s for s in ladder if fits_memory(s, L)]
+    floor = min(max(need, mem[0]) if mem else params.STD_FLOOR, params.STD_FLOOR)
+    return [s for s in ladder if s >= floor]
+
+
 def choose_bin_size(get_matrix, sizes):
     rows = []
     for size in sizes:

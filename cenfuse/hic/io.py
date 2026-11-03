@@ -1,4 +1,5 @@
-"""Input readers: .fai, Hi-C pairs (4DN or simple 6-column), .cool/.mcool via h5py, BED/GFF3 intervals."""
+"""Input readers: .fai, Hi-C pairs (4DN, simple 6-column, HiC-Pro allValidPairs, Juicer merged_nodups), .cool/.mcool via
+h5py, BED/GFF3 intervals."""
 from __future__ import annotations
 
 import gzip
@@ -64,22 +65,76 @@ def _open(path):
 
 @dataclass
 class PairsFormat:
-    kind: str                     # "4dn" (1-based) or "simple6" (0-based)
+    kind: str                     # "4dn" (header; 1-based), "simple6"/"simple7" (0-based), "hicpro", "juicer_*" (1-based)
     columns: list | None
     n_header: int
+    sep: str = "\t"
+
+
+# Headerless layouts written by other Hi-C pipelines (positions 1-based, from SAM; deduplicated files): columns and
+# separator. HiC-Pro *.allValidPairs; Juicer merged_nodups (long: what juicer.sh writes; medium and short: the
+# layouts Juicer's `pre` documents). Juicer strands are 0 (forward) or another integer (16: reverse).
+_JS = ["s1", "chrom1", "pos1", "frag1", "s2", "chrom2", "pos2", "frag2"]
+LAYOUTS = {
+    "hicpro": (["read", "chrom1", "pos1", "s1", "chrom2", "pos2", "s2", "size", "frag1", "frag2", "mapq1", "mapq2"],
+               "\t"),
+    "juicer_long": (_JS + ["mapq1", "cigar1", "seq1", "mapq2", "cigar2", "seq2", "read1", "read2"], r"\s+"),
+    "juicer_medium": (["read"] + _JS + ["mapq1", "mapq2"], r"\s+"),
+    "juicer_short": (_JS, r"\s+"),
+    "juicer_short_score": (_JS + ["score"], r"\s+"),
+}
+FORMATS_READ = ("4DN .pairs (with a '#columns:' header), simple 6-column pairs (chrom1 pos1 strand1 chrom2 pos2 "
+                "strand2, 0-based; or with a read ID first), HiC-Pro .allValidPairs, Juicer merged_nodups (long, "
+                "medium or short layout)")
+
+
+def _int(x: str) -> bool:
+    return x.lstrip("-").isdigit()
+
+
+def _layout(line: str) -> str | None:
+    """The headerless layout of a first data line, or None."""
+    t = line.rstrip("\r\n").split("\t")
+    w = line.split()
+    strand = {"+", "-"}
+    if len(t) == 6:                     # 0.9's headerless layout, whatever the line holds (bad lines are counted)
+        return "simple6"
+    if len(t) == 7 and _int(t[2]) and _int(t[5]):      # the same with a read ID first (0.9 read it so)
+        return "simple7"
+    if len(t) >= 8 and t[3] in strand and t[6] in strand and _int(t[2]) and _int(t[5]):
+        return "hicpro"
+    juicer = {16: ("juicer_long", 0), 11: ("juicer_medium", 1), 8: ("juicer_short", 0), 9: ("juicer_short_score", 0)}
+    if len(w) in juicer:
+        kind, o = juicer[len(w)]
+        if all(_int(w[o + i]) for i in (0, 2, 3, 4, 6, 7)):
+            return kind
+    return None
 
 
 def pairs_format(path) -> PairsFormat:
-    n, cols = 0, None
+    n, cols, first = 0, None, ""
     with _open(path) as f:
         for line in f:
             if not line.startswith("#"):
+                first = line
                 break
             n += 1
             if line.startswith("#columns:"):
                 cols = line.split(":", 1)[1].split()
     if n == 0:
-        return PairsFormat("simple6", None, 0)
+        kind = _layout(first) if first.strip() else "simple6"
+        if kind is None:
+            raise InputError(f"{path}: unrecognized Hi-C pairs layout (first line {first.strip()[:80]!r}); cenfuse "
+                             f"reads {FORMATS_READ}")
+        if kind == "simple6":
+            return PairsFormat("simple6", None, 0)
+        if kind == "simple7":
+            return PairsFormat("simple7", ["read", "chrom1", "pos1", "s1", "chrom2", "pos2", "s2"], 0)
+        cols, sep = LAYOUTS[kind]
+        if kind == "hicpro":                # as many names as the file has fields (mapq only with 12 or more)
+            n = len(first.rstrip("\r\n").split("\t"))
+            cols = cols[:n] + [f"extra{i}" for i in range(n - len(cols))]
+        return PairsFormat(kind, cols, 0, sep)
     if cols is None or not {"chrom1", "pos1", "chrom2", "pos2"} <= set(cols):
         raise InputError(f"{path}: header lines but no '#columns:' line naming chrom1 pos1 chrom2 pos2")
     return PairsFormat("4dn", cols, n)
@@ -117,14 +172,15 @@ def iter_pairs(path, chroms: dict, stats: PairStats, chunksize: int = params.PAI
     Drops pairs with an end off `chroms`, with MAPQ < params.MAPQ (when mapq1/mapq2 exist) or unparsable positions."""
     fmt = pairs_format(path)
     idx = {c: i for i, c in enumerate(chroms)}
-    if fmt.kind == "simple6":
-        names, use, off = ["chrom1", "pos1", "s1", "chrom2", "pos2", "s2"], ["chrom1", "pos1", "chrom2", "pos2"], 0
+    if fmt.kind in ("simple6", "simple7"):            # 0-based
+        names = fmt.columns or ["chrom1", "pos1", "s1", "chrom2", "pos2", "s2"]
+        use, off = ["chrom1", "pos1", "chrom2", "pos2"], 0
     else:
         names, off = fmt.columns, 1
         use = ["chrom1", "pos1", "chrom2", "pos2"] + [c for c in ("mapq1", "mapq2") if c in names]
         stats.mapq_checked = "mapq1" in names and "mapq2" in names
     # No usecols: with usecols pandas silently accepts over-wide rows; without it they are skipped and reported.
-    reader = pd.read_csv(path, sep="\t", header=None, names=names, skiprows=fmt.n_header,
+    reader = pd.read_csv(path, sep=fmt.sep, header=None, names=names, skiprows=fmt.n_header,
                          chunksize=chunksize, dtype={"chrom1": str, "chrom2": str}, on_bad_lines="warn")
     it = iter(reader)
     while True:

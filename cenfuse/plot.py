@@ -278,11 +278,18 @@ def _offsets(ax, rows):
         ax.spines[sp].set_visible(False)
 
 
-def _overlay(ax, rows, hic, flank=10e6):
-    """Anchored Hi-C score (x chromosome median) against distance from each integrated call's center."""
+OVERLAY_BINS = 40           # panel D spans +/- 40 Hi-C bins, at most 10 Mb (10 Mb at 250-kb bins, as before 0.10)
+
+
+def _overlay(ax, rows, hic, flank=None):
+    """Anchored Hi-C score (x chromosome median) against distance from each integrated call's center; the prior-free
+    score where no chromosome has an anchored one (no sequence call to anchor partner windows)."""
+    if flank is None:
+        flank = min(10e6, OVERLAY_BINS * hic["bins"].size)
+    key = "S" if any(_track(hic, r["chrom"], "S") is not None for r in rows) else "denovo_S"
     traces = []
     for r in rows:
-        t = _track(hic, r["chrom"], "S")
+        t = _track(hic, r["chrom"], key)
         if t is None or not r["call"]:
             continue
         m = (r["call"][0] + r["call"][1]) / 2
@@ -307,7 +314,7 @@ def _overlay(ax, rows, hic, flank=10e6):
     ax.axvline(0, color="#D0D0D0", lw=0.4, zorder=0)
     ax.set_xlim(-flank / 1e6, flank / 1e6)
     ax.set_xlabel("distance from the integrated call center (Mb)")
-    ax.set_ylabel("anchored Hi-C score\n(x chromosome median)")
+    ax.set_ylabel(f"{'anchored' if key == 'S' else 'prior-free'} Hi-C score\n(x chromosome median)")
     for sp in ("right", "top"):
         ax.spines[sp].set_visible(False)
 
@@ -668,17 +675,19 @@ def legends(f) -> tuple[str, str]:
     a += " Hatching: no data (masked or uncovered bins). Bands: integrated calls; arrows: sequence call to moved call."
     long.append(a)
     long.append("B, One column per evidence line: filled circle, the line supports the integrated call (satellite: "
-                ">= 5 kb of centromeric-family arrays inside it; TE: the marker core agrees; Hi-C: gated and the "
-                "anchored peak within one bin; methylation: centromere-like under the leave-one-chromosome-out "
+                ">= 5 kb of centromeric-family arrays inside it; TE: the marker core agrees; Hi-C: gated (or, on the "
+                "support-only test, significant) and the anchored peak within one bin, or the prior-free peak that "
+                "placed the call; methylation: centromere-like under the leave-one-chromosome-out "
                 "signature; fold, shown only where it acted: the call lies in the arm-fold core); cross, a gated "
                 "strong Hi-C peak, a CRM core, the arm fold or a validated prior-free Hi-C peak points elsewhere. "
                 "Text: relation and confidence.")
     long.append("C, Black bar: the sequence call, centered at 0. Orange: the TE marker core; blue: the anchored Hi-C "
                 "core with its peak; open diamond: the integrated call when it differs from the sequence call.")
     if hic is not None:
-        long.append("D, Anchored Hi-C score in the 10 Mb on each side of every integrated call, one trace per "
-                    "chromosome (gray: kept sequence calls; orange: calls placed by Hi-C); blue: the median. A peak "
-                    "at 0 means the calls sit where the chromosomes' centromeres meet in the nucleus.")
+        long.append("D, Anchored Hi-C score (prior-free score where no sequence call anchors it) within 40 Hi-C bins "
+                    "(at most 10 Mb) on each side of every integrated call, one trace per chromosome (gray: kept "
+                    "sequence calls; orange: calls placed by Hi-C); blue: the median. A peak at 0 means the calls sit "
+                    "where the chromosomes' centromeres meet in the nucleus.")
     ptab = f.get("plants")
     if ptab is not None and len(ptab):
         _plant_legends(f, short, long)

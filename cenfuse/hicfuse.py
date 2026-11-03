@@ -10,7 +10,16 @@
    leave-one-partner-out, and the position-aware null.
 3. The gate, per chromosome x: on the other chromosomes with a reference-grade sequence call, does the anchored peak
    land on that call more often than chance (Poisson-binomial tail <= GATE_P, and on a majority)? Only then is
-   Hi-C allowed to change x's call.
+   Hi-C allowed to change x's call. Below it, the support tier: agreements beyond chance (the same tail, at least
+   GATE_MIN_REF of them) but not on a majority, counting only agreements at significant anchored peaks (Hi-C level
+   medium or high: at least two of the engine's three tests). Hi-C then carries centromere information but its peak
+   is often elsewhere, so it may only support x's call where its own significant peak agrees (fuse.decide): a peak
+   lands on a call by chance on ~1-2% of chromosomes, so an agreement is strong evidence, while a peak elsewhere is
+   weak evidence against. Where 0.9's gate failed only for want of a majority (rhesus, goat, giraffe, horse, EquCab3,
+   moss, chicken), an agreeing peak marked a right call 61 of 64 times. Without the majority, agreements must stand on
+   their own: with randomized Hi-C (partners re-paired, coverage kept) peaks still land on the calls 3-6 times per
+   genome (chance ~1; low-coverage bins at unmappable arrays' edges carry noisy maxima), almost all at level low or
+   none.
 
 Distances are counted in mappable bins (`visible_gap`). Hi-C sees nothing inside a megabase array of near-identical
 repeat units: no read maps uniquely there, so its bins are masked. In T2T mammals the CENP-A domain lay inside such
@@ -44,7 +53,7 @@ from .util import CenfuseError, gap, log, poisson_binomial_sf
 HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confidence", "partner",
             "anch_peak_start", "anch_peak_end", "anch_core_start", "anch_core_end", "anch_ratio", "anch_boot_in_core",
             "anch_lopo_stable", "anch_null_p", "anch_level", "anch_flags", "anch_strong", "anch_agrees_seq", "chance",
-            "gate_k", "gate_n", "gate_p", "gate_pass", "gate_refs", "masked",
+            "gate_k", "gate_n", "gate_p", "gate_pass", "gate_support", "gate_refs", "masked",
             "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end", "denovo_confidence",
             "denovo_flags", "denovo_agrees_seq", "denovo_agrees_anch"]
 
@@ -52,7 +61,8 @@ HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confid
 def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
     """The Hi-C engine's `call`, as its own command runs it; returns its rows and in-memory state."""
     args = Namespace(pairs=str(pairs), fai=str(fai), o=str(prefix), repeats=None,
-                     satellites=[str(s) for s in satellites] or None, t=max(1, threads), verbose=False)
+                     satellites=[str(s) for s in satellites] or None, t=max(1, threads), verbose=False,
+                     chromosome_set=False)          # the .fai is cenfuse's chromosome set already
     try:
         return hic_cli.run_call(args)
     except InputError as e:
@@ -242,6 +252,9 @@ def _chance(S, bins, good, k: int, s: int, e: int) -> float:
     return float((near & ok).sum() / ok.sum())
 
 
+SUPPORT_LEVELS = ("medium", "high")      # anchored peaks that count for the support tier: >= 2 of the 3 engine tests
+
+
 def clean_peak(flags) -> bool:
     """An anchored peak without a hub, rDNA or telomeric flag (those attract trans contacts whatever the centromere)."""
     return not set(str(flags or "").split(",")) & set(NOT_STRONG_FLAGS)
@@ -269,17 +282,22 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
         ref = t[scored & t.seq_confidence.eq("low")]
         refs, agree = "low", ref.anch_agrees_seq & ref.anch_flags.map(clean_peak)
     majority = 2 * int(agree.sum()) > len(ref)
-    ks, ns, ps, passed = [], [], [], []
+    sig = agree & ref.anch_level.isin(SUPPORT_LEVELS) if "anch_level" in ref else agree
+    ks, ns, ps, passed, support = [], [], [], [], []
     for c in t.chrom:
         r = ref.chrom != c
-        k, n = int(agree[r].sum()), int(r.sum())
-        r = ref[r]
-        p = poisson_binomial_sf(k, r.chance.to_numpy()) if n else float("nan")
+        k, n, k_sig = int(agree[r].sum()), int(r.sum()), int(sig[r].sum())
+        ch = ref[r].chance.to_numpy()
+        p = poisson_binomial_sf(k, ch) if n else float("nan")
+        ok = bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P and majority)
         ks.append(k)
         ns.append(n)
         ps.append(p)
-        passed.append(bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P and majority))
+        passed.append(ok)
+        support.append(bool(not ok and n >= GATE_MIN_REF and k_sig >= GATE_MIN_REF
+                            and poisson_binomial_sf(k_sig, ch) <= GATE_P))
     t["gate_k"], t["gate_n"], t["gate_p"], t["gate_pass"] = ks, ns, ps, passed
+    t["gate_support"] = support
     t["gate_refs"] = refs
     return t
 
@@ -404,7 +422,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
         nors=None) -> dict:
     """Both Hi-C analyses for one genome, and the 3D association of each feature class. Returns dict(table,
     S (anchored score), denovo_S, bins, members, hub, rabl, stats, bin_size, telomere_S, classes, coverage (contacts
-    per bin, for the karyotype test of provenance)). nors: the genome's 45S arrays (rdna.detect), flagged rDNA."""
+    per bin, for the karyotype test of provenance), base_size and matrix_cache (the engine's finest matrix, for the
+    arm fold; None for .cool input)). nors: the genome's 45S arrays (rdna.detect), flagged rDNA."""
     res = run_denovo(pairs, fai, prefix, satellites, threads)
     st = res["state"]
     st["rdna"] = add_nors(st["rdna"], nors)
@@ -422,7 +441,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
              f"{int(t.denovo_agrees_seq.sum())}; gate passes on {n_pass}/{len(t)} chromosomes")
     return dict(table=t, S=extra["S"], est=extra["est"], denovo_S=st["loc"].S, bins=st["bins"],
                 members=st["members"], hub=st["hub"], rabl=res["rabl"], stats=res["stats"], bin_size=st["size"],
-                telomere_S=st["T"], classes=fc, coverage=np.asarray(st["M"].sum(axis=1)).ravel())
+                telomere_S=st["T"], classes=fc, coverage=np.asarray(st["M"].sum(axis=1)).ravel(),
+                base_size=st["base_size"], matrix_cache=st["matrix_cache"])
 
 
 # ---------------------------------------------------------------------------------------------------------------

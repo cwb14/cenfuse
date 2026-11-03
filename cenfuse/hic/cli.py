@@ -16,7 +16,7 @@ import scipy.sparse as sp
 
 from . import __version__, params, plot, qc
 from .balance import balanced, ice
-from .bins import Bins, choose_bin_size, coarsen, matrix_from_pairs
+from .bins import Bins, candidate_sizes, choose_bin_size, coarsen, fits_memory, matrix_from_pairs
 from .confidence import bootstrap, leave_one_out, level, null_test
 from .io import (InputError, PairStats, check_readable, cool_resolutions, is_cool, read_cool, read_fai,
                        read_intervals)
@@ -35,11 +35,11 @@ def _logging(verbose):
     log.propagate = True
 
 
-def fast_checksum(*paths) -> str:
-    """Cache key: a fast fingerprint (version, name, size, mtime, first and last MiB of each input), not a checksum
-    of the whole file."""
+def fast_checksum(*paths, sizes=params.BIN_LADDER) -> str:
+    """Cache key: a fast fingerprint (version, candidate bin sizes, name, size, mtime, first and last MiB of each
+    input), not a checksum of the whole file."""
     n = params.CACHE_FP_BYTES
-    h = hashlib.md5(f"{__version__}:{params.BIN_LADDER}:{params.MAPQ}".encode())
+    h = hashlib.md5(f"{__version__}:{tuple(sizes)}:{params.MAPQ}".encode())
     for p in paths:
         p = Path(p)
         st = p.stat()
@@ -72,17 +72,42 @@ def _warn_short(names_lengths, why):
                     f" in total; e.g. {ex})")
 
 
-def _base_matrix(args, seqs):
-    """Base (finest) matrix and its Bins, from cache when the inputs are unchanged."""
+def chromosome_lengths(fai: dict, chromosome_set: bool) -> list:
+    """Lengths the bin rule counts: the chromosomes of the .fai by cenfuse's length rule when the engine runs on its
+    own (a genome .fai holds organelles and unplaced scaffolds), every sequence when cenfuse passes its chromosome
+    set."""
+    if not chromosome_set:
+        return list(fai.values())
+    from ..meth.track import chromosome_count
+    return sorted(fai.values(), reverse=True)[:chromosome_count(list(fai.values()))]
+
+
+def bin_sizes(pairs, fai: dict, chromosome_set: bool = False) -> list:
+    """Candidate bin sizes for this genome (bins.candidate_sizes), finest first. A .cool/.mcool offers its own
+    resolutions in that range; one with none there (a single fine resolution) gives those that fit in memory."""
+    lengths = chromosome_lengths(fai, chromosome_set)
+    sizes = candidate_sizes(lengths)
+    if is_cool(pairs):
+        have = cool_resolutions(pairs)
+        cool = [r for r in have if sizes[0] <= r <= sizes[-1]] or \
+            [r for r in have if r <= sizes[-1] and fits_memory(r, lengths)]
+        if not cool:
+            raise InputError(f"{pairs}: no resolution up to {sizes[-1]} bp fits in memory (has {have})")
+        return cool
+    return sizes
+
+
+def sequence_floor(sizes, lengths) -> int:
+    """Shortest sequence entering the matrix: MIN_BINS bins of the ladder's finest candidate, also for a .cool whose
+    finest resolution is coarser (0.9: 20 x 250 kb whatever the file), or of the .cool's own finer resolution."""
+    return params.MIN_BINS * min(sizes[0], candidate_sizes(lengths)[0])
+
+
+def _base_matrix(args, seqs, sizes):
+    """Base (finest) matrix and its Bins, from cache when the inputs are unchanged; also the cache file."""
     cool = is_cool(args.pairs)
-    if cool:      # only resolutions inside the ladder's range: finer ones would not fit in memory genome-wide
-        sizes = [r for r in cool_resolutions(args.pairs) if params.BIN_LADDER[0] <= r <= params.BIN_LADDER[-1]]
-        if not sizes:
-            raise InputError(f"{args.pairs}: no resolution between {params.BIN_LADDER[0]} and {params.BIN_LADDER[-1]} bp")
-    else:
-        sizes = list(params.BIN_LADDER)
     cache = Path(str(args.o) + ".cache")
-    key = fast_checksum(args.pairs, args.fai)
+    key = fast_checksum(args.pairs, args.fai, sizes=sizes)
     npz, meta = cache / f"{key}.npz", cache / f"{key}.json"
     base = Bins(seqs, sizes[0])
     if npz.exists() and meta.exists():
@@ -93,7 +118,7 @@ def _base_matrix(args, seqs):
         else:
             log.info(f"cache hit: {npz}")
             _pair_warnings(stats)
-            return M, base, sizes, stats
+            return M, base, stats, npz
     t0 = time.time()
     if cool:
         M, stats = read_cool(args.pairs, sizes[0], seqs), dict(source="cool")
@@ -113,7 +138,7 @@ def _base_matrix(args, seqs):
     sp.save_npz(npz, M)
     meta.write_text(json.dumps(stats))
     log.info(f"contact matrix built in {time.time() - t0:.0f} s")
-    return M, base, sizes, stats
+    return M, base, stats, npz
 
 
 def _over_median(S, bins, members):
@@ -161,13 +186,16 @@ def run_call(args) -> dict:
             log.warning("--repeats is ignored with .cool/.mcool input: the read-class split needs the pairs")
         else:       # only the merged coordinates are kept (a repeat annotation can have millions of lines)
             rep_iv = qc.merge_intervals(_annotation(args.repeats, "--repeats", attrs=False))
-    seqs = {c: L for c, L in fai.items() if L >= params.MIN_BINS * params.BIN_LADDER[0]}
+    standalone = getattr(args, "chromosome_set", True)        # cenfuse passes its own chromosome set (False)
+    sizes = bin_sizes(args.pairs, fai, standalone)
+    floor = sequence_floor(sizes, chromosome_lengths(fai, standalone))
+    seqs = {c: L for c, L in fai.items() if L >= floor}
     if len(seqs) < params.MIN_CALLABLE:
-        raise InputError(f"fewer than {params.MIN_CALLABLE} sequences >= {params.MIN_BINS * params.BIN_LADDER[0] / 1e6:g} Mb in {args.fai}")
-    _warn_short([(c, L) for c, L in fai.items() if c not in seqs],
-                f"shorter than {params.MIN_BINS * params.BIN_LADDER[0] / 1e6:g} Mb")
-    log.info(f"Hi-C engine {__version__} call: {len(seqs)} sequences considered")
-    M0, base, sizes, stats = _base_matrix(args, seqs)
+        raise InputError(f"fewer than {params.MIN_CALLABLE} sequences >= {floor / 1e6:g} Mb in {args.fai}")
+    _warn_short([(c, L) for c, L in fai.items() if c not in seqs], f"shorter than {floor / 1e6:g} Mb")
+    log.info(f"Hi-C engine {__version__} call: {len(seqs)} sequences considered; bin sizes "
+             f"{', '.join(f'{s / 1e3:g}' for s in sizes)} kb")
+    M0, base, stats, npz = _base_matrix(args, seqs, sizes)
 
     def get(size):
         b = Bins(seqs, size)
@@ -283,7 +311,7 @@ def run_call(args) -> dict:
     # the in-memory state, so cenfuse scores anchored partner windows on the same matrix, balancing and bins
     # without rebuilding them
     state = dict(M=M, W=W, bins=bins, good=good, mean=mean, members=members, loc=loc, pcs=pcs, hub=hub, rdna=rdna,
-                 sat=sat, size=size, T=T)
+                 sat=sat, size=size, T=T, base_size=base.size, matrix_cache=None if cool else str(npz))
     return dict(rows=rows, rabl=rabl, bin_table=bin_table, stats=stats, state=state)
 
 

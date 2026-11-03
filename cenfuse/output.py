@@ -131,6 +131,7 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
         h = hic["table"]
         d.update(hic_bin=hic["bin_size"], hic_rabl=hic["rabl"]["passed"],
                  hic_gate_pass=int(h.gate_pass.sum()),
+                 hic_gate_support=int(h.gate_support.sum()) if "gate_support" in h else 0,
                  hic_gate_untested=int((~h.gate_pass & (h.gate_n < GATE_MIN_REF)).sum()),
                  hic_gate_refs=h.gate_refs.iat[0] if "gate_refs" in h and len(h) else ".", hic_chromosomes=len(h),
                  hic_anch_on_seq=int(h.anch_agrees_seq.sum()), hic_denovo_on_seq=int(h.denovo_agrees_seq.sum()),

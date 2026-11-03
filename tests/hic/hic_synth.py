@@ -27,7 +27,8 @@ def polar(nb, cen):
 
 
 def make_genome(outdir, lengths=LENGTHS, cens=CENS, n_trans=300_000, n_cis=300_000, rabl=True,
-                unattached=(10,), hub=(2, 10), sat_shift=(1, 20), rdna_on=3, seed=1, gz=False):
+                unattached=(10,), hub=(2, 10), sat_shift=(1, 20), rdna_on=3, seed=1, gz=False, size=SIZE):
+    """lengths and cens in bins of `size` bp (250 kb: Mb-scale chromosomes; 10 kb: a yeast-like genome)."""
     rng = np.random.default_rng(seed)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
@@ -59,9 +60,9 @@ def make_genome(outdir, lengths=LENGTHS, cens=CENS, n_trans=300_000, n_cis=300_0
     dd = rng.geometric(0.3, size=n_cis) - 1
     cj = np.clip(local[ci] + np.where(rng.random(n_cis) < 0.5, -1, 1) * dd, 0, nb[chrom_of[ci]] - 1) + off[chrom_of[ci]]
     b1, b2 = np.concatenate([bi, ci]), np.concatenate([bj, cj])
-    p1 = local[b1] * SIZE + rng.integers(0, SIZE, len(b1))
-    p2 = local[b2] * SIZE + rng.integers(0, SIZE, len(b2))
-    lengths_bp = nb * SIZE
+    p1 = local[b1] * size + rng.integers(0, size, len(b1))
+    p2 = local[b2] * size + rng.integers(0, size, len(b2))
+    lengths_bp = nb * size
     with open(out / "genome.fa.fai", "w") as f:
         o = 0
         for nm, L in zip(names, lengths_bp):
@@ -78,12 +79,12 @@ def make_genome(outdir, lengths=LENGTHS, cens=CENS, n_trans=300_000, n_cis=300_0
     with open(out / "sat.gff", "w") as f:
         f.write("##gff-version 3\n")
         for k, nm in enumerate(names):
-            s = sat_bin[k] * SIZE
-            f.write(f"{nm}\tcenfuse\tcentromere\t{s + 1}\t{s + SIZE}\t.\t.\t.\tID=cen_{nm}\n")
+            s = sat_bin[k] * size
+            f.write(f"{nm}\tcenfuse\tcentromere\t{s + 1}\t{s + size}\t.\t.\t.\tID=cen_{nm}\n")
         if rdna_on is not None:
-            s = cens[rdna_on] * SIZE
-            f.write(f"{names[rdna_on]}\tcenfuse\tsatellite_DNA\t{s + 1}\t{s + 50_000}\t.\t+\t.\t"
+            s = cens[rdna_on] * size
+            f.write(f"{names[rdna_on]}\tcenfuse\tsatellite_DNA\t{s + 1}\t{s + min(50_000, size)}\t.\t+\t.\t"
                     f"ID=sat_rdna;family=R1;rdna=45S_spacer\n")
-    return dict(names=names, cens=list(cens), size=SIZE, unattached=[names[k] for k in unattached],
+    return dict(names=names, cens=list(cens), size=size, unattached=[names[k] for k in unattached],
                 hub=hub_glob, sat_bin=sat_bin, rdna_chrom=names[rdna_on] if rdna_on is not None else None,
                 pairs=pairs, fai=out / "genome.fa.fai", sat=out / "sat.gff", dir=out)

@@ -35,7 +35,7 @@ def test_two_gene_annotations_for_one_genome_fail(tmp_path):
 
 
 @pytest.mark.parametrize("name, hint", [("g.hic", "hictk convert"), ("g.bam", "pairtools parse"),
-                                        ("g.merged_nodups.txt.gz", "pairs")])
+                                        ("g.validPairs", "allValidPairs")])
 def test_unreadable_hic_formats_fail_with_a_recipe(tmp_path, name, hint):
     _genome(tmp_path)
     (tmp_path / "hic").mkdir()
@@ -179,3 +179,24 @@ def test_methylation_D_counts_the_chromosomes_cenfuse_analyzes(tmp_path, monkeyp
     with caplog.at_level(logging.WARNING, logger="cenfuse"):
         assert methfuse.prepare(g, tmp_path / "arrays.gff", tmp_path / "cache", 1) is None
     assert "expected centromere size D = 5 kb is under two 50-kb bins" in caplog.text
+
+
+@pytest.mark.parametrize("name", ["g.allValidPairs", "g.allValidPairs.gz", "g.merged_nodups.txt",
+                                  "g.merged_nodups.txt.gz"])
+def test_hicpro_and_juicer_files_are_libraries(tmp_path, name):
+    _genome(tmp_path)
+    (tmp_path / "hic").mkdir()
+    (tmp_path / "hic" / name).write_text("")
+    g = inputs.discover(tmp_path)[0]
+    assert [(x.name, x.path.name) for x in g.hic] == [("hic", name)]
+
+
+
+def test_pairs_are_preferred_over_a_juicer_file_beside_them(tmp_path, caplog):
+    _genome(tmp_path)
+    (tmp_path / "hic").mkdir()
+    for n in ("g.pairs.gz", "g.merged_nodups.txt.gz"):
+        (tmp_path / "hic" / n).write_text("")
+    g = inputs.discover(tmp_path)[0]
+    assert [x.path.name for x in g.hic] == ["g.pairs.gz"]
+    assert "g.merged_nodups.txt.gz not used" in caplog.text

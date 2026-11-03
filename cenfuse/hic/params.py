@@ -2,7 +2,16 @@
 from __future__ import annotations
 
 MAPQ = 30                       # conventional unique-mapping threshold (applied when the pairs carry MAPQ columns)
-BIN_LADDER = (250_000, 500_000, 1_000_000, 2_000_000)  # candidate bin sizes, finest first (bp)
+BIN_LADDER = (5_000, 10_000, 50_000, 250_000, 500_000, 1_000_000, 2_000_000)  # bin sizes, finest first (bp); each a
+                                # multiple of every finer one, so coarsening the base matrix is exact (bins.coarsen);
+                                # which ones a genome may use: bins.candidate_sizes
+STD_FLOOR = 250_000             # finest bin while every chromosome has MIN_BINS bins at it (cenfuse 0.9's ladder): bins
+                                # finer than this only make small chromosomes (yeasts, protists, bird
+                                # microchromosomes) callable, and are never used where they are not needed
+MAX_CHROM_BINS = 4_000          # a finer candidate must keep the largest chromosome <= 4,000 bins (its dense cis block,
+                                # fold.py: 128 MB) ...
+MAX_GENOME_BINS = 50_000        # ... and the genome <= 50,000 bins (sparse matrix, bootstrap copies; 0.9 ran 3-4-Gb
+                                # genomes at 250 kb, 12,000-16,000 bins)
 MIN_EXPECTED_CEN = 25           # expected centromere contacts per bin: a 2x rise is then >= 5 SD over Poisson noise
 HALF_WIN = 4                    # partner window = estimate +/- 4 bins: a 1-2 Mb CENH3 domain plus one bin of error
 END_WIN = 8                     # telomere-pole window at each chromosome end (bins), about one partner window

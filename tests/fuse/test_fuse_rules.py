@@ -410,3 +410,154 @@ def test_genome_level_conflict_between_hic_and_sequence():
     t["denovo_agrees_seq"] = False
     t["denovo_confidence"] = ["low"] * n                      # an unconfident prior-free Hi-C is no conflict
     assert not fuse.sequence_conflict(t)["conflict"]
+
+
+# ---------------------------------------------------------------------------------- support tier (0.10, hicfuse.gate)
+def test_support_tier_is_significant_agreement_without_a_majority():
+    # 5 of 12 references agree at chance 0.05 each, no majority: among the other 11, an agreeing chromosome sees 4
+    # (P 0.0015) and the others 5 -> support tier on every chromosome
+    t = hicfuse.gate(_gate_table([True] * 5 + [False] * 7))
+    assert not t.gate_pass.any() and t.gate_support.all()
+    assert list(t.gate_k) == [4] * 5 + [5] * 7
+    # 4 of 12: an agreeing chromosome sees 3 of 11 (P 0.015 > 0.01): its own agreement never counts for it
+    t = hicfuse.gate(_gate_table([True] * 4 + [False] * 8))
+    assert not t.gate_support[:4].any() and t.gate_support[4:].all()
+    # GATE_MIN_REF agreements is the floor, however small the chance: 2 among the others is not a pattern
+    t = hicfuse.gate(_gate_table([True] * 3 + [False] * 9).assign(chance=0.001))
+    assert not t.gate_support[:3].any() and t.gate_support[3:].all()
+    # a passed gate is never also the support tier; too few references: neither
+    assert not hicfuse.gate(_gate_table([True] * 6 + [False] * 2)).gate_support.any()
+    assert not hicfuse.gate(_gate_table([True, True, False])).gate_support.any()
+    # at a high chance agreement is not significant: 4 of 12 at chance 0.3 -> fail
+    t = _gate_table([True] * 4 + [False] * 8).assign(chance=0.3)
+    assert not hicfuse.gate(t).gate_support.any()
+    # only agreements at significant peaks count (randomized Hi-C: peaks at unmappable arrays' edges, level low)
+    t = _gate_table([True] * 5 + [False] * 7).assign(anch_level=["low"] * 5 + ["high"] * 7)
+    assert not hicfuse.gate(t).gate_support.any()
+    t = _gate_table([True] * 5 + [False] * 7).assign(anch_level=["medium"] * 5 + ["none"] * 7)
+    assert hicfuse.gate(t).gate_support.all()
+
+
+def _weak(conf="medium", peak=1_500_000, strong=True, level="high", **kw):
+    e = ev(conf=conf, peak=peak, gate=False, strong=strong, level=level, **kw)
+    e.hic.update(gate_support=True)
+    return e
+
+
+def test_support_tier_needs_the_chromosomes_own_peak_significant():
+    d = fuse.decide(_weak(conf="low", level="low"))
+    assert d["confidence"] == "low" and "hic_support" not in d["flags"] and "hic" not in d["support"]
+    assert fuse.decide(_weak(conf="low", level="medium"))["confidence"] == "medium"
+
+
+def test_support_tier_raises_an_agreeing_call_one_level():
+    for conf, up in (("low", "medium"), ("medium", "high"), ("high", "high")):
+        d = fuse.decide(_weak(conf=conf))
+        assert d["relation"] == "concordant" and d["confidence"] == up and "hic_support" in d["flags"]
+        assert "hic" in d["support"] and not d["against"]
+    assert fuse.gate_status(dict(gate_pass=False, gate_support=True, gate_n=12)) == "support"
+
+
+def test_support_tier_never_opposes_moves_or_places():
+    for conf in ("low", "medium", "high"):                 # a strong peak far away: kept, not contested
+        d = fuse.decide(_weak(conf=conf, peak=30_000_000))
+        assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "sequence_only"
+        assert d["confidence"] == conf and not d["against"] and d["flags"] == []
+    d = fuse.decide(_weak(seq=None, peak=30_000_000))      # no sequence call: Hi-C places nothing on this tier
+    assert d["call"] is None and d["relation"] == "none"
+
+
+def test_support_tier_with_low_references_needs_a_clean_peak():
+    e = _weak(conf="low")
+    e.hic.update(gate_refs="low", anch_flags="telomeric")
+    d = fuse.decide(e)
+    assert d["confidence"] == "low" and "hic_support" not in d["flags"]
+    e.hic["anch_flags"] = ""
+    assert fuse.decide(e)["confidence"] == "medium"
+
+
+def test_support_tier_adds_to_methylation_within_the_cap():
+    m = {"sequence_call": dict(label="centromere_like", score=0.9), "hic_peak": dict(label="", score=np.nan)}
+    d = fuse.decide(_weak(conf="low", meth=m))
+    assert d["confidence"] == "high" and set(d["support"]) >= {"hic", "meth"}
+
+
+# ------------------------------------------------------------------- Hi-C alone where nothing can test it (0.10)
+def _alone(seq=None, gate_n=0, conf="high", flags="", fold=None):
+    e = ev(seq=seq, peak=-1, gate=False)                           # no anchored peak (no references to anchor)
+    e.hic.update(anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1, anch_level="none",
+                 gate_n=gate_n, gate_support=False, gate_genome_untested=gate_n < 3,
+                 denovo_peak_start=150_000, denovo_peak_end=160_000,
+                 denovo_core_start=140_000, denovo_core_end=170_000, denovo_confidence=conf, denovo_flags=flags)
+    e.fold = fold
+    return e
+
+
+def test_hic_alone_places_a_low_call_where_no_test_is_possible():
+    d = fuse.decide(_alone())
+    assert d["call"] == (140_000, 170_000) and d["relation"] == "functional_only" and d["confidence"] == "low"
+    assert d["flags"] == ["hic_denovo_only"] and d["support"] == ["hic"] and d["source"] == "hic"
+    assert fuse.decide(_alone(flags="no_rabl"))["flags"] == ["hic_denovo_only"]     # Rabl test: uninformative
+
+
+def test_hic_alone_never_where_a_sequence_call_or_a_test_exists():
+    d = fuse.decide(_alone(seq=(1_000_000, 1_400_000), conf="high"))
+    assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "sequence_only" and not d["flags"]
+    assert fuse.decide(_alone(gate_n=3))["call"] is None              # the gate ran (and failed): no call
+    folded = dict(status="pass", agrees=False, core_start=5_000_000, core_end=6_000_000, point=5_500_000)
+    assert "hic_denovo_only" not in fuse.decide(_alone(fold=folded))["flags"]      # a passed fold decides instead
+
+
+@pytest.mark.parametrize("conf, flags", [("medium", ""), ("low", ""), ("high", "telomeric"), ("high", "hub"),
+                                         ("high", "rDNA"), ("high", "cycle_unstable"), ("high", "not_converged")])
+def test_hic_alone_needs_a_clean_high_prior_free_call(conf, flags):
+    assert fuse.decide(_alone(conf=conf, flags=flags))["call"] is None
+
+
+def test_untested_prior_free_peak_elsewhere_only_flags_a_sequence_call():
+    e = _alone(seq=(1_000_000, 1_400_000))
+    e.hic.update(denovo_peak_start=30_000_000, denovo_peak_end=30_010_000, denovo_core_start=29_990_000,
+                 denovo_core_end=30_030_000)
+    d = fuse.decide(e)
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "high" and d["flags"] == ["hic_denovo_elsewhere"]
+    assert not d["against"]
+    e.hic.update(gate_n=5, gate_genome_untested=False)                 # a test ran: no note
+    assert "hic_denovo_elsewhere" not in fuse.decide(e)["flags"]
+    near = _alone(seq=(140_000, 170_000))                              # the prior-free core reaches the call
+    assert fuse.decide(near)["flags"] == []
+
+
+
+def test_hic_alone_is_decided_for_the_genome():
+    import pandas as pd
+    from cenfuse.pipeline import hic_rows
+    # three references: their own leave-one-out n is 2, but the gate ran on every other chromosome -> no Hi-C alone
+    t = pd.DataFrame(dict(chrom=["a", "b", "c", "d"], gate_n=[2, 2, 2, 3], denovo_flags="", denovo_core_start=-1))
+    assert not any(r["gate_genome_untested"] for r in hic_rows(t).values())
+    e = _alone(gate_n=2)
+    e.hic["gate_genome_untested"] = False
+    assert fuse.decide(e)["call"] is None
+    t = pd.DataFrame(dict(chrom=["a", "b"], gate_n=[0, 0], denovo_flags="", denovo_core_start=-1))
+    assert all(r["gate_genome_untested"] for r in hic_rows(t).values())
+
+
+def test_prior_free_core_beside_a_nor_is_not_clean():
+    from cenfuse.pipeline import denovo_nor_flag
+    h = dict(chrom="c", bin_size=BIN, denovo_core_start=1_000_000, denovo_core_end=1_250_000, denovo_flags="",
+             masked=())
+    assert denovo_nor_flag(h, [("c", 1_400_000, 1_600_000)])["denovo_flags"] == "rDNA"      # one bin away
+    assert denovo_nor_flag(h, [("c", 5_000_000, 5_200_000)])["denovo_flags"] == ""
+    assert denovo_nor_flag(h, [("other", 1_000_000, 1_200_000)])["denovo_flags"] == ""
+    e = _alone()
+    e.hic.update(denovo_flags="rDNA")
+    assert fuse.decide(e)["call"] is None
+
+
+def test_support_tier_yields_to_a_passed_fold():
+    folded = dict(status="pass", agrees=True, core_start=1_000_000, core_end=1_500_000, point=1_250_000)
+    e = _weak(conf="low")
+    e.hic.update(denovo_peak_start=1_200_000, denovo_peak_end=1_450_000, denovo_core_start=1_200_000,
+                 denovo_core_end=1_450_000)
+    e.fold = folded
+    d = fuse.decide(e)
+    assert "hic_support" not in d["flags"] and d["call"] == (1_000_000, 1_400_000)

@@ -23,15 +23,13 @@ import scipy.sparse as sp
 
 from . import __version__, cdr, fold, fuse, hicfuse, inputs, interpret, loci, methfuse, morphology, output, plants, \
     provenance, rdna, seqcalls, telomere, teline
-from .hic import params as hp
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
-from .hic.cli import fast_checksum
 from .hic.io import is_cool, read_cool
 from .meth import io as mio
 from .meth import params as mp
 from .meth import track as mtrack
-from .params import ANCHOR_LEVELS, HIC_MAX_THREADS, KARYO_WINDOW
+from .params import ANCHOR_LEVELS, GATE_MIN_REF, HIC_FAR_BINS, HIC_MAX_THREADS, HIC_TOL_BINS, KARYO_WINDOW
 from .sat.genomes import load_gene_gff
 from .sat.params import Params, parse_borrow
 from .sat.util import SatelliteError
@@ -91,6 +89,31 @@ def avoid_intervals(seq: seqcalls.SeqLine, D: float) -> dict:
     for r in seqcalls.satellite_clusters(seq.arrays).itertuples(index=False):
         out.setdefault(r.chrom, []).append((int(r.start), int(r.end)))
     return out
+
+
+def hic_rows(table: pd.DataFrame, nors=None) -> dict:
+    """{chrom: hicfuse row} with gate_genome_untested (no chromosome of the genome could test Hi-C: fewer than
+    GATE_MIN_REF references; fuse's Hi-C alone) and the NOR test of the prior-free core (denovo_nor_flag)."""
+    untested = not bool((table.gate_n >= GATE_MIN_REF).any()) if len(table) else True
+    return {r["chrom"]: denovo_nor_flag(dict(r, gate_genome_untested=untested), nors)
+            for r in table.to_dict("records")}
+
+
+def denovo_nor_flag(h: dict, nors) -> dict:
+    """h with 'rDNA' added to its prior-free flags when the prior-free core lies within HIC_TOL_BINS mappable bins of
+    a 45S array (rdna.detect): NORs meet in the nucleolus, so a prior-free peak beside one is no clean centromere
+    candidate (the anchored peaks get the same test in hicfuse.nor_peaks; the engine's own flags only know
+    rDNA-tagged satellite arrays)."""
+    if not nors or h.get("denovo_core_start", -1) < 0:
+        return h
+    s, e, b = int(h["denovo_core_start"]), int(h["denovo_core_end"]), int(h["bin_size"])
+    near = any(c == h["chrom"] and hicfuse.visible_gap(s, e, int(a), int(z), h.get("masked") or (),
+                                                       HIC_FAR_BINS * b) <= HIC_TOL_BINS * b
+               for c, a, z, *_ in nors)
+    fl = [f for f in str(h.get("denovo_flags") or "").split(",") if f]
+    if near and "rDNA" not in fl:
+        h = dict(h, denovo_flags=",".join(fl + ["rDNA"]))
+    return h
 
 
 def plant_sites(seq: seqcalls.SeqLine, hic, others: dict) -> dict:
@@ -378,9 +401,8 @@ class Run:
         name = g.name if lib.name == "hic" else f"{g.name}.{lib.name}"
         b, t = hic["bins"], hic["table"]
         seqs = {c: int(L) for c, L in zip(b.names, b.lengths)}
-        fai = self.work / "genomes" / f"{g.name}.chromosomes.fai"
-        cool = is_cool(lib.path)
-        npz = None if cool else Path(f"{self.out / 'hic' / name}.cache") / f"{fast_checksum(lib.path, fai)}.npz"
+        cool = is_cool(lib.path)       # the cache file under this run's folder (the folder may have moved since)
+        npz = None if cool else Path(f"{self.out / 'hic' / name}.cache") / Path(hic["matrix_cache"]).name
         if npz is not None and not npz.exists():
             log.warning(f"{g.name}: Hi-C matrix cache {npz} missing; arm fold skipped")
             return None
@@ -396,7 +418,7 @@ class Run:
             M = read_cool(lib.path, b.size, seqs)
         else:
             M = sp.load_npz(npz).tocsr()
-            base = Bins(seqs, hp.BIN_LADDER[0])
+            base = Bins(seqs, int(hic["base_size"]))
             if b.size != base.size:
                 M = coarsen(M, base, b)
         bias, good, _, _ = ice(M)
@@ -473,9 +495,9 @@ class Run:
 
     # ------------------------------------------------------------------ assembly
     @staticmethod
-    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None) -> list:
+    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None) -> list:
         marker = tel.get("marker")
-        hrows = {} if hic is None else {r["chrom"]: r for r in hic["table"].to_dict("records")}
+        hrows = {} if hic is None else hic_rows(hic["table"], nors)
         fo = (hic or {}).get("fold")
         cen = seq.arrays[seq.arrays.role.isin(CEN_ROLES)]
         by = {c: d for c, d in cen.groupby("chrom")}
@@ -626,7 +648,7 @@ class Run:
                                  "contradict are moved or lowered" if folded else
                                  "The sequence calls are kept; give tes/ (CRM cores) or methylation to decide") +
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, fold_gate)")
-            evs = self.evidences(g, seq, tel, hic)
+            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []))
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}
             if self._chg_ok.get(g.name):
@@ -653,7 +675,7 @@ class Run:
                 pooled = meth["support"][meth["support"]["sample"] == "pooled"]
                 mi = {c: {r.item: dict(label=r.label, score=r.score) for r in d.itertuples(index=False)}
                       for c, d in pooled.groupby("chrom")}
-                evs = self.evidences(g, seq, tel, hic, mi)
+                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []))
             final = [fuse.decide(e) for e in evs]
             t = fuse.table(evs, final)
             calls = {e.chrom: d["call"] for e, d in zip(evs, final)}

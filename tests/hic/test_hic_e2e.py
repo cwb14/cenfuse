@@ -226,7 +226,8 @@ def test_over_median_skips_empty_and_nonpositive_chromosomes():
 
 @pytest.fixture(scope="module")
 def plus(done, tmp_path_factory):
-    """One run with two extra .fai sequences: a 1-Mb contig (too short to call) and a 30-Mb chrX with no pairs.
+    """One run with two extra .fai sequences: a 1-Mb contig (the standalone engine's chromosome-set rule leaves it out
+    of the bin rule, and it is shorter than 20 x 250 kb) and a 30-Mb chrX with no pairs.
     Log records are collected on the root logger (the cli replaces the cenfuse-hic logger's own handlers)."""
     truth, _ = done
     d = tmp_path_factory.mktemp("plus")
@@ -256,6 +257,7 @@ def test_chromosome_without_contacts_is_warned_and_flagged(plus):
     t = pd.read_csv(f"{prefix}.centromeres.tsv", sep="\t", keep_default_na=False).set_index("chrom")
     assert t.loc["chrX", "flags"] == "no_contacts" and t.loc["chrX", "confidence"] == "none"
     assert t.loc["chrX", "peak_start"] == "" and "tiny_contig" not in t.index
+    assert int(t.loc["chr1", "bin_size"]) == 250_000          # as in 0.9
     assert not any("no_contacts" in t.loc[nm, "flags"] for nm in truth["names"])
     assert (t.loc[truth["names"], "confidence"] == "high").sum() >= 9
 

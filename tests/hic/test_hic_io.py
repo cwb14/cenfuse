@@ -122,7 +122,79 @@ def test_fasta_as_annotation_yields_no_intervals(tmp_path):
 
 def test_params_values():
     assert (params.MAPQ, params.MIN_EXPECTED_CEN, params.HALF_WIN, params.END_WIN, params.MIN_BINS) == (30, 25, 4, 8, 20)
-    assert params.BIN_LADDER == (250_000, 500_000, 1_000_000, 2_000_000)
+    assert params.BIN_LADDER == (5_000, 10_000, 50_000, 250_000, 500_000, 1_000_000, 2_000_000)
+    assert all(b % a == 0 for a, b in zip(params.BIN_LADDER, params.BIN_LADDER[1:]))   # exact coarsening
+    assert (params.STD_FLOOR, params.MAX_CHROM_BINS, params.MAX_GENOME_BINS) == (250_000, 4_000, 50_000)
     # simulate: 0.5% substitutions, mates >= 1 kb apart, reads <= 150 bp
     assert (params.SIM_ERR, params.MIN_CIS_DIST, params.SIM_MAXLEN, params.SIM_DEFAULT_LEN) == (0.005, 1000, 150, 150)
     assert params.SIM_MIN_CHROM == 1000 and params.RABL_MIN_BINS == 5 and params.CYCLE_SPREAD == 1
+
+
+# ------------------------------------------------------------- other pipelines' layouts (0.10): same contacts, same pairs
+CONTACTS = [("r1", "c1", 11, "c2", 21, 60, 60), ("r2", "c1", 11, "c2", 21, 60, 3), ("r3", "c1", 31, "c1", 41, 40, 30),
+            ("r4", "c2", 99, "c1", 1, 30, 30)]                    # 1-based positions; r2 fails MAPQ 30
+
+
+def _4dn(rows):
+    return ("## pairs format v1.0\n#columns: readID chrom1 pos1 chrom2 pos2 strand1 strand2 pair_type mapq1 mapq2\n"
+            + "".join(f"{r}\t{a}\t{p}\t{b}\t{q}\t+\t-\tUU\t{m1}\t{m2}\n" for r, a, p, b, q, m1, m2 in rows))
+
+
+def _hicpro(rows):
+    return "".join(f"{r}\t{a}\t{p}\t+\t{b}\t{q}\t-\t250\tHIC_{a}_1\tHIC_{b}_2\t{m1}\t{m2}\n"
+                   for r, a, p, b, q, m1, m2 in rows)
+
+
+def _juicer_long(rows):
+    return "".join(f"0 {a} {p} 1 16 {b} {q} 2 {m1} 50M {'A' * 50} {m2} 50M {'C' * 50} {r} {r}\n"
+                   for r, a, p, b, q, m1, m2 in rows)
+
+
+def _juicer_medium(rows):
+    return "".join(f"{r} 0 {a} {p} 1 16 {b} {q} 2 {m1} {m2}\n" for r, a, p, b, q, m1, m2 in rows)
+
+
+def _juicer_short(rows, score=False):
+    return "".join(f"0 {a} {p} 0 16 {b} {q} 1" + (" 1\n" if score else "\n") for r, a, p, b, q, m1, m2 in rows)
+
+
+@pytest.mark.parametrize("kind, make, mapq", [("hicpro", _hicpro, True), ("juicer_long", _juicer_long, True),
+                                              ("juicer_medium", _juicer_medium, True),
+                                              ("juicer_short", _juicer_short, False),
+                                              ("juicer_short_score", lambda r: _juicer_short(r, True), False)])
+@pytest.mark.parametrize("gz", [False, True])
+def test_hicpro_and_juicer_layouts_read_like_4dn(tmp_path, kind, make, mapq, gz):
+    chroms = {"c1": 100, "c2": 100}
+    ref, st0 = collect(write(tmp_path / "r.pairs", _4dn(CONTACTS)), chroms)
+    p = write(tmp_path / ("x.txt.gz" if gz else "x.txt"), make(CONTACTS), gz=gz)
+    assert pairs_format(p).kind == kind
+    got, st = collect(p, chroms)
+    if mapq:                                   # MAPQ columns: the same 3 pairs as the 4DN file
+        assert st.mapq_checked and st.dropped_mapq == 1
+        assert all(list(a) == list(b) for a, b in zip(got, ref))
+    else:                                      # no MAPQ: all 4 kept, 1-based positions made 0-based
+        assert not st.mapq_checked and st.kept == 4
+        assert list(got[1]) == [10, 10, 30, 98] and list(got[3]) == [20, 20, 40, 0]
+
+
+def test_unknown_headerless_layout_fails_with_the_formats_read(tmp_path):
+    p = write(tmp_path / "u.txt", "r1 c1 11 c2 21 + - UU\n")       # 4DN columns without the header
+    with pytest.raises(InputError, match="HiC-Pro .allValidPairs, Juicer merged_nodups"):
+        pairs_format(p)
+
+
+def test_short_hicpro_layout_without_mapq(tmp_path):
+    p = write(tmp_path / "v.txt", "r1\tc1\t11\t+\tc2\t21\t-\t250\n")           # 8 fields: no MAPQ columns
+    assert pairs_format(p).kind == "hicpro"
+    (ci1, p1, ci2, p2), st = collect(p, {"c1": 100, "c2": 100})
+    assert list(p1) == [10] and list(p2) == [20] and not st.mapq_checked and st.kept == 1
+
+
+
+def test_seven_field_layout_with_crlf_or_other_strands(tmp_path):
+    for i, line in enumerate(["r1\tc1\t10\t+\tc2\t20\t-\r\n", "r1\tc1\t10\t.\tc2\t20\t.\n",
+                              "r1\tc1\t10\t0\tc2\t20\t16\n"]):
+        p = write(tmp_path / f"s{i}.txt", line)
+        assert pairs_format(p).kind == "simple7"
+        (ci1, p1, ci2, p2), st = collect(p, {"c1": 100, "c2": 100})
+        assert list(p1) == [10] and list(p2) == [20]          # 0-based, as 0.9 read it

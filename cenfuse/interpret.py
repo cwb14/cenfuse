@@ -96,6 +96,8 @@ def basis(r, ctx: dict) -> str:
             how = "the arm fold and Hi-C's prior-free peak, which agree here"
         elif "hic_medium_peak" in flags:
             how = "a clean medium validated Hi-C peak"
+        elif "hic_denovo_only" in flags:
+            how = "Hi-C's prior-free peak alone (too few reference calls in this genome to test Hi-C against)"
         else:
             how = "a strong validated Hi-C peak"
         if r.relation == "offset":
@@ -119,7 +121,8 @@ def basis(r, ctx: dict) -> str:
         if line == "te" and r.call_source == "sequence" and r.seq_evidence != "retrotransposon":
             out.append(f"the {r.te_clade} core agrees")
         elif line == "hic" and r.call_source == "sequence":
-            out.append("validated Hi-C agrees")
+            out.append("Hi-C agrees (support only: its peaks find the other chromosomes' centromeres beyond chance, "
+                       "but not on most)" if "hic_support" in flags else "validated Hi-C agrees")
         elif line == "meth":
             out.append("CHG methylation is centromere-like")
         elif line == "fold" and "fold_pair" not in flags:
@@ -183,6 +186,8 @@ def caveat(r, ctx: dict) -> str:
             out.append(f"the {r.te_clade} core lies elsewhere ({interval(r.te_start, r.te_end)})")
     elif r.confidence != "high":
         out.append("rests on the 3D lines alone: no sequence or LTR evidence at this place")
+        if "hic_denovo_only" in flags:
+            hint = "CENP-A/CENH3 data would confirm"
     peak = (f" ({interval(r.hic_anch_peak_start, r.hic_anch_peak_end)})"
             if _int(getattr(r, "hic_anch_peak_start", None)) is not None else "")
     if "hic_offset" in flags:
@@ -193,6 +198,10 @@ def caveat(r, ctx: dict) -> str:
     if "hic_denovo_offset" in flags:
         out.append(f"Hi-C's prior-free peak points elsewhere "
                    f"({interval(r.hic_denovo_peak_start, r.hic_denovo_peak_end)})")
+    if "hic_denovo_elsewhere" in flags:
+        out.append(f"Hi-C's prior-free peak, untested here, lies elsewhere "
+                   f"({interval(r.hic_denovo_peak_start, r.hic_denovo_peak_end)})")
+        hint = hint or "CENP-A/CENH3 data would decide"
     if "hic_disagrees_weak" in flags:
         out.append(f"Hi-C's peak lies elsewhere{peak} but is not strong enough to oppose")
     if "te" in against and not ("te_discordant" in sflags and r.call_source == "sequence") and not te_in_alt:
@@ -236,6 +245,9 @@ def _count(n: int, one: str, many: str | None = None) -> str:
     return f"{n} {one if n == 1 else many or one + 's'}"
 
 
+RANK = {"none": -1, "low": 0, "medium": 1, "high": 2}
+
+
 def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None, ctx: dict) -> dict:
     """The counts the report states, from the tables only (bench checker recomputes them from the written files)."""
     called = t[t.start.astype(str) != "."]
@@ -256,8 +268,13 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              te_calls=int((seq.seq_evidence == "retrotransposon").sum()),
              tandem_calls=int((seq.seq_evidence == "long_unit_tandem").sum()),
              hic_moved=int((called.relation == "offset").sum()),
-             hic_placed=int((called.relation == "functional_only").sum()),
+             hic_placed=int(((called.relation == "functional_only")
+                             & ~called["flags"].astype(str).str.contains("hic_denovo_only")).sum()),
+             hic_denovo_only=int(called["flags"].astype(str).str.contains("hic_denovo_only").sum()),
              hic_agree=int(sup.apply(lambda x: "hic" in x).sum()),
+             hic_support=int(called["flags"].astype(str).str.contains("hic_support").sum()),
+             hic_support_raised=int((called["flags"].astype(str).str.contains("hic_support")
+                                     & (called.confidence.map(RANK) > called.seq_confidence.map(RANK))).sum()),
              hic_against=int(against.apply(lambda x: "hic" in x).sum()),
              te_agree=int(sup.apply(lambda x: "te" in x).sum()), meth_agree=int(sup.apply(lambda x: "meth" in x).sum()),
              contested=int((called.relation == "contested").sum()),
@@ -309,6 +326,9 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         made.append(f"long-unit tandem arrays on {f['tandem_calls']}")
     if f["hic_moved"] or f["hic_placed"]:
         made.append(f"the validated 3D lines moved {f['hic_moved']} and placed {f['hic_placed']} calls")
+    if f["hic_denovo_only"]:
+        made.append(f"Hi-C's prior-free peaks alone placed {f['hic_denovo_only']} `low` calls (too few reference calls "
+                    f"to test Hi-C)")
     if made:
         L.append(f"- **Basis**: {'; '.join(made)}.")
     if t.seq_flags.astype(str).str.contains("no_dominant_satellite").any():
@@ -323,9 +343,18 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                      (f" and points elsewhere on {f['hic_against']} (kept, contested)" if f["hic_against"] else "") +
                      (f"; it moved {f['hic_moved']} and placed {f['hic_placed']}" if f["hic_moved"] or f["hic_placed"]
                       else "") + ".")
+        elif _n(summ.get("hic_gate_support")):
+            L.append(f"- **Hi-C** found the other chromosomes' centromeres beyond chance but not on most "
+                     f"({_n(summ.get('hic_gate_support'))}/{n} chromosomes passed the support-only test): it supports "
+                     f"{f['hic_support']} calls where its peak agrees ({f['hic_support_raised']} raised one level); on "
+                     f"this test it moves no call.")
         elif str(summ.get("hic_gate_pass", ".")) != "." and summ.get("fold_gate") == "pass":
             L.append(f"- **Hi-C** failed its anchored test on every chromosome ({n}), but its arm fold passed: the "
                      f"two 3D lines moved {f['hic_moved']} and placed {f['hic_placed']} calls where they agree.")
+        elif n and _n(summ.get("hic_gate_untested")) == n and summ.get("fold_gate") != "pass":
+            L.append(f"- **Hi-C** could not be tested: too few reference calls to test it against" +
+                     (f"; its prior-free peaks alone placed {f['hic_denovo_only']} `low` calls on chromosomes without "
+                      f"one" if f["hic_denovo_only"] else "; it changes no call") + ".")
         elif str(summ.get("hic_gate_pass", ".")) != ".":
             L.append(f"- **Hi-C** failed its test on every chromosome ({n}): it reports but changes no call.")
         else:

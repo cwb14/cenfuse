@@ -191,3 +191,29 @@ def test_3d_placed_calls_say_so():
                                     (5_204_904, "5.20 Mb")])
 def test_size(bp, txt):
     assert it.size(bp) == txt
+
+
+def test_support_tier_says_support_only_and_no_failure():
+    r = row(relation="concordant", confidence="medium", support="satellite,hic", flags="hic_support",
+            hic_gate="support")
+    b = it.basis(r, ctx())
+    assert "Hi-C agrees (support only: its peaks find the other chromosomes' centromeres beyond chance" in b
+    assert "validated Hi-C agrees" not in b
+    assert "Hi-C failed its test here" not in it.caveat(r, ctx())
+
+
+def test_hic_alone_says_untested_and_what_would_confirm():
+    r = row(call_source="hic", relation="functional_only", confidence="low", support="hic", flags="hic_denovo_only",
+            seq_start=".", seq_end=".", seq_evidence="none", seq_confidence="none", hic_gate="untested")
+    b = it.basis(r, ctx())
+    assert "placed by Hi-C's prior-free peak alone (too few reference calls in this genome to test Hi-C against)" in b
+    c = it.caveat(r, ctx())
+    assert "rests on the 3D lines alone" in c and c.endswith("-> CENP-A/CENH3 data would confirm")
+
+
+def test_untested_prior_free_peak_elsewhere_is_named():
+    r = row(confidence="low", flags="hic_denovo_elsewhere", hic_gate="untested", hic_denovo_peak_start=30_000_001,
+            hic_denovo_peak_end=30_010_000)
+    c = it.caveat(r, ctx())
+    assert "Hi-C's prior-free peak, untested here, lies elsewhere (30.00-30.01 Mb)" in c
+    assert c.endswith("-> CENP-A/CENH3 data would decide")

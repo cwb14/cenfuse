@@ -11,6 +11,20 @@ The integrated call is the sequence call unless a validated functional line move
   (CRM) TE core within HIC_FAR_BINS of the peak and beyond it from the call, or methylation `centromere_like` at the
   peak with a measured non-centromere-like `dip` at the call (no data is not evidence). Without one the call stays and
   is `contested`.
+- Support tier (hicfuse.gate): where the gate fails only for want of a majority but agreements on the other
+  chromosomes are beyond chance (>= GATE_MIN_REF of them at significant peaks, Hi-C level medium or high; P <=
+  GATE_P), Hi-C may only support: a kept sequence call whose own significant anchored peak agrees goes up one level
+  (relation concordant, flag hic_support). On this tier Hi-C never opposes, moves, chooses the competing cluster or
+  places a call. Where the arm fold passed, its rules govern Hi-C instead.
+- Hi-C alone (0.10): in a genome with fewer than GATE_MIN_REF reference calls the gate cannot be tested on any
+  chromosome (gate_genome_untested, pipeline.evidences), so nothing can validate Hi-C (point, regional and AT-rich
+  centromeres: yeasts, Plasmodium, Neurospora). There, on a
+  chromosome without a sequence call and unless the arm fold passed, a clean prior-free Hi-C call (engine level high;
+  no hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a low functional_only call at its core (flag
+  hic_denovo_only): the best candidate, untested. Never where a sequence call or a test exists (prior-free high
+  calls were right on 45% of T2T mammal chromosomes; with 10-kb bins on 16/16 yeast and 14/14 Plasmodium ones).
+  Where such a genome has a sequence call and the clean prior-free peak lies beyond HIC_FAR_BINS of it, the call is
+  kept and only flagged (hic_denovo_elsewhere; its caveat says where): nothing validates either line there.
 - Methylation never moves a call alone.
 - Competing clusters (the satellite engine's second cluster, at least half the main one): a strong validated peak
   that agrees with the second cluster and is separated from the main one by mappable bins chooses it (flag
@@ -46,7 +60,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from .hicfuse import clean_peak, visible_gap
+from .hicfuse import SUPPORT_LEVELS, clean_peak, visible_gap
 from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
 from .sat.te import agrees
 from .util import gap, level_shift
@@ -133,6 +147,17 @@ def _te_near(ev: Evidence, iv, n: int) -> bool:
     return bool(ev.te and iv and _vgap(ev, (ev.te["start"], ev.te["end"]), iv, False) <= _bins(ev, n))
 
 
+DENOVO_UNCLEAN = ("not_converged", "cycle_unstable")     # with NOT_STRONG_FLAGS: a prior-free call that is not clean
+
+
+def _clean_denovo(h) -> bool:
+    """A prior-free Hi-C call at engine level high without a hub, rDNA, telomeric, not_converged or cycle_unstable
+    flag."""
+    fl = str(h.get("denovo_flags") or "")
+    return bool(h.get("denovo_confidence") == "high" and clean_peak(fl)
+                and not set(fl.split(",")) & set(DENOVO_UNCLEAN))
+
+
 def _clean_medium(h) -> bool:
     """An anchored peak at Hi-C level medium without a hub, rDNA or telomeric flag."""
     return bool(h and h.get("anch_level") == "medium" and clean_peak(h.get("anch_flags")))
@@ -159,6 +184,8 @@ def decide(ev: Evidence) -> dict:
     alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
     h = ev.hic
     valid = bool(h and h.get("gate_pass"))
+    folded = bool(h and not valid and ev.fold and ev.fold.get("status") == "pass")
+    weak = bool(h and not valid and not folded and h.get("gate_support"))   # support tier: Hi-C may only support
     core, peak = hic_core(ev), hic_peak(ev)
     strong = bool(valid and h.get("anch_strong") and core)
     agree = bool(valid and seq_iv and _peak_agrees(ev, seq_iv))
@@ -173,6 +200,8 @@ def decide(ev: Evidence) -> dict:
     dn_peak = _iv(h, "denovo_peak_start", "denovo_peak_end") if fo else None
     dn_core = _iv(h, "denovo_core_start", "denovo_core_end") if fo else None
     pair = bool(fo and fo.get("agrees") and dn_peak and dn_core)
+    untested = bool(h and h.get("gate_genome_untested") and not valid and not fo and _clean_denovo(h))
+    dn_only = _iv(h, "denovo_core_start", "denovo_core_end") if untested and seq_iv is None else None
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
     second = []
     if strong:
@@ -192,10 +221,16 @@ def decide(ev: Evidence) -> dict:
     elif seq_iv is None and valid and core and _clean_medium(h):
         call, relation, source = core, "functional_only", "hic"
         flags.append("hic_medium_peak")
+    elif seq_iv is None and dn_only:
+        call, relation, source = dn_only, "functional_only", "hic"
+        flags.append("hic_denovo_only")
     elif seq_iv is None:
         call, relation = None, "none"
     elif agree:
         call, relation = seq_iv, "concordant"
+    elif weak and _peak_agrees(ev, seq_iv) and h.get("anch_level") in SUPPORT_LEVELS:
+        call, relation = seq_iv, "concordant"
+        flags.append("hic_support")
     elif strong and far and (sconf != "high" or second):
         call, relation, source = core, "offset", "hic"
         if sconf == "high":
@@ -210,19 +245,25 @@ def decide(ev: Evidence) -> dict:
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, second=second, meth_call={"label": "", "score": np.nan})
+    if untested and source == "sequence":
+        dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
+        if dpk and dco and _denovo_far(ev, dpk, dco, call):
+            flags.append("hic_denovo_elsewhere")
     f_opp = d_opp = False
     if fo and source == "sequence":
         f_opp, d_opp = _fold_far(ev, f_core, call), bool(dn_peak and _denovo_far(ev, dn_peak, dn_core, call))
         if f_opp or d_opp:
             relation = "contested"
             flags += [x for x, y in (("fold_offset", f_opp), ("hic_denovo_offset", d_opp)) if y]
-    m_call = m_hic if source == "hic" else m_seq
+    m_call = _meth(ev, "provisional") if "hic_denovo_only" in flags else m_hic if source == "hic" else m_seq
     support = []
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second):
         support.append("te")
     if valid and (_peak_agrees(ev, call) or (source == "hic" and h.get("anch_level") != "none")):
+        support.append("hic")
+    elif "hic_support" in flags or "hic_denovo_only" in flags:
         support.append("hic")
     if "fold_pair" in flags:
         support += ["hic", "fold"]
@@ -244,7 +285,7 @@ def decide(ev: Evidence) -> dict:
             conf = level_shift(sconf, min(MAX_RAISE, raise_by))
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
-    elif "hic_medium_peak" in flags:
+    elif "hic_medium_peak" in flags or "hic_denovo_only" in flags:
         conf = "low"
     else:
         conf = "high" if second else "medium"
@@ -299,9 +340,12 @@ def row(ev: Evidence, d: dict) -> dict:
 
 
 def gate_status(h: dict) -> str:
-    """pass / fail / untested (fewer than GATE_MIN_REF reference chromosomes: no majority test was possible)."""
+    """pass / support (the support tier only: hicfuse.gate) / fail / untested (fewer than GATE_MIN_REF reference
+    chromosomes: no majority test was possible)."""
     if h.get("gate_pass"):
         return "pass"
+    if h.get("gate_support"):
+        return "support"
     n = h.get("gate_n")
     return "untested" if n is None or (isinstance(n, (int, float, np.integer)) and int(n) < GATE_MIN_REF) else "fail"
 
