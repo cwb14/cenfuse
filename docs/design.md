@@ -29,10 +29,49 @@ fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> 
 
 The satellite engine checkpoints its stages on stage version and parameters: a change stops the run and names the
 `--force` stage, and changed input files (FASTA, `genes/`, `tes/`) are not detected (after adding `tes/` or `genes/`
-to an earlier run: `--force classify`). telomere, rdna, rdna5s, gaps, genotype, hic, fold, karyotype, meth and cpg are
+to an earlier run: `--force classify`). Its checkpoints also stand on the chromosome set, which cenfuse checks itself
+(below). telomere, rdna, rdna5s, gaps, genotype, hic, fold, karyotype, meth and cpg are
 keyed on their inputs and code, so a rerun resumes; the later stages are cheap and always rerun. Their keys include
 the code of their modules and `params.py`: a constant used by one new module lives in that module, so adding it does
 not recompute every stage. `genotype`, `karyotype` and `plants` handle several plants ([plants.md](plants.md)).
+
+### Chromosome set (`inputs.py`, `meth/track.py`)
+
+An assembly also holds unplaced scaffolds, and every line needs whole chromosomes (the satellite engine's prevalence
+tests count them; Hi-C and methylation need chromosome-scale sequences). The set is chosen once per genome, and all
+three engines read it through a view of the genome folder (the FASTA is a symlink and its `.fai` lists the
+chromosomes only).
+
+- **Rule** (`track.chromosome_count`, GAP_FOLD = 10). Start from 0.8's set (`tenfold_count`): the sequences above the
+  first >= 10x drop in sorted length between neighbours, looked for once half the assembly is accounted for; all
+  sequences when there is none. A gradual scaffold tail has no tenfold step, so that set takes it whole. The tail test:
+  take the first sequence, after half the assembly, shorter than a tenth of the median length of the sequences before
+  it (`_median_cut`); if the sequences from there to the end of 0.8's set span a >= 10x range, they are a tail and the
+  set ends before the first of them. A few small sequences of similar size before a clean gap (dot chromosomes,
+  microchromosomes) span less and stay, as in 0.8.
+- **List** (`<genome>.chromosomes.txt`, named after the FASTA, in GENOME_DIR): the chromosomes, one sequence name per
+  line. A line starting with `#` is a comment (a `#` inside a name, as in `HG002#1#chr1`, is part of it); blank lines,
+  CRLF line ends, trailing spaces and a UTF-8 byte-order mark are accepted. An unknown name, a duplicate or no names
+  stops the run (a list is the user's decision, never guessed at); a list that matches no genome logs a warning. It
+  replaces the rule for every line, also for a `--classify-from` target, which otherwise keeps 0.8's rule (a contig
+  assembly has no chromosome/scaffold distinction for the tail test to find). It must name every chromosome: the
+  methylation line's expected domain size is D = d_formula(G, number of chromosomes), so a partial list inflates D.
+- **Source**: the length rule, the 0.8 rule of a `--classify-from` target, or the list's name is logged, with the number
+  of sequences left out, and shown in the report's Notes.
+- **Evidence** (383 assemblies: 49 benchmark genomes, 185 batch genomes, 149 polyploid assemblies). The set is 0.8's on
+  all 234 benchmark and batch assemblies (chicken's 40 chromosomes with 2.5-Mb microchromosomes included). On the 121
+  polyploid assemblies that come with a list of their chromosomes, extra sequences fall from 5,614 to 31 (in 12
+  assemblies) and none of the listed chromosomes is lost; an exact match rises from 102 to 109. The 31 left are
+  1.5-117 Mb sequences outside the lists that a length rule cannot tell from chromosomes.
+- **Resume guard** (`Run._check_chromosome_set`). The satellite engine's resume check covers its code and parameters,
+  not the chromosomes, and 0.9 changes the set (gradual tails, a list). `satellite/work/chromosome_set.json` records
+  {genome: sorted names}. cenfuse writes it once the engine is set up and before it runs, since every checkpoint,
+  present or future, then stands on this set. A resumed folder whose set differs (a genome added, removed or changed)
+  stops before anything is written, names the genomes with their chromosome counts, and says `rerun with --force
+  satellite` (`--force seeds` also proceeds: it redoes the seeds, the first stage the set shapes). A folder made before
+  0.9 has no record and is compared with what 0.8's rule gives on the genome's `.fai`; one without `seeds.done` has
+  nothing to protect. `--satellite-dir` imports are taken as they are and only warn when the imported summary's
+  chromosomes differ from the set.
 
 ## Lines
 
@@ -43,6 +82,60 @@ The pipeline: tandem-repeat seeds (FasTAN or TRF) → families (clustered, conse
 
 Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs and other blocks), `dispersed`,
 `minor`, `rDNA` (rRNA genes found with Rfam models).
+
+How the stages run (none of this changes a call):
+
+- **Seeds.** FasTAN (or TRF) runs on 5-Mb chunks that overlap by 10 kb (at least twice the longest seed unit, so no
+  array is lost at a chunk edge). FasTAN 0.8 aborts on some large satellite arrays (a 642-kb array of *Oryza minuta*:
+  SIGABRT, `malloc(): corrupted top size`, at the same place on every run). A piece on which it dies by SIGABRT,
+  SIGSEGV, SIGBUS, SIGFPE or SIGILL is cut in two halves that overlap by 10 kb, and each is retried, recursively
+  (`fastan.chunk_rows`); `seeds.dedupe` merges what both halves report, as for chunk overlaps. A piece of at most 20 kb
+  (2 x the overlap) that still crashes is skipped with a warning. Each crash (chromosome, start, end, signal, `split`
+  or `skipped`; 0-based) goes to `<seed cache file>.fastan_crashes.tsv` beside the cached seeds, so a shared
+  `--seed-cache` keeps it, linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the genome's summary line in
+  the log counts the chunks crashed, the pieces split and the bp skipped. SIGKILL (the OOM killer), SIGTERM, SIGINT and
+  every other failure still stop the run. A piece FasTAN does not crash on gives the rows cenfuse 0.8 gave, so the
+  seed cache key and stage version are unchanged. An *Oryza minuta* 5-Mb piece that aborts FasTAN gives 757 seed rows
+  after 4 splits.
+- **Seed clustering** (`cluster_seeds`, `absorb_multimers`). BLAST is 97.7% of the wall time, driven by the HSP volume
+  of multimeric seeds; Python is about 2%. *Acanthus* (5,456 seeds) took 76 min at 16 threads, against a median of 0.7 min
+  over the 106 genomes of an allotetraploid plant set. No speedup that keeps the clusters exact was found, so 0.9 only
+  logs each round and the seeds left at INFO ([future.md](future.md)).
+- **Families.** A family's model is built in the monomer frame of the most similar earlier family (`frame_rotation`;
+  references within `RELATED_LEN_TOL` = 15% in length), so models are not independent, and `build_models` builds them
+  concurrently with a guarantee: the result is the serial one. A build starts with the families already accepted as
+  references (final ones only) and records the length and the rotation of each `frame_rotation` call, the only steps
+  that read the references. Families are accepted in family order, each with all earlier families final. A finished
+  build is kept if no earlier family it started without is a frame candidate (within 15% in length) for one of its
+  queries, or if replaying its recorded rotations with all earlier families gives the same rotations (the build is
+  then the same computation step for step); otherwise it is rebuilt with all earlier families. Build k samples with
+  `random.Random(k + 1)`, so a model never depends on another's sampling. A build uses `THREADS_PER_BUILD` = 4 threads
+  and up to threads // 4 run at once; a failed build raises once the running builds end. families.tsv and .fa,
+  families.hmm without its DATE and COM lines, and seeds.tsv.gz are byte-identical to the serial code on *Arabidopsis*
+  Col-CC, rice T2T-NIP and *Panax japonicus*. Families stage, 0.8 (serial) -> 0.9 at 16 threads: 230 -> 130 s,
+  138 -> 87 s and 2,290 -> 674 s (*Panax* model phase 1,755 -> 402 s). Which families a build started with depends on
+  timing, so the BLAST scratch folders of the stage (`fam*/frame*/`, `fam*/replay*/`) can differ between runs and from
+  0.8's; the models, and so every results file, cannot.
+- **Annotate.** nhmmer searches every (chunk x model) job on a thread pool. The search is the longest stage and hard to
+  predict (*Panax*: 7.9 h predicted from family length x genome size, more than 25 h actual), so it logs at INFO each 10%
+  of its work (chunk bp x model length, counted as searches finish; the time left assumes the rest costs per unit what
+  the done part did, so it is an estimate) and, checked as each search finishes, after an hour without a line. Each
+  finished search also adds the thread CPU time and wall time its nhmmer call took, and the hits kept, to its family's
+  totals: `satellite/work/annotate/<genome>.search_cost.tsv` (family, model_len, searches, cpu_h, cpu_share, wall_h,
+  hits_reported, monomers_kept; costliest first; wall_h sums the searches' own times, the threads' busy time). CPU
+  times differ between runs, so this is a work table, never a results table: `satellite_families.tsv` is unchanged and
+  this is the one run-dependent table (README, Reproducible). The log names the three costliest families when the
+  search ends, and the output stage names them again with their final role (a dispersed family that cost much decides
+  nothing, which only the roles, known after annotate, show). The cost sits in short-unit families with millions of
+  hits in mammals (CHM13's 172-bp alpha satellite: 62% of the CPU) and in 1-2-kb families in plants and chicken.
+- **Replaced calls.** When a decisive CRM core replaces a satellite, weak-satellite or long-unit call, the replaced call
+  is kept: the satellite summary gains `overruled_start`, `overruled_end` (1-based start) and `overruled_family` (its
+  final name), and centromeres.tsv `seq_overruled_start`, `seq_overruled_end` right after `seq_alt_end`. The report's
+  `basis` sentence names the interval. They are never written to `seq_alt_*`, which validated Hi-C can move a call to
+  (`hic_chose_alt`), so they change no call. A kept call (`te_concordant`, `te_discordant`) and a chromosome without
+  a call record nothing. Folders from 0.8 without a rerun of the centromeres stage read `.`, also on a chromosome whose
+  flags say a core replaced a call. Replays of the centromeres stage on 3 stored runs (49 chromosomes): every 0.8
+  column identical; the intervals equal an earlier audit's on all 16 chromosomes it covers.
 
 | rule | test | why |
 |---|---|---|
@@ -195,11 +288,11 @@ Nothing here changes a call; every statement is read from the tables cenfuse wri
 - **Completeness.** Telomere arrays at the ends (telomere.py), assembly gaps (runs of >= 10 N, the satellite
   engine's rule) on the chromosome and inside the call; `t2t` = both telomeres and no gap.
 - **basis / caveat.** One sentence each per call: the sequence evidence and its size in the call, a CRM core that
-  replaced the satellite call, a move and its second line, every agreeing line, the kinetochore; then every flag that
-  lowered the call, every opposing line with where it points, gaps in the call, and the input that would decide where
-  cenfuse's own tests say one can (two arrays of one satellite: CENP-A/CENH3 data, since Hi-C needs mappable DNA
-  between them and CpG methylation was tested and does not choose; satellite-free or capped calls: Hi-C or a CRM core
-  when not given).
+  replaced the satellite call (with the interval of the call it replaced), a move and its second line, every agreeing
+  line, the kinetochore; then every flag that lowered the call, every opposing line with where it points, gaps in the
+  call, and the input that would decide where cenfuse's own tests say one can (two arrays of one satellite:
+  CENP-A/CENH3 data, since Hi-C needs mappable DNA between them and CpG methylation was tested and does not choose;
+  satellite-free or capped calls: Hi-C or a CRM core when not given).
 - **Report** (`cenfuse_report.md`): per genome, the lines and their tests, the calls by confidence and what they stand
   on, the calls that are not `high` with their caveats, morphology and completeness, the other features with their
   satellite share and 3D association. A failing report section is a warning; the results stay complete.
@@ -240,6 +333,10 @@ first kind that matches:
 | sat: LOCUS_FOLD | 2 | heuristic (as the Hi-C engine's hub fold) |
 | sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | nested copies are one insertion, three independent ones make a locus; conventional levels |
 | sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array (also founds a family); unit-length tolerance |
+| chromosome set (`meth/params.py`): GAP_FOLD | 10 | a tenfold step in sorted length ends the chromosomes, and a tail is a run under a tenth of the median before it that spans a tenfold range: heuristic, the methylation engine's factor reused |
+| sat: seed_overlap, FasTAN skip floor | 10 kb, 2 x overlap | the overlap is >= 2 x SEED_MAX_PERIOD, so no array of a seed-length unit is lost at a cut; at 20 kb the overlap is half the piece and each half three quarters of it, so the recursion stops there (heuristic) |
+| sat: THREADS_PER_BUILD, RELATED_LEN_TOL | 4, 15% | MAFFT is 3.6x faster at 4 threads and 5.6x at 16 (*Panax* fam006, identical alignment); length tolerance of related families (subfamilies with indels) |
+| sat: progress step, heartbeat | 10%, 1 h | a line per tenth of the work; no hour without a line (checked when a search finishes) |
 | fold: S_MIN, CI_MIN | 9 bins, 12.5% | beyond the ± 4-bin centromeric domain; Levan's telocentric bound |
 | CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
 | CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
@@ -282,6 +379,16 @@ first kind that matches:
 | chromosome-scale loci from an interspersed family classed as a satellite | the family's role follows classify's own dispersed-repeat test (`dispersed`) | loci members that are mostly satellite (sparse clusters split into dense runs): removed the chromosome-scale loci of 5 genomes but made thousands of small loci of the same family (chimpanzee +5,757); dropping sparse clusters would erase diffuse real satellites (barley subtelomeric, 108/156 clusters) |
 | GFF3 feature types | Sequence Ontology terms; cenfuse's kind as `kind=`, members linked by `locus=` | cenfuse's own kinds as types (`interstitial_block`, `hic_hub`): no SO validator or annotation pipeline accepts them. `Parent=` for members: GFF3's Parent means SO part_of, and a satellite block is no part of a centromere (gt gff3validator rejects it) |
 | CpG choosing among satellite clusters | not done | least-methylated window anywhere: on the CDR 3/23 (CHM13). Most prominent valley across clusters: wrong cluster on 8-10/25 (orangutans). A cluster with half the call's valley floor: 6 changes in 7 primates, 1 right (B. orangutan), 2 wrong (CHM13) |
+| chromosome set | 0.8's set (the sequences above the first >= 10x drop between neighbours, after half the assembly), ended before a gradual scaffold tail (the sequences from the first one under a tenth of the median length of those before it, when they span >= 10x); a `<genome>.chromosomes.txt` replaces the rule | 0.8 alone: a gradual tail has no tenfold step, so it took the whole tail (*Cissus*: 646 extra sequences for 24 chromosomes; 5,614 extra over 121 polyploid assemblies), which dilutes the prevalence tests (rerun on the assemblies' own chromosome lists: *Cissus* 0 -> 14 `high` calls with all 24 positions unchanged, *Mimulus* 9 -> 25). The median cut alone: 27 extras, but on synthetic karyotypes it drops dot chromosomes that 0.8 keeps (*D. melanogaster* chromosome 4 beside the Y: 7 -> 6; a chicken with five 0.3-1.5-Mb dot chromosomes added: 45 -> 40). The mean instead of the median: 33 extras and a chicken microchromosome lost (40 -> 39). The largest neighbour ratio after half the assembly: 106 extras, 3 listed chromosomes lost, 11 of 234 benchmark and batch sets changed |
+| `--classify-from` targets | keep 0.8's rule | the tail test: a target is a contig assembly, with no chromosome/scaffold distinction for it to find |
+| chromosome-set record for the resume guard | written once the satellite engine is set up, before it runs | after the engine finishes: a run that fails after its seeds leaves seeds made on the new set beside the old record, and a return to the old set then passes the guard and resumes on them; and a first run that fails after its seeds leaves no record, so the next run is compared with 0.8's rule and can stop although nothing changed |
+| seed cache key | the chromosome set joins the key whenever the real FASTA has no `.fai` of its own to compare with | the FASTA md5 alone, as before: when the user's FASTA is a symlink indexed beside the link, two chromosome sets of one file shared an entry, so `--force satellite` (the guard's own advice) reused the old set's seeds. Such folders compute their seeds once more; with the real file indexed (the standard layout) every key is unchanged (4 stored runs checked) |
+| FasTAN crash (SIGABRT on a large array) | split the piece in two halves overlapping by 10 kb and retry, recursively, on a crash signal only (SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL); skip a piece of <= 20 kb that still crashes, with a warning; record every crash | 0.8: the first crash stops the run (two genomes of an allotetraploid plant set died, *Sonchus oleraceus* and *Oryza minuta*, both with the crash inside a high-confidence centromere call, so complete assemblies are hit hardest). Splitting on any failure: SIGKILL is the OOM killer and SIGTERM or SIGINT the scheduler or the user, not FasTAN's bug, and a retry on smaller pieces would hide the cause |
+| family models built in parallel | concurrently, 4 threads each; a build is kept if no earlier family it started without is a frame candidate for its queries (length within 15%), or if its recorded rotations replay unchanged with all earlier families; else rebuilt with all of them | rebuilding on every flag (the length test alone): 33 of 40 *Panax* families flagged, 11 for real and the rest length coincidences, and the rebuilds ran one after another in family order: model phase 1,927 s against 1,755 s serial. One thread per build (threads // workers): MAFFT is 3.6x faster at 4 threads and 5.6x at 16 |
+| seed clustering speedup | none in 0.9; the rounds are logged | aligning only the pairs `seed_match` can consult (length-banded, N-padded databases, `-dbsize` pinned): 10x on *Acanthus* (266 + 69 s against 2,223 + 1,123 s) with identical clusters on 8 genomes, but BLAST's hit lists differ for 0.2-0.5% of those pairs (borderline hits near E 1e-5 depend on the query batch), so it is not exact by construction. Queries as single-thread jobs on the same database: 1.6-1.9x per call, hits differ (3 of 873k). `-mt_mode`: hits identical in 12 of 13 reruns, times mixed. [future.md](future.md) |
+| CPU time per family | a work table (`search_cost.tsv`) and log lines | columns of `satellite_families.tsv`: a results file would differ between fresh runs |
+| satellite array replaced by a CRM core | reported in `seq_overruled_*` (satellite summary: `overruled_*`) | `seq_alt_*`: fusion lets validated Hi-C move a call to the alternative cluster (`hic_chose_alt`), so the replaced array would become a candidate and change calls |
+| overview pages | drawn, saved and closed one at a time | all pages built first (0.8): a 670-sequence assembly held 28 figures open (matplotlib warns at 20) and 243 MB; one at a time: 1 figure and 144 MB, the same PDF and PNG |
 
 ## Known risks
 
@@ -307,18 +414,34 @@ first kind that matches:
 - The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
 - Satellite-search memory: about one pyhmmer workspace per thread (model length × the 256-kb search block, up to ~2.4
   GB for 2-kb units): chicken 58 GB at 24 threads (277 GB before v5), *Arabidopsis* 4.8 GB at 8.
+- The chromosome-set rule cannot tell an unplaced scaffold from a short chromosome by length. A tiny chromosome inside an
+  assembly with a gradual scaffold tail is lost (a 0.3-Mb dot chromosome among 0.8-Mb scaffolds; 0.8 took the whole tail
+  there), a dot chromosome more than tenfold shorter than every other chromosome with nothing between stays out (0.8
+  too: *D. melanogaster* X, 2, 3 and 4 without the Y), small chromosomes that themselves span a tenfold range are cut
+  as a tail, and large unplaced scaffolds can stay in (31 sequences in 12 of 121 polyploid assemblies). A list in
+  `<genome>.chromosomes.txt` settles any of them, and must name every chromosome.
+- FasTAN crash recovery skips a piece of at most 20 kb that still crashes, and it has no ceiling on the bp skipped: if
+  FasTAN died on every piece after its self-test passed, the run would log a skip per piece and go on with few seeds
+  instead of failing. The genome's summary line counts the bp skipped (an upper bound: skipped pieces overlap their
+  neighbours).
+- The time left in the progress lines is a linear extrapolation of the work done, and the work (bp x model length)
+  ignores that families differ in cost per unit (*Arabidopsis* Col-CC: one 502-bp family took 75% of the search CPU),
+  so it can be far off: at 8 threads the line at 90% said about 46 s left and the last tenth took 5 min. The hourly line
+  is checked when a search finishes, so while all threads are busy with long searches the log can stay quiet for longer.
 - Satellite outputs of earlier versions read with `--satellite-dir` keep their version's rules: before v7 an
   interspersed family classed `interstitial` (one 0.5-1.9-kb family each in chimpanzee, bonobo, S. orangutan, rhesus
   and sheep) chains into chromosome-wide clusters and chromosome-scale loci; before v8 the TE floor is 5 elements, a
   CRM core replaces every confident distant call, two-copy duplications can found families, and FasTAN's cuts vary
-  between runs. A rerun in an earlier version's output folder stops at the first changed stage (`seeds` from v7):
-  rerun the satellite engine (`--force satellite`) to apply the current rules.
+  between runs; before 0.9 the chromosome set was 0.8's and a replaced call was not recorded (`overruled_*` read as
+  empty). A rerun in an earlier version's output folder stops at the first changed stage (`seeds` from v7): rerun the
+  satellite engine (`--force satellite`) to apply the current rules. A 0.8 folder resumes (0.9 changed no satellite
+  stage version) unless its chromosome set changed.
 - Morphology is only as right as the call: a wrong call gives a wrong class (`low` calls are kept out of the summary's
   karyotype). An incomplete chromosome (a missing telomere, gaps) shifts the index.
 
 ## Tests
 
-`pytest -q -n 8`: 548 tests on small synthetic fixtures.
+`pytest -q -n 8`: 686 tests on small synthetic fixtures (about 2 min).
 - Unit tests of every rule above.
 - A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
   without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three
@@ -331,3 +454,19 @@ first kind that matches:
   conversion recipe).
 - Reading: Levan classes at their bounds, arms from the kinetochore, gaps across scan chunks; one sentence test per
   relation and flag; the synthetic run's report (every chromosome, the moved, contested and placed calls).
+- Chromosome set: the length rule on synthetic length vectors (a gradual tail, a deep tail, dot chromosomes before a
+  clean gap, the documented limit), equal to the rule written out in full on 600 random vectors, a million contigs
+  counted in one pass; the list file (hand-written and Windows files, unknown and duplicate names, an empty list,
+  `--classify-from` targets); the resume guard, with a stand-in for the satellite engine that writes only its seeds
+  checkpoint (same set, changed set, no record, forced reruns, a run that fails after its seeds, `--satellite-dir`
+  imports); cache keys of both FASTA layouts.
+- FasTAN crashes (a stub that dies by signal): the recursion, absolute offsets, the 20-kb floor, pieces at a
+  sequence's edges and mostly N, kills and exit statuses that still stop the run, the crash table beside the cache.
+- Parallel family models: the acceptance and replay rules, output byte for byte equal at 1 (the serial build), 4 and
+  16 threads, a failing build that raises instead of hanging, no reference that is not accepted; the thread split.
+- Progress and cost: each tenth once, the hourly line, no line for no work, thread safety; one cost row per family and
+  shares that sum to 1, no lost search under concurrent callbacks, `satellite_families.tsv` unchanged.
+- Plots: a genome with more pages than matplotlib's warning limit ends with one figure open at a time, and none after
+  an error.
+- Replaced calls: each branch of the CRM replacement records its interval, `.` for outputs of 0.8, and the report names
+  it.

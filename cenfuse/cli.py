@@ -23,7 +23,8 @@ def main(argv=None) -> int:
                        description="Run every evidence line present in GENOME_DIR and integrate them. A rerun "
                                    "resumes from checkpoints.")
     r.add_argument("genome_dir", type=Path, metavar="GENOME_DIR",
-                   help="one FASTA per genome (+ .fai; bgzip also .gzi); optional genes/<g>.gff3|.gff|.gtf, "
+                   help="one FASTA per genome (+ .fai; bgzip also .gzi) [+ <g>.chromosomes.txt: the chromosomes to "
+                        "analyze, one name per line; default: a length rule]; optional genes/<g>.gff3|.gff|.gtf, "
                         "tes/<g>.gff3|.gff (LTR_retrotransposon with clade=, or DANTE_LTR), "
                         "hic/<g>.pairs[.gz]|.cool|.mcool or hic/<g>.tsv (one "
                         "library per plant: sample, file), meth/<g>.tsv (samples table: sample, CHG and/or CG, "
