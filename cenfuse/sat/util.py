@@ -3,6 +3,8 @@ import hashlib
 import logging
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 log = logging.getLogger("cenfuse-sat")
@@ -18,6 +20,57 @@ def setup_logging(verbose: bool) -> None:
     log.handlers[:] = [h]
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
     log.propagate = False
+
+
+def fmt_duration(seconds: float) -> str:
+    """'45 s', '12 min', '3 h 05 min', '2 d 4 h': two units at most, rounded to the smaller one, so a time left is not
+    stated more finely than it can be estimated."""
+    s = max(0, int(seconds + 0.5))
+    if s < 60:
+        return f"{s} s"
+    m = (s + 30) // 60
+    if m < 60:
+        return f"{m} min"
+    if m < 24 * 60:
+        return f"{m // 60} h {m % 60:02d} min"
+    d, h = divmod((s + 1800) // 3600, 24)
+    return f"{d} d {h} h"
+
+
+_FLOAT_NOISE = 1e-12          # 3 x 0.1 != 0.3, and sums of float work are off by a few ulps: a tenth is not missed
+
+
+class Progress:
+    """INFO lines for a long job whose work is done in pieces on many threads: one line each time another `step` of
+    the work is done, and one if `heartbeat` seconds pass without a line (checked when work is added), so the log never
+    goes silent for hours. Each line gives the elapsed time and the time left: the work left is assumed to cost per
+    unit what the work done did, which jobs of unequal cost only approximate, so the line says it is an estimate.
+    The caller chooses the unit of work and adds it as each piece finishes, in whatever order they finish. A total
+    of 0 (nothing to do) is silent."""
+
+    def __init__(self, label: str, total: float, step: float = 0.1, heartbeat: float = 3600.0, clock=time.monotonic):
+        self.label, self.total, self.step, self.heartbeat, self.clock = label, total, step, heartbeat, clock
+        self.done, self.reached, self.finished = 0, 0, False        # work done; steps already reported; 100% reported
+        self.start = self.last = clock()                            # start of the job; time of the last line
+        self.lock = threading.Lock()
+
+    def add(self, work: float) -> None:
+        """Count `work` (in the unit of `total`) as done; log a line if a step or the heartbeat is due."""
+        if self.total <= 0 or work <= 0:
+            return
+        with self.lock:                                             # lines are logged inside it, so they stay in order
+            if self.finished:
+                return
+            self.done += work
+            now, frac = self.clock(), min(1.0, self.done / self.total)
+            steps = int(frac / self.step + _FLOAT_NOISE)
+            self.finished = frac >= 1 - _FLOAT_NOISE
+            if steps <= self.reached and not self.finished and now - self.last < self.heartbeat:
+                return
+            self.reached, self.last = steps, now
+            elapsed = now - self.start
+            log.info(f"{self.label}: {100 * frac:.0f}% of the work done in {fmt_duration(elapsed)}; about "
+                     f"{fmt_duration(elapsed * (1 - frac) / frac)} left (estimate)")
 
 
 def require_tools(names) -> None:

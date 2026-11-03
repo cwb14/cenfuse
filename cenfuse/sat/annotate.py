@@ -2,7 +2,9 @@
 import gc
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -12,7 +14,7 @@ from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextSequence
 from pyhmmer.plan7 import LongTargetsPipeline
 
 from .params import ANNOT_CHUNK, FULL_MONOMER_COV, MULTIMER_MIN_COV, MULTIMER_RATIO, NHMMER_REPORT_E, OVERLAP_MAX_COV
-from .util import log
+from .util import Progress, log
 
 ABC = Alphabet.dna()
 MON_COLS = ["chrom", "start", "end", "strand", "family", "bitscore", "evalue",
@@ -129,6 +131,13 @@ def _chunks(chroms: dict, size: int, overlap: int):
             s = e - overlap
 
 
+def _search_work(job) -> int:
+    """Progress unit of one (chunk x model) search: chunk bp x model length, what the cost of nhmmer's filters grows
+    with (the cost still varies with how satellite-dense the chunk is, so the time left is only an estimate)."""
+    _, s, e, h = job
+    return (e - s) * h.M
+
+
 def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_CHUNK, overlap: int = 10_000,
                   ref_len: int = 0, gap_factor: float = 2.0) -> dict:
     """{chrom: overlap-resolved monomer hits}. pyhmmer's nhmmer parallelises over query models only, so a few
@@ -139,7 +148,10 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
     that of one whole-chromosome search. overlap must exceed the longest model; duplicate and edge-truncated
     hits in overlaps are removed by resolve_overlaps. Sequences shorter than ref_len are scaled as if ref_len long,
     so short contigs get the cutoff of a chromosome instead of a looser one. Hits are kept if significant alone or
-    as part of a run of copies (run_significant), so short units are found too."""
+    as part of a run of copies (run_significant), so short units are found too. The search is the longest stage
+    (Panax: > 25 h), so it logs its progress at INFO: each finished search is counted in a done callback, in the order
+    searches finish, while their hits are collected in submission order (as Executor.map gave them: the order decides
+    which of two duplicate hits is kept)."""
     out = {c: [] for c in genome.chroms}
     if hmms:
         mlen = {h.name: h.M for h in hmms}
@@ -158,12 +170,29 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
 
         overlap = max(overlap, 2 * max(mlen.values()))
         jobs = [(c, s, e, h) for c, s, e in _chunks(genome.chroms, chunk, overlap) for h in hmms]
+        progress = Progress(f"annotate: {genome.name}", sum(map(_search_work, jobs)))
+
+        def account(job, fut):
+            """Done callback, run by the thread that finished a search: the one place a finished search is accounted.
+            A search that was cancelled (the run stopped at an error) or failed did no work."""
+            if not fut.cancelled() and fut.exception() is None:
+                progress.add(_search_work(job))
+
         step, t0 = max(1, len(jobs) // 20), time.time()
         with ThreadPoolExecutor(max(1, threads)) as ex:
-            for i, (c, rows) in enumerate(ex.map(work, jobs), 1):
-                out[c].extend(rows)
-                if i % step == 0 or i == len(jobs):           # the longest stage: progress with -v
-                    log.debug(f"annotate: {genome.name}: {i:,}/{len(jobs):,} searches ({time.time() - t0:.0f} s)")
+            futs = deque()                                    # in submission order; a future is dropped once collected
+            for job in jobs:
+                futs.append(ex.submit(work, job))
+                futs[-1].add_done_callback(partial(account, job))
+            try:
+                for i in range(1, len(jobs) + 1):             # collected in submission order, as ex.map gave them
+                    c, rows = futs.popleft().result()
+                    out[c].extend(rows)
+                    if i % step == 0 or i == len(jobs):       # finer progress with -v
+                        log.debug(f"annotate: {genome.name}: {i:,}/{len(jobs):,} searches ({time.time() - t0:.0f} s)")
+            finally:
+                for fut in futs:                              # after an error, as ex.map did: do not run the rest
+                    fut.cancel()
         release_pipeline()
     return {c: resolve_overlaps(drop_multimer_hits(significant(r, max(genome.chroms[c], ref_len), evalue, gap_factor),
                                                    evalue=evalue))

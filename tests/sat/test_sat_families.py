@@ -49,6 +49,25 @@ def test_cluster_seeds_rotation_multimer_unrelated(tmp_path):
     assert assign["B"] == "B" and assign["Asub"] == "Asub"
 
 
+def test_cluster_seeds_logs_its_rounds_at_info(tmp_path, caplog, monkeypatch):
+    """Acanthus: 76 min of seed clustering with nothing in the default log. Each round says how many seeds are left
+    (BLAST stubbed out: no seed is related to another, so every one founds a cluster; batches of 2 give 3 rounds)."""
+    import logging
+    from cenfuse.sat import families
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    monkeypatch.setattr(families, "BLAST_BATCH", 2)
+    monkeypatch.setattr(families, "blast_pairs", lambda *a, **k: {})
+    seqs = {f"s{i}": "ACGT" * 40 for i in range(5)}
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        assign = cluster_seeds(seqs, list(seqs), tmp_path, 1, 0.90, 0.80)
+    assert assign == {s: s for s in seqs}
+    assert [r.getMessage() for r in caplog.records if r.name == "cenfuse-sat"] == [
+        "families: round 1: 2 new representatives, 3 seeds left",
+        "families: round 2: 2 new representatives, 1 seeds left",
+        "families: round 3: 1 new representatives, 0 seeds left"]
+
+
 @pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
 def test_build_families_on_synthetic(synth_families):
     fam, workdir = synth_families

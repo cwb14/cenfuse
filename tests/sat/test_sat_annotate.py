@@ -1,3 +1,9 @@
+import itertools
+import logging
+import re
+import time
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -168,3 +174,115 @@ def test_run_only_copies_never_drop_a_hit_significant_alone():
     assert "f87" in set(drop_multimer_hits(df, evalue=1e-5).family)      # weak copies cannot override it
     strong = df.assign(evalue=[1e-20, 1e-7, 1e-7])
     assert "f87" not in set(drop_multimer_hits(strong, evalue=1e-5).family)
+
+
+# ---- progress of the genome-wide search (annotate dominates the run time and was silent without -v)
+
+PROGRESS = re.compile(r"annotate: Pa_A: (\d+)% of the work done in [^;]+; about [^;]+ left \(estimate\)")
+
+
+def _pa_a(synth_complex, synth_families):
+    """The models of the synthetic families and the genome Pa_A."""
+    import pyhmmer
+    from cenfuse.sat.genomes import discover_genomes
+    with pyhmmer.plan7.HMMFile(synth_families[1] / "families.hmm") as f:
+        hmms = list(f)
+    return hmms, [x for x in discover_genomes(synth_complex[0]) if x.name == "Pa_A"][0]
+
+
+@pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
+def test_search_logs_progress_at_info(caplog, monkeypatch, synth_complex, synth_families):
+    """Without -v the log showed 'annotate: start' and then nothing for up to 25 h (Panax). The search now says at INFO
+    how much of its work is done, how long that took and, as an estimate, how long is left; it ends with 100%."""
+    from cenfuse.sat.annotate import search_genome
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    hmms, g = _pa_a(synth_complex, synth_families)
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        search_genome(hmms, g, 2, 1e-5, chunk=40_000, overlap=2_000)
+    msgs = [r.getMessage() for r in caplog.records if r.name == "cenfuse-sat"]
+    assert msgs and all(PROGRESS.fullmatch(m) for m in msgs), msgs
+    pcts = [int(PROGRESS.fullmatch(m).group(1)) for m in msgs]
+    assert pcts == sorted(set(pcts)) and pcts[-1] == 100, pcts
+
+
+@pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
+def test_search_keeps_its_verbose_lines(caplog, monkeypatch, synth_complex, synth_families):
+    """With -v the finer 'i/n searches' lines stay beside the INFO progress; the last one says all n are done."""
+    from cenfuse.sat.annotate import search_genome
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    hmms, g = _pa_a(synth_complex, synth_families)
+    with caplog.at_level(logging.DEBUG, logger="cenfuse-sat"):
+        search_genome(hmms, g, 2, 1e-5, chunk=40_000, overlap=2_000)
+    fine = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert fine and re.fullmatch(r"annotate: Pa_A: ([\d,]+)/\1 searches \(\d+ s\)", fine[-1]), fine
+    assert any(PROGRESS.fullmatch(r.getMessage()) for r in caplog.records if r.levelno == logging.INFO)
+
+
+def _stand_ins(monkeypatch, tmp_path, search_one, chunks=4):
+    """Stand-ins for a search of `chunks` chunks x 3 models (no nhmmer): `search_one(model)` replaces the search, and
+    what it returns becomes one hit, at the same place in every job and scored by the model's rank. The chromosome is
+    random sequence cut into 1-kb chunks. Returns (hmms, genome, keyword arguments of search_genome)."""
+    import numpy as np
+    import pysam
+    import cenfuse.sat.annotate as annotate
+    from sat_common import dna
+    fa = tmp_path / "g.fa"
+    fa.write_text(">c\n" + dna(np.random.default_rng(1), 800 * chunks + 200) + "\n")
+    pysam.faidx(str(fa))
+    hmms = [SimpleNamespace(name=f"m{i}", M=100, rank=i) for i in range(3)]
+    monkeypatch.setattr(annotate, "search_one", lambda h, blk: search_one(h))
+    monkeypatch.setattr(annotate, "_rows", lambda hits, mlen, c, off, scale: [
+        (c, 100, 150, "+", "fam", float(hits[0].rank), 1e-9, 1, 100, 100, 1.0)])
+    return hmms, SimpleNamespace(name="g", fasta=fa, chroms={"c": 800 * chunks + 200}), dict(chunk=1_000, overlap=200)
+
+
+def test_search_collects_hits_in_submission_order(monkeypatch, tmp_path):
+    """Searches finish in any order, but their hits are collected in submission order (chunk by chunk, model by
+    model) as ex.map gave them: when two chunks find the same hit, duplicate removal keeps the first one. Here model
+    0 is the slowest, so it finishes last; the surviving duplicate must still be the one of (chunk 0, model 0)."""
+    from cenfuse.sat.annotate import search_genome
+
+    def search_one(h):
+        time.sleep((3 - h.rank) * 0.02)
+        return h
+
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, search_one)
+    hits = search_genome(hmms, g, 4, 1e-5, **kw)["c"]
+    assert hits.bitscore.tolist() == [0.0]
+
+
+def test_a_failed_search_stops_the_run_and_counts_no_work(caplog, monkeypatch, tmp_path):
+    """An error in one search must reach the caller without running the searches still queued (ex.map cancelled them;
+    otherwise hours of search go on after the error), and no progress line claims work that was never done."""
+    from cenfuse.sat.annotate import search_genome
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    count, calls = itertools.count(), []
+
+    def search_one(h):
+        calls.append(h)
+        if next(count) == 0:                         # the first search to start fails (next() is atomic)
+            raise RuntimeError("nhmmer died")
+        time.sleep(0.02)
+        return h
+
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, search_one, chunks=40)             # 120 searches
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"), pytest.raises(RuntimeError, match="nhmmer died"):
+        search_genome(hmms, g, 2, 1e-5, **kw)
+    assert len(calls) < 60
+    assert not [r for r in caplog.records if "100% of the work done" in r.getMessage()]
+
+
+def test_search_with_nothing_to_search_logs_no_progress(caplog, monkeypatch, tmp_path):
+    """A run with zero families (no models) or no sequences has no work: the search says nothing, divides by nothing."""
+    from cenfuse.sat.annotate import search_genome
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(log, "propagate", True)
+    hmms, g, kw = _stand_ins(monkeypatch, tmp_path, lambda h: h)
+    with caplog.at_level(logging.INFO, logger="cenfuse-sat"):
+        no_models = search_genome([], g, 2, 1e-5, **kw)
+        no_sequences = search_genome(hmms, SimpleNamespace(name="g", fasta=g.fasta, chroms={}), 2, 1e-5, **kw)
+    assert no_models["c"].empty and no_sequences == {}
+    assert not [r for r in caplog.records if r.name == "cenfuse-sat"]

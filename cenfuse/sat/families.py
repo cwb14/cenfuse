@@ -131,7 +131,8 @@ def _related(a, b, seqs, pairs, t_same, t_multi) -> bool:
 
 def cluster_seeds(seqs: dict, order: list, workdir: Path, threads: int, t_same: float, t_multi: float) -> dict:
     """Greedy centroid clustering in priority order (no chaining). Returns {id: representative id}.
-    Works in batches of BLAST_BATCH candidate representatives so BLAST output stays bounded."""
+    Works in batches of BLAST_BATCH candidate representatives so BLAST output stays bounded. Each round is logged at
+    INFO: thousands of seeds take over an hour (Acanthus, 5,456 seeds: 76 min) and the log was silent meanwhile."""
     assign, rest, rnd = {}, list(order), 0
     while rest:
         rnd += 1
@@ -154,7 +155,7 @@ def cluster_seeds(seqs: dict, order: list, workdir: Path, threads: int, t_same: 
                 if hit is not None:
                     assign[x] = hit
         rest = [x for x in others if x not in assign]
-        log.debug(f"families: round {rnd}: {len(reps)} new representatives, {len(rest)} seeds left")
+        log.info(f"families: round {rnd}: {len(reps)} new representatives, {len(rest)} seeds left")
     return assign
 
 
