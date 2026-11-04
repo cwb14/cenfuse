@@ -39,7 +39,9 @@ summary and region tables gained the `overruled_*` columns; the standalone methy
 cenfuse.meth`, 0.1.0) now counts chromosomes with the 0.9 rule (`track.chromosome_count`). 0.10 changes only the Hi-C line
 (Hi-C engine 0.2.0: bins for small chromosomes, other pipelines' pairs files; cenfuse: the support tier, Hi-C alone):
 the satellite engine's checkpoints are kept, and the hic stage and every later one are computed once more (their
-keys carry cenfuse's version and code).
+keys carry cenfuse's version and code). 0.10.1 again changes only the Hi-C line (Hi-C engine 0.3.0: the `telomeric`
+flag from the agreement geometry, replicate libraries summed; cenfuse: the trans arm alignment, Hi-C alone beside an
+axis line, the `hic_architecture` summary), with the same consequences.
 
 ### Chromosome set (`inputs.py`, `meth/track.py`)
 
@@ -212,7 +214,9 @@ How the stages run (none of this changes a call):
    (organelles, unplaced scaffolds); cenfuse passes its set, which is taken as given. A `.cool`/`.mcool` offers its
    own resolutions in the candidate range (or, with none there, those that fit in memory). The depth rule then
    picks the finest candidate with >= 25 expected centromere contacts per bin. Windows are in bins (partner window
-   +/- 4, end window 8, null exclusion 20), so they scale with the bin.
+   +/- 4, telomere-pole window 8, null exclusion 20), so they scale with the bin. Replicate libraries of one plant
+   (rows of `hic/asm.tsv` with the same `sample`; 0.10.1) are summed into one matrix before all of this: a test near
+   its depth threshold should see the plant's whole library, not flip with how it was split.
 1. **Prior-free call**: the engine's own iteration. It decides nothing by itself; only the fold test can validate it,
    except in a genome where nothing can (step 6).
 2. **Anchored score.** For chromosome x: its mean contact with partner windows at the *other* chromosomes' sequence
@@ -221,7 +225,15 @@ How the stages run (none of this changes a call):
    - Otherwise it is the 9 mappable bins nearest the call: the array's flanks, since the array itself is unmappable.
 3. **Peak tests** (the engine's): 100 bootstraps, leave one partner out, 200 null replicates.
    - A peak is *strong* when it passes all three and is not flagged `hub`, `rDNA` (incl. beside a NOR) or
-     `telomeric` (end window).
+     `telomeric`: the peak cannot be told from a chromosome end, i.e. it would agree with the terminal bin under the
+     agreement rule of step 4 (at most one mappable bin between, at most 4 unmappable bins discounted; 0.10.1).
+     0.10 flagged every peak within 8 bins of an end, but centromeres lie there on acrocentric chromosomes (moss
+     11/26, goat 29/30, horse 17/32): the moss peaks 3-6 bins from the end were right and could not move wrong
+     calls. The prior-free end clusters the window was made for lie in the terminal 0-1 bins (rice 12/12, giraffe
+     14/16, moss 26/26) and stay flagged. Contact-based tests (the opposite end's height, partner windows mirrored
+     to the other end, a core reaching the end) did not separate right from wrong end peaks (v10.1 dead ends). A
+     peak at the edge of a terminal unmappable array (chicken microchromosomes) stays `telomeric`: there the
+     centromere and the end are one place for Hi-C.
    - A peak with any of those flags may support a call but never moves or opposes one.
 4. **Distances in mappable bins.**
    - Agreement: within 1 bin, forgiving ≤ 4 unmappable bins (a peak at an array's edge supports a call inside it).
@@ -250,10 +262,14 @@ How the stages run (none of this changes a call):
      EquCab3, moss, chicken; stored runs), an agreeing peak marked a right call 61 of 64 times (wrong: pig, sheep,
      potato).
 6. **Hi-C alone** (0.10). A genome with fewer than 3 reference calls (the gate's references) cannot test the gate on
-   any chromosome (a genome-level condition: where the gate ran on some chromosomes, Hi-C alone acts on none) (point, regional and AT-rich centromeres: yeasts, *Plasmodium*, *Neurospora*). There, on a
-   chromosome without a sequence call and unless the fold passed, a clean prior-free call at engine level `high` (no
-   hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a `low` call at its core (`hic_denovo_only`):
-   the best candidate, untested. A prior-free core within a bin of a 45S array is not clean (NORs meet in the
+   any chromosome (a genome-level condition: where the gate ran on some chromosomes, Hi-C alone acts on none) (point,
+   regional and AT-rich centromeres: yeasts, *Plasmodium*, *Neurospora*). There the Rabl-axis line decides first
+   (the arm fold, or the trans arm alignment where the fold leans the same way, below): where it passed and agrees
+   with the prior-free peak, the call is `medium` (`fold_pair`, `align_pair`). On a chromosome without a sequence call where no axis line pairs, a clean
+   prior-free call at engine level `high` (no hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a
+   `low` call at its core (`hic_denovo_only`): the best candidate, untested (0.10.1: also on a chromosome where a
+   passed axis line does not pair, flagged `fold_offset`/`align_offset` where its core lies elsewhere; 0.10 made no
+   call there). A prior-free core within a bin of a 45S array is not clean (NORs meet in the
    nucleolus; the anchored peaks get the same test). A sequence call is kept; where the clean prior-free peak lies beyond 4 bins of it,
    it is flagged (`hic_denovo_elsewhere`) with the place in the caveat. Prior-free `high` calls cannot be trusted
    where they can be tested (right on 45% of T2T mammal chromosomes; potato's strongest mutual trans cluster is not
@@ -270,9 +286,40 @@ map then has an anti-diagonal ridge through the centromere.
   short arm cannot fold. Without the bound, centers near the ends won on noise.
 - **Fold point** = top center; **core** = its half-maximum run. It is coarse: 5-10% of the chromosome.
 - **Fold test**: the prior-free Hi-C peak lies inside the fold core on a majority of chromosomes, beyond chance
-  (P ≤ 0.01). Trans clustering and cis folding are independent readouts, so passing validates both without the
-  sequence line.
+  (P ≤ 0.005: 0.01 shared with the trans alignment, Bonferroni; 0.10: 0.01). Trans clustering and cis folding are
+  independent readouts, so passing validates both without the sequence line.
 - Passes in barley and P. annua; fails in all mammals, potato and rice (rice's prior-free peaks are wrong).
+
+### Trans arm alignment (`fold.py`, 0.10.1)
+
+The same Rabl axis read from inter-chromosomal contacts: a locus d bins from its centromere lies about d from the
+centromere pole on every chromosome, so trans contacts are enriched between loci at equal distances from their own
+centromeres (the trans 'X' of Hoencamp et al. 2021).
+
+- **Alignment score of a center c** on chromosome x: with the other chromosomes' centers at their prior-free peaks,
+  the mean over x's mappable bins i (|i - c| > 4) of the row-centered O/E between i and the partner bins at radial
+  distance |i - c| from their own centers. The centromere cluster is left out on both sides (partner bins within 4
+  bins of their center or inside their prior-free core; x's bins within 4 of c), so the score reads arm contacts
+  only: a synthetic nucleus with clustered centromeres and no aligned arms passed the first form (code review).
+  Row-centering removes each bin's coverage and compartment.
+- Center scan (CI >= 12.5%), top center, half-maximum core and test as the fold's (P ≤ 0.005). A peak agrees when
+  it overlaps or touches the core, so the chance is (core + 2 peak) / scanned (for the fold too; 0.10 counted one
+  peak).
+- It pools every partner's contacts, so it works where one chromosome's cis map is too small for the fold: the
+  prior-free peak lies in the alignment core on 13/16 yeast (fold 6/16) and 12/14 *Plasmodium* (fold 3/14)
+  chromosomes, 6/7 *Neurospora*, 7/7 barley; 0 in every randomized control.
+- Under the alignment, only clean prior-free peaks (no hub, rDNA, telomeric, not_converged, cycle_unstable flag)
+  pair with it or oppose a call; the fold keeps 0.10's rule (barley's rDNA-flagged chr2H peak moved right).
+- **It stands in for a failed fold only where the fold leans the same way** (the fold's own agreement test at P ≤
+  0.05, the conventional level; no majority needed). It is read relative to the prior-free peaks, so any
+  configuration with arms arranged symmetrically about them looks Rabl-like: in holocentric *C. elegans* the
+  arm/center compartments are symmetric about each chromosome's middle, where the prior-free peaks also lie (3/5
+  agreements, P 0.007). The fold reads each chromosome's own cis map, independent of those positions (*C. elegans*
+  P 1, *Rhynchospora* 1, *Bombyx* 0.08), and a real Rabl axis shows in both (yeast fold P 0.005, *Plasmodium* 0.02,
+  barley at half depth 0.013). In moss, where every prior-free peak sits at a telomere, scanning ends too gave 22/26
+  (a telomere-centered rosette); the CI bound removes that. (A first form let the alignment act only in genomes
+  without gate references; it then could not rescue barley at half depth, where the fold just fails: PLAN.md
+  amendments of 16:55 and 17:05.)
 
 ### Methylation (`cenfuse.meth` engine + `methfuse.py`)
 
@@ -322,22 +369,26 @@ calls); in any other layout it is not used (warning) and the sample's CG file is
 | same, call `high` | moves only with a second line at the peak and not at the call: a CRM core within 4 bins, or methylation `centromere_like` at the peak and a measured dip at the call (`moved_with_te`/`_meth`, `high`). Otherwise `contested` (`hic_offset`), -1 |
 | Hi-C peak 1-4 bins away | neither supports nor opposes (`hic_near`) |
 | competing cluster, strong peak agrees with the second one, mappable bins between them | the second cluster is chosen (`hic_chose_alt`) |
+| competing cluster with no mappable bin between it and the call (0.10.1) | Hi-C neither raises nor supports the call (`hic_alt_ambiguous`): it cannot tell the two apart (mouse: the minor- and major-satellite arrays at each chromosome's start) |
 | no sequence call, strong peak | Hi-C core, `functional_only`, `medium` |
 | no sequence call, clean medium peak | Hi-C core, `functional_only`, `low` (`hic_medium_peak`) |
-| gate not passed, fold test passed; fold core and prior-free peak agree, the sequence call at neither | moves to the prior-free core, `offset`, `medium` (`fold_pair`; `moved_with_fold` for a high call) |
-| same, but the fold or the prior-free peak opposes the kept call | `contested`, -1 per opposing line (`fold_offset`, `hic_denovo_offset`) |
+| gate not passed, axis test passed (the fold; or the trans alignment where the fold leans, P ≤ 0.05); its core and the prior-free peak agree, the sequence call at neither | moves to the prior-free core, `offset`, `medium` (`fold_pair`/`align_pair`; `moved_with_fold`/`_align` for a high call). Under the alignment only through a clean prior-free peak |
+| same, but the axis line or the prior-free peak opposes the kept call | `contested`, -1 per opposing line (`fold_offset`/`align_offset`, `hic_denovo_offset`) |
 | support tier only (significant agreements beyond chance, no majority), the call's own significant peak agrees | sequence call, `concordant`, +1 (`hic_support`); never opposes, moves or places |
-| no references anywhere (gate untested), fold not passed, no sequence call, clean `high` prior-free call | prior-free core, `functional_only`, `low` (`hic_denovo_only`) |
+| no references anywhere (gate untested), no sequence call, clean `high` prior-free call, no axis line pairing here | prior-free core, `functional_only`, `low` (`hic_denovo_only`; `{axis}_offset` where a passed axis line points elsewhere) |
 | same, with a sequence call that the clean prior-free peak does not reach | sequence call kept, flag `hic_denovo_elsewhere` |
 
 - **Confidence**: the satellite engine's level, then ±1 per line as above. A contest keeps the level when
   methylation supports the call. A moved or Hi-C-placed call is `medium`, `high` with a second line.
 - **Support / against columns**: `satellite` (centromeric arrays inside the call, ≥ 5 kb), `te`, `hic`, `meth`,
-  `fold`.
+  `fold`, `align`.
 - **CpG kinetochores** are added after fusion (`cdr.py`): they change no call, confidence or flag.
 - **`hic_sequence_conflict`** (per genome): Hi-C's prior-free peaks are confident but disagree with the sequence
-  calls and the gate fails. One line is wrong genome-wide. The fold settles it in Rabl nuclei; otherwise add `tes/`
-  or methylation.
+  calls and the gate fails. One line is wrong genome-wide. The Rabl-axis line (fold or alignment) settles it in Rabl
+  nuclei; otherwise add `tes/` or methylation.
+- **`hic_axis`, `hic_architecture`** (per genome, 0.10.1; reporting only): the axis line that acted, and what the
+  deciding library showed: `rabl_axis`, `centromere_clustering` (gate passed), `weak_centromere_clustering` (support
+  tier only), `untested` (no references, no axis), `not_detected`.
 
 ## Reading the integration (`morphology.py`, `interpret.py`)
 

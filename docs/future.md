@@ -1,8 +1,9 @@
 # Future development
 
-What cenfuse 0.10 leaves open. Each entry gives the evidence (numbers), a proposed approach and the check it needs: a
-rerun, or truth data. Nothing here is implemented unless an entry says so. Entries 1-11 come from 0.9; entries 12-16
-from the 0.10 work on 3D contact data (v10 survey of the stored Hi-C runs, new small-genome benchmarks).
+What cenfuse 0.10.1 leaves open. Each entry gives the evidence (numbers), a proposed approach and the check it needs: a
+rerun, or truth data. Nothing here is implemented unless an entry says so. Entries 1-11 come from 0.9; entries 12-17
+from the 0.10 work on 3D contact data (v10 survey of the stored Hi-C runs, new small-genome benchmarks); 12, 16 and 17
+were implemented in 0.10.1; entries 18-19 come from 0.10.1.
 
 The evidence comes from two stress tests: a run of 0.8 on a 106-genome allotetraploid plant set (2,320 calls on 2,355
 sequences: 54% `high`, 23% `medium`, 23% `low`) and the CENH3/CENP-A benchmark ([benchmark.md](benchmark.md)). The
@@ -23,11 +24,15 @@ check needs.
 | 9 | [CENH3 truths for allopolyploids](#9-cenh3-truths-for-allopolyploids) | new data |
 | 10 | [chromosome-set limits](#10-chromosome-set-limits) | known karyotypes |
 | 11 | [the LTR retrotransposon line](#11-the-ltr-retrotransposon-line) | held-out truth; for 11a, a rerun and a per-rule diagnostic switch |
-| 12 | [a second line for Hi-C alone](#12-a-second-line-for-hi-c-alone) | small genomes with CENP-A truth and Hi-C |
+| 12 | [a second line for Hi-C alone](#12-a-second-line-for-hi-c-alone) | done (0.10.1: trans arm alignment); more small genomes with CENP-A truth |
 | 13 | [anchors where the sequence line is wrong genome-wide](#13-anchors-where-the-sequence-line-is-wrong-genome-wide) | CENH3 genomes with Hi-C and `tes/` or methylation |
 | 14 | [cis signals of satellite-free centromeres](#14-cis-signals-of-satellite-free-centromeres) | more satellite-free CENH3 genomes with Hi-C |
 | 15 | [bird microchromosomes and other small chromosomes in large genomes](#15-bird-microchromosomes-and-other-small-chromosomes-in-large-genomes) | a sparse fold scan; deep bird Hi-C |
-| 16 | [replicate Hi-C libraries of one plant](#16-replicate-hi-c-libraries-of-one-plant) | provenance rule for merging |
+| 16 | [replicate Hi-C libraries of one plant](#16-replicate-hi-c-libraries-of-one-plant) | done (0.10.1) |
+| 17 | [methylation at calls the arm fold places](#17-methylation-at-calls-the-arm-fold-places) | done (0.10.1) |
+| 18 | [the trans arm alignment without the fold](#18-the-trans-arm-alignment-without-the-fold) | a compartment-adjusted alignment; holocentric and Rabl genomes with truth |
+| 19 | [centromeres at the edge of a terminal unmappable array](#19-centromeres-at-the-edge-of-a-terminal-unmappable-array) | acrocentric genomes with truth (birds) |
+| 20 | [Hi-C alone in small nuclei where the fold has no power](#20-hi-c-alone-in-small-nuclei-where-the-fold-has-no-power) | more small genomes with truth and Hi-C; holocentric controls with small chromosomes |
 
 ## 1. Weak (single-sequence) family models
 
@@ -242,6 +247,10 @@ the centromere windows, or sequence composition where it marks centromeres (AT-r
 **Check.** Yeasts, *Plasmodium*, *Neurospora*, *Cryptococcus*, *Candida* with CENP-A truth; the holocentric controls
 and randomized Hi-C must never pass.
 
+**Done in 0.10.1** (the trans arm alignment, fold.py; design.md): the prior-free peak lies in the alignment core on
+13/16 yeast and 12/14 *Plasmodium* chromosomes (0 in randomized controls), so those calls are `medium`
+(`align_pair`). Still open: *Cryptococcus*, *Candida* and other small genomes as held-out tests.
+
 ## 13. Anchors where the sequence line is wrong genome-wide
 
 **Evidence.** Potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of them (v10 survey), but
@@ -286,6 +295,9 @@ verdict) before the engine.
 
 **Check.** The thinned series (v6 hd/): two halves given as replicates must reproduce the full-depth result.
 
+**Done in 0.10.1**: rows with one `sample` name are summed into one library (contacts, one cache, one provenance
+verdict for the plant); see benchmark.md section 14 for the check.
+
 ## 17. Methylation at calls the arm fold places
 
 **Evidence** (code review, v10). A call placed by the arm fold and the prior-free peak (`fold_pair`) takes its
@@ -297,3 +309,67 @@ anchored peak lies elsewhere.
 
 **Check.** *P. annua* with all inputs (fold passes, methylation from five plants): calls and supports unchanged or
 listed.
+
+**Done in 0.10.1**: every call placed at the prior-free core (`hic_denovo_only`, `fold_pair`, `align_pair`) takes
+the provisional item. The *P. annua* check was not rerun.
+
+## 18. The trans arm alignment without the fold
+
+**Evidence** (v10.1 development replay). The alignment is read relative to the other chromosomes' prior-free peaks,
+so it confirms the prior-free configuration as a whole. In holocentric *C. elegans* the arm/center compartments are
+symmetric about each chromosome's middle, where the prior-free peaks also sit: 3/5 agreements, P 0.007 (it fails only
+at the Bonferroni level, 0.005). 0.10.1 therefore lets it act only where the fold, read from each chromosome's own cis
+map, leans the same way (P <= 0.05; *C. elegans* 1). A position-matched null (chance = the share of the other
+chromosomes' prior-free peaks, in relative position, inside the core) rejects *C. elegans* (P 0.06) but also barley,
+whose centromeres all lie near the chromosome middles.
+
+**Approach.** Remove the part of trans contact explained by compartment identity before the alignment (an expected
+from each bin pair's cis eigenvector classes, as in saddle plots), so that only position along the Rabl axis remains;
+then the alignment could stand on its own where the fold has too few contacts to lean either way.
+
+**Check.** *C. elegans*, *Rhynchospora*, *Bombyx* (must fail), barley, *Neurospora*, yeasts (must pass), randomized
+Hi-C; the 65 stored Hi-C arms unchanged except where predicted.
+
+## 19. Centromeres at the edge of a terminal unmappable array
+
+**Evidence.** 0.10.1 flags a Hi-C peak `telomeric` only when it cannot be told from the chromosome end (cenfuse's
+agreement geometry). Chicken's acrocentric microchromosomes carry their centromeric array at the very end, unmappable
+for 1-1.25 Mb: their anchored peaks lie at its inner edge, which in mappable bins is the end, so they stay
+`telomeric` (10 right peaks among chicken's end peaks), and chicken's calls stay `low` (no confident reference).
+
+**Approach.** Where the sequence line puts the centromeric family at one end of most chromosomes (`acrocentric`),
+compare the two ends of each chromosome: telomere clustering lifts both, a centromere one. Needs a per-genome test,
+like the gate's, before it may count.
+
+**Check.** Chicken with CENP-A truth (25/33 centromeres in end windows), goat, sheep, horse; randomized Hi-C.
+
+## 20. Hi-C alone in small nuclei where the fold has no power
+
+**Evidence** (v10.1 held-out genomes). The trans arm alignment passes in *C. neoformans* (anaphase Hi-C, 12/14,
+P 1.5e-7) and *M. sympodialis* (6/8, P 4e-4), and Hi-C's prior-free calls there are right on 10/10 and 6/6, but the
+arm fold, which must lean the same way before the alignment may act (holocentric guard), has no power at 10-kb bins
+in these nuclei (1/14, P 0.71; 0/8, P 1), so the calls stay `low`. In yeast and *Plasmodium* the fold leans (P 0.015,
+0.035) and the same calls are `medium`. Once the centromere cluster was left out of the alignment (code review),
+*C. elegans* fell from 3/5 (P 0.007) to 2/5 (P 0.095).
+
+**Approach.** Either a compartment-adjusted alignment (entry 18) that can stand alone, or a cis readout with power in
+small chromosomes (e.g. the fold at the engine's base bin rather than the call bin).
+
+**Check.** More small genomes with truth and Hi-C (*Candida*, *Cryptococcus* relatives, *Toxoplasma*, *T. brucei*)
+and small-chromosome holocentrics (nematodes, Lepidoptera); randomized Hi-C must never pass.
+
+## 21. Placing the alignment's partners without a centromere cluster
+
+**Evidence** (v10.1, *C. neoformans* H99, one strain arrested in anaphase and in G1). The alignment's partners are
+placed on the prior-free Hi-C peaks, which exist only where centromeres cluster. In G1 the kinetochores are
+unclustered, the 14 prior-free peaks sit at chromosome ends, and the test finds 0/14. Placed on the known
+centromeres (CENP-A), the G1 nucleus still aligns its arms on 8/14 chromosomes (P 0.0014; anaphase 12/14, P 2e-6;
+randomized anaphase reads 0/14): arm polarity outlasts the cluster (`v10.1/explore/anchored_align.py`).
+
+**Approach.** Place the partners on the sequence line's confident calls (as the anchored score does) and test
+whether each chromosome's alignment core holds its own call beyond chance; a genome-wide wrong sequence line then
+places the partners wrongly and the test fails, so it can corroborate but not rescue. A per-genome test like the
+gate's comes first.
+
+**Check.** G1 *C. neoformans* (must pass on CENP-A-placed partners only if its calls are right), anaphase, yeast,
+the territorial mammals and randomized Hi-C (must fail), holocentrics (must fail).

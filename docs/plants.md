@@ -12,7 +12,8 @@ Not goals: mapping calls between assemblies, genotyping Hi-C from BAMs, CENH3 Ch
 ## Inputs
 
 - `meth/asm.tsv`: one row per sample; `sample` names the plant.
-- `hic/asm.tsv` (optional, for several libraries): columns `sample`, `file` (pairs, cool or mcool).
+- `hic/asm.tsv` (optional, for several libraries): columns `sample`, `file` (pairs, cool or mcool). Rows with the
+  same `sample` are replicate libraries of one plant, summed into one library (0.10.1; one kind of file per sample).
 - The same `sample` name in both tables means the same plant. A lone `hic/asm.<ext>` is one library named `hic`.
 
 ## Provenance (per input)

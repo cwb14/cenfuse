@@ -19,8 +19,8 @@ says so and why). Rules changed after a result was seen are listed in
 
 ## At a glance
 
-Three figures from the v8 rerun (section 12) and one from v10 (section 13: [3D contact data](img/benchmark_hic.pdf)),
-each with its legends in the PDF. Every genome's own overview page is
+Three figures from the v8 rerun (section 12), one from v10 (section 13: [3D contact data](img/benchmark_hic.pdf)) and
+one from v10.1 (section 14: [the Rabl axis in trans](img/benchmark_hic2.pdf)), each with its legends in the PDF. Every genome's own overview page is
 in the [gallery](gallery.md).
 
 **Mammals and Hi-C** (sections 1, 2, 4):
@@ -924,3 +924,120 @@ right) is missed: 88%.
 Rice's 53.2 M pairs rewritten as a HiC-Pro `.allValidPairs.gz` and a Juicer long `merged_nodups.txt.gz`: the same
 pairs read and kept, and every shared column of the call, summary, loci, Hi-C engine and feature-contact tables
 identical to the 4DN pairs run.
+
+## 14. v10.1: the Rabl axis in trans, end windows, replicate libraries, 13 more genomes with 3D data
+
+Criteria and dated amendments: `v10.1/PLAN.md` (2026-11-03, written before any v10.1 code change or run; six dated
+amendments: two rules changed after a development control and a held-out result, the extended held-out set, the code
+review fixes, the competing-cluster rule and its implementation correction); run record `v10.1/memo.md`; dead ends
+`v10.1/dead_ends.md`; report `v10.1/REPORT.md`. Scoring as above: mammals, overlap with CENP-A; plants within 4 Hi-C
+bins of CENH3; fungi, *Plasmodium*: within 1 bin.
+
+### What changed
+
+- **End windows** (Hi-C engine 0.3.0): a peak is `telomeric` only when it cannot be told from the chromosome end
+  (within one mappable bin of the terminal bin, at most 4 unmappable bins discounted), not within 8 bins. True
+  centromeres lie within 8 bins of an end on moss 11/26, goat 29/30, horse 17/32 and chicken 25/33 chromosomes;
+  the prior-free end clusters the window was made for lie in the terminal 0-1 bins (rice 12/12, giraffe 14/16).
+- **Trans arm alignment**: a second readout of the Rabl axis (design.md). It stands in for a failed arm fold where
+  the fold leans the same way (P <= 0.05); each axis test at P <= 0.005.
+- **Hi-C alone** keeps its `low` call where an axis line passed but does not pair (0.10: no call there).
+- **Competing clusters**: where no mappable bin separates a call from its competing cluster, Hi-C neither raises
+  nor supports it (`hic_alt_ambiguous`).
+- **Replicate libraries** (rows of `hic/asm.tsv` with one sample name) are summed; reporting: `hic_axis`,
+  `hic_architecture`.
+
+### The trans arm alignment across nuclei
+
+![Chromosome arms align by distance from the centromere](img/benchmark_hic2.png)
+
+*Where a nucleus holds its centromeres at one pole, chromosome arms lie side by side by distance from the centromere,
+so contacts between chromosomes alone mark centromeres ([PDF with legends](img/benchmark_hic2.pdf)). **A** contacts
+between chromosomes of *Cryptococcus neoformans*, all 182 chromosome pairs stacked on their two centromeres: anaphase
+nuclei draw an X through the centromere cluster; G1 nuclei of the same strain barely do; the same reads re-paired at
+random do not. **B** the Rabl-like polarity behind it (schematic). **C** one typical chromosome (9, median rank)
+against the 13 others, to scale: CENP-A, the prior-free Hi-C peak, the alignment core, cenfuse's call, the contact
+maps and both scores in anaphase and G1. **D** all 14 chromosomes. **E** every axis test of the benchmark (159 runs):
+chromosomes whose prior-free peak lies inside the alignment core vs chance; Type I nuclei pass, territorial,
+holocentric and randomized ones do not. **F** what cenfuse 0.10.1 does with it, chromosome by chromosome, against
+0.10.0.*
+
+
+Chromosomes whose prior-free Hi-C peak lies inside the alignment core (`v10.1/results/axis_tests.tsv`; chance from
+the core sizes; every run of the benchmark, all 159 tests with the final code):
+
+| nuclei | runs | alignment passes | examples |
+|---|---|---|---|
+| Type I fungi and *Plasmodium* (development) | 4 | 3 | yeast 13/16 (P 3e-5), *Plasmodium* 12/14 (4e-8), *Neurospora* 6/7 (3e-4); *S. pombe* 1/3 |
+| barley (Rabl), full and half depth | 3 | 3 | 7/7 (3e-5); half depth 5/7 (0.002) |
+| Type I fungi, held out | 5 | 3 | *V. dahliae* 8/8 (2e-5), *C. neoformans* anaphase 12/14 (1.5e-7), *M. sympodialis* 6/8 (4e-4); not *Z. tritici* 6/20 (0.055), *C. tropicalis* 3/6 (0.049) |
+| *C. neoformans* in G1 (centromeres unclustered) | 1 | 0 | 0/14 |
+| territorial mammals | 23 | 0 | best CHM13 7/23 (P 0.0013: beyond chance, but a minority) |
+| other plants, chicken, mouse | 19 | 0 | |
+| holocentric | 4 | 0 | *C. elegans* 2/5 (0.095), *C. nigoni* 2/5 |
+| randomized Hi-C (partners re-paired) | 46 | 0 | |
+| thinned libraries (2-25%) | 44 | 0 | |
+
+The same assembly and two nuclear states of *C. neoformans* (Polisetty et al. 2025: kinetochores cluster in mitosis,
+not in G1): the anaphase library passes, the G1 library does not, and cenfuse calls 10/14 right (`low`) from the
+first and nothing from the second. In G1 the prior-free peaks sit at chromosome ends, so nothing places the
+partners; placed on the known centromeres, G1 still aligns its arms on 8/14 chromosomes (P 0.0014; anaphase 12/14,
+P 2e-6; randomized 0/14): the alignment weakens without the cluster rather than vanishing (future.md 21).
+
+### Development replay (34 genome x input runs; v10.1 vs 0.10.0 on the same stored inputs)
+
+| | right | confidently right | right, `low` | confidently wrong | wrong, `low` | no call |
+|---|---|---|---|---|---|---|
+| 0.10.0 | 421 | 331 | 90 | 27 | 69 | 20 |
+| 0.10.1 | 426 | 366 | 60 | 26 | 66 | 19 |
+
+- Moss, FASTA + Hi-C: the support tier now passes (its end peaks count): 10 right calls `low` -> `medium`. With
+  `tes/`: Chr19, Chr21, Chr22 move onto CENH3 (strong peaks 4-5 bins from the end), 22 -> 25/26.
+- Yeast 13, *Plasmodium* 12 right calls `low` -> `medium` (`align_pair`); *Plasmodium* chr4 moves from a var-gene
+  tandem onto its centromere; *Neurospora* LG VI gains a right `low` call.
+- Apes: 3 right calls (bonobo, Bornean orangutan, siamang) `medium` -> `low` and one confidently wrong siamang call
+  -> `low`, where the call and its competing cluster lie in one unmappable block (Hi-C cannot tell them apart).
+- Everything else identical on every call column (14 genomes checked cell by cell between codes); randomized Hi-C
+  (33 runs): no test passes, no call changes.
+
+### Held out: 13 genomes newly given 3D data
+
+| genome | 3D data (pairs kept) | FASTA only | + Hi-C 0.10.0 | + Hi-C 0.10.1 | what the 3D data showed |
+|---|---|---|---|---|---|
+| *B. rapa* CC1 | DNase Hi-C, 8.2 M | 10/10 | 10/10 | 10/10 | gate 10/10 (centromere clustering) |
+| soybean X26 | Hi-C, 10.7 M | 20/20 (18 confident) | 20/20 (19) | 20/20 (19) | gate 20/20 |
+| sorghum BTx623 | Hi-C, 3.9 M | 10/10 | 10/10 | 10/10 | nothing passes (shallow) |
+| *Brachypodium* Bd21 | Hi-C, 14.3 M | 3/3 | 3/3 | 3/3 | nothing passes |
+| *Ae. tauschii* AL8/78 | Hi-C of TA1675, 0.84 M | 1/7 (4 confidently wrong) | same | same | nothing passes |
+| mouse T2T | Hi-C (mhaESC), 15.7 M | 1/20 (0 confidently wrong) | 1/20 (7 confidently wrong) | 1/20 (0) | support tier 20/20 |
+| *Z. tritici* | Hi-C (spores), 23.8 M | 0/21 | 17/21 (`low`) | 19/21 (`low`) | prior-free peaks; 2 more right calls from the end rule |
+| *V. dahliae* | Hi-C, 17.7 M | 0/8 | 7/8 | 8/8 | fold 7/8, alignment 8/8 |
+| *C. neoformans*, anaphase | Hi-C, 20.4 M | 0/14 | 10/14 (`low`) | 10/14 (`low`) | alignment 12/14; fold 1/14 |
+| *C. neoformans*, G1 | Hi-C, 20.1 M | 0/14 | 0/14 | 0/14 | nothing passes |
+| *M. sympodialis* | Hi-C, 15.0 M | 0/8 | 6/8 (`low`) | 6/8 (`low`) | alignment 6/8; fold 0/8 |
+| *C. tropicalis* | 3C-seq, 11.4 M | 0/7 | 0/7 | 0/7 | nothing passes |
+| *C. nigoni* (holocentric) | Hi-C, 12.1 M | 0 confident | 0 | 0 | nothing passes |
+
+- Pre-registered N1 (no right call becomes wrong; the confidently wrong count does not rise): passes in all 13
+  under the final code. Mouse, the case that prompted the competing-cluster rule: 0.10.0 raised 7 calls on the
+  pericentric major satellite (within 45 kb of the CENP-A minor satellite) to `medium`, the first form of 0.10.1 8;
+  the final rule none.
+- N2 (randomized Hi-C on each of the 13): no test passes, no call changes. N4 (the five monocentric fungi): 0
+  confidently wrong. N5 (*C. neoformans* G1): no call, no test. N6 (*C. nigoni*): 0 confident calls.
+- N3 (expectation): the axis passes in the Rabl grasses: not met. *Brachypodium* (leaf Hi-C; Rabl is reported for
+  root tips) and *Ae. tauschii* (0.84 M pairs of another accession) passed nothing.
+- Three libraries are shallower than downloaded (sorghum, *Ae. tauschii*, mouse): one mate of each was spliced by a
+  resumed transfer and mapping stopped there; every mapped pair is from the intact part (memo.md).
+
+### Thinned libraries (v6 series, 2-50% of the pairs, 55 runs, held out)
+
+Only barley at half depth changes: the alignment passes (5/7, P 0.002; fold 2/7, P 0.018): one wrong `low` call
+moves onto CENH3 (`medium`), one confidently wrong call drops to `low`, two confidently wrong calls drop `high` ->
+`medium`. Five right calls (pig, CHM13, Bornean orangutan) drop `medium` -> `low` under the competing-cluster rule.
+Totals 0.10.0 -> 0.10.1: right 735 -> 736, confidently right 709 -> 705, confidently wrong 41 -> 40; no `low` call
+became confidently wrong.
+
+### Replicate libraries
+
+Rice's 53 M pairs split into two files given as replicates of one plant: every table identical to the single file
+(0 cells differ).
