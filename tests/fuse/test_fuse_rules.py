@@ -504,8 +504,15 @@ def test_hic_alone_never_where_a_sequence_call_or_a_test_exists():
     d = fuse.decide(_alone(seq=(1_000_000, 1_400_000), conf="high"))
     assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "sequence_only" and not d["flags"]
     assert fuse.decide(_alone(gate_n=3))["call"] is None              # the gate ran (and failed): no call
+    # 0.10.1: a passed axis line (fold or alignment) that does not pair here leaves the untested low call in place
+    # (0.10: no call; N. crassa LG VI); where it pairs, the two 3D lines give a medium call instead
     folded = dict(status="pass", agrees=False, core_start=5_000_000, core_end=6_000_000, point=5_500_000)
-    assert "hic_denovo_only" not in fuse.decide(_alone(fold=folded))["flags"]      # a passed fold decides instead
+    d = fuse.decide(_alone(fold=folded))
+    assert d["flags"] == ["hic_denovo_only", "fold_offset"] and d["confidence"] == "low"   # the fold's place is said
+    assert d["against"] == ["fold"] and "fold" not in d["support"]
+    paired = dict(folded, agrees=True, core_start=100_000, core_end=200_000)
+    d = fuse.decide(_alone(fold=paired))
+    assert d["flags"] == ["fold_pair"] and d["confidence"] == "medium" and d["call"] == (140_000, 170_000)
 
 
 @pytest.mark.parametrize("conf, flags", [("medium", ""), ("low", ""), ("high", "telomeric"), ("high", "hub"),
@@ -561,3 +568,24 @@ def test_support_tier_yields_to_a_passed_fold():
     e.fold = folded
     d = fuse.decide(e)
     assert "hic_support" not in d["flags"] and d["call"] == (1_000_000, 1_400_000)
+
+
+def test_hic_does_not_raise_a_call_it_cannot_tell_from_its_competing_cluster():
+    """0.10.1: a low call with a competing cluster beside it (no mappable bin between the two: the mouse major- and
+    minor-satellite arrays) is not raised by a peak that agrees with both; a competitor Hi-C can separate still is."""
+    near = ev(conf="low", peak=1_500_000)
+    near.seq.update(alt_start=1_400_000, alt_end=1_900_000)            # abuts the call: no mappable bin between
+    d = fuse.decide(near)
+    assert d["confidence"] == "low" and "hic_alt_ambiguous" in d["flags"] and "hic" not in d["support"]
+    blind = ev(conf="low", peak=1_500_000)                             # the competitor across a blind stretch
+    blind.seq.update(alt_start=5_000_000, alt_end=5_500_000)
+    blind.hic["masked"] = ((1_400_000, 5_000_000),)                    # everything between is unmappable
+    assert "hic_alt_ambiguous" in fuse.decide(blind)["flags"]
+    far = ev(conf="low", peak=1_500_000)
+    far.seq.update(alt_start=20_000_000, alt_end=20_500_000)           # far: Hi-C tells them apart
+    d = fuse.decide(far)
+    assert d["confidence"] == "medium" and "hic_alt_ambiguous" not in d["flags"] and "hic" in d["support"]
+    w = _weak(conf="low", level="medium")                              # the support tier, likewise
+    w.seq.update(alt_start=1_400_000, alt_end=1_900_000)
+    d = fuse.decide(w)
+    assert d["confidence"] == "low" and "hic_support" not in d["flags"] and "hic_alt_ambiguous" in d["flags"]

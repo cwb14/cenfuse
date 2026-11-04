@@ -17,6 +17,7 @@ import pandas as pd
 
 from . import __version__
 from .morphology import levan
+from .params import AXIS_LEAN_P
 from .seqcalls import bp_by_role
 
 CEN_ROLES = ("centromeric", "cen_associated")
@@ -94,10 +95,14 @@ def basis(r, ctx: dict) -> str:
     else:
         if "fold_pair" in flags:
             how = "the arm fold and Hi-C's prior-free peak, which agree here"
+        elif "align_pair" in flags:
+            how = "the trans arm alignment and Hi-C's prior-free peak, which agree here"
         elif "hic_medium_peak" in flags:
             how = "a clean medium validated Hi-C peak"
         elif "hic_denovo_only" in flags:
-            how = "Hi-C's prior-free peak alone (too few reference calls in this genome to test Hi-C against)"
+            axis_ok = getattr(r, "fold_gate", ".") == "pass" or getattr(r, "align_gate", ".") == "pass"
+            how = ("Hi-C's prior-free peak alone (too few reference calls in this genome to test Hi-C against" +
+                   ("; the Rabl-axis test passed genome-wide but does not agree here)" if axis_ok else ")"))
         else:
             how = "a strong validated Hi-C peak"
         if r.relation == "offset":
@@ -107,7 +112,7 @@ def basis(r, ctx: dict) -> str:
         else:
             out.append(f"placed by {how} (no sequence call)")
         second = {"te": f"the {r.te_clade} core at the peak", "meth": "CHG methylation at the peak",
-                  "fold": "the arm fold"}
+                  "fold": "the arm fold", "align": "the trans arm alignment"}
         named = set()
         for f in sorted(flags):
             if f.startswith("moved_with_"):
@@ -127,6 +132,8 @@ def basis(r, ctx: dict) -> str:
             out.append("CHG methylation is centromere-like")
         elif line == "fold" and "fold_pair" not in flags:
             out.append("the arm fold agrees")
+        elif line == "align" and "align_pair" not in flags:
+            out.append("the trans arm alignment agrees")
     ks, ke = _int(getattr(r, "cpg_kt_start", None)), _int(getattr(r, "cpg_kt_end", None))
     if ks is not None and ke is not None:
         out.append(f"CpG kinetochore {interval(ks, ke)} ({size(ke - ks + 1)})")
@@ -190,11 +197,18 @@ def caveat(r, ctx: dict) -> str:
             hint = "CENP-A/CENH3 data would confirm"
     peak = (f" ({interval(r.hic_anch_peak_start, r.hic_anch_peak_end)})"
             if _int(getattr(r, "hic_anch_peak_start", None)) is not None else "")
+    if "hic_alt_ambiguous" in flags:
+        out.append(f"Hi-C's peak agrees with this array and with the competing cluster "
+                   f"({interval(r.seq_alt_start, r.seq_alt_end)}) alike: no mappable bin separates them, so Hi-C "
+                   f"cannot choose")
+        hint = hint or "CENP-A/CENH3 data would decide"
     if "hic_offset" in flags:
         out.append(f"validated Hi-C points elsewhere{peak}, with no second line there")
         hint = hint or "a CRM core or CHG methylation at either place (plants), or CENP-A/CENH3 data, would decide"
     if "fold_offset" in flags:
         out.append(f"the arm fold points elsewhere ({interval(r.fold_core_start, r.fold_core_end)})")
+    if "align_offset" in flags:
+        out.append(f"the trans arm alignment points elsewhere ({interval(r.align_core_start, r.align_core_end)})")
     if "hic_denovo_offset" in flags:
         out.append(f"Hi-C's prior-free peak points elsewhere "
                    f"({interval(r.hic_denovo_peak_start, r.hic_denovo_peak_end)})")
@@ -227,6 +241,21 @@ def columns(t: pd.DataFrame, ctx: dict) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------------------------ report
+def _pval(x) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _ends_sig(s: str) -> bool:
+    """'2.14x P=0.000999' -> P <= 0.01 (the feature-class test's level)."""
+    try:
+        return float(str(s).split("P=")[1]) <= 0.01
+    except (IndexError, ValueError):
+        return False
+
+
 def _n(x) -> int:
     v = _int(x)
     return v if v is not None else 0
@@ -337,6 +366,13 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
     if g.hic:
         gate = _n(summ.get("hic_gate_pass"))
         n = _n(summ.get("hic_chromosomes"))
+        ax = summ.get("hic_axis")                                         # fuse.genome_axis's decision
+        if ax is None:                                                    # a summary written before 0.10.1
+            ax = "fold" if summ.get("fold_gate") == "pass" else \
+                "align" if summ.get("align_gate") == "pass" and _pval(summ.get("fold_p")) <= AXIS_LEAN_P else "."
+        axis = {"fold": "arm fold", "align": "trans arm alignment"}.get(ax)
+        lean = ax == "align"
+        untested_all = bool(n) and _n(summ.get("hic_gate_untested")) == n
         if gate:
             L.append(f"- **Hi-C** passed its test (it finds the other chromosomes' centromeres) on {gate}/{n} "
                      f"chromosomes: it agrees with {f['hic_agree']} calls" +
@@ -348,10 +384,14 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                      f"({_n(summ.get('hic_gate_support'))}/{n} chromosomes passed the support-only test): it supports "
                      f"{f['hic_support']} calls where its peak agrees ({f['hic_support_raised']} raised one level); on "
                      f"this test it moves no call.")
-        elif str(summ.get("hic_gate_pass", ".")) != "." and summ.get("fold_gate") == "pass":
-            L.append(f"- **Hi-C** failed its anchored test on every chromosome ({n}), but its arm fold passed: the "
-                     f"two 3D lines moved {f['hic_moved']} and placed {f['hic_placed']} calls where they agree.")
-        elif n and _n(summ.get("hic_gate_untested")) == n and summ.get("fold_gate") != "pass":
+        elif str(summ.get("hic_gate_pass", ".")) != "." and axis:
+            L.append(f"- **Hi-C** " + (f"could not be tested against reference calls (too few) on any chromosome"
+                                         if untested_all else f"failed its anchored test on every chromosome ({n})") +
+                     f", but its {axis} passed: the "
+                     f"two 3D lines moved {f['hic_moved']} and placed {f['hic_placed']} calls where they agree" +
+                     (f"; Hi-C's prior-free peaks alone placed {f['hic_denovo_only']} `low` calls where they do not"
+                      if f["hic_denovo_only"] else "") + ".")
+        elif n and _n(summ.get("hic_gate_untested")) == n and not axis:
             L.append(f"- **Hi-C** could not be tested: too few reference calls to test it against" +
                      (f"; its prior-free peaks alone placed {f['hic_denovo_only']} `low` calls on chromosomes without "
                       f"one" if f["hic_denovo_only"] else "; it changes no call") + ".")
@@ -361,10 +401,27 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
             L.append("- **Hi-C**: no library could decide (see the log).")
         if str(summ.get("hic_sequence_conflict")) == "True":
             L.append("- **Warning**: Hi-C's own peaks and the sequence calls disagree genome-wide; one line is wrong "
-                     "everywhere" + ("; the arm fold sided with Hi-C" if summ.get("fold_gate") == "pass" else
+                     "everywhere" + (f"; the {axis} sided with Hi-C" if axis else
                                      "; tes/ or methylation would decide") + ".")
         if summ.get("fold_gate") == "pass":
             L.append(f"- **Arm fold** (Rabl nuclei) passed its test ({summ.get('fold_on_denovo')}).")
+        arch = {"rabl_axis": "a Rabl axis (centromeres clustered at one pole, arms aligned; Type I nucleus)",
+                "centromere_clustering": "centromeres that meet in trans on most chromosomes",
+                "weak_centromere_clustering": "centromeres that meet in trans beyond chance but not on most "
+                                              "chromosomes (territorial, Type II-like nucleus)",
+                "untested": "no test was possible (too few reference calls, no Rabl axis)",
+                "not_detected": "no centromere signature (a territorial or holocentric nucleus, or sequence calls "
+                                "wrong genome-wide: Hi-C alone cannot tell which)"}.get(summ.get("hic_architecture"))
+        if arch:
+            ends = summ.get("hic_3d_ends", ".")
+            L.append(f"- **3D organization** of this library: {arch}" +
+                     (f"; chromosome ends meet in trans ({ends})" if ends not in (".", None) and
+                      _ends_sig(ends) else "") + ".")
+        if summ.get("align_gate") == "pass" and lean:
+            L.append(f"- **Trans arm alignment** (Rabl nuclei: loci at equal distances from their centromeres meet) "
+                     f"passed its test ({summ.get('align_on_denovo')})" +
+                     (", the arm fold having failed: it acts in the fold's place" if summ.get("fold_gate") != "pass"
+                      else "; the arm fold, which passed too, decides") + ".")
     if g.tes:
         m = summ.get("te_marker", ".")
         if m not in (".", None):

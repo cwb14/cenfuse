@@ -269,9 +269,15 @@ def test_hic_library_table(tmp_path):
     (h / "P3.pairs.gz").write_bytes(b"")
     (h / "g.tsv").write_text("sample\tfile\nref\tg.pairs.gz\nP3\tP3.pairs.gz\n")
     assert [x.name for x in hic_libraries(h, "g")] == ["ref", "P3"]
+    # 0.10.1: rows with one sample name are replicate libraries of one plant, merged
+    (h / "g.tsv").write_text("sample\tfile\nx\tP3.pairs.gz\nx\tg.pairs.gz\n")
+    libs = hic_libraries(h, "g")
+    assert len(libs) == 1 and libs[0].name == "x" and [p.name for p in libs[0].files] == ["P3.pairs.gz", "g.pairs.gz"]
+    (h / "g.mcool").write_bytes(b"")
     for bad, msg in (("sample\tpath\nx\tP3.pairs.gz\n", "columns"), ("sample\tfile\nx y\tP3.pairs.gz\n", "bad sample"),
                      ("sample\tfile\nx\tnone.pairs.gz\n", "no file"),
-                     ("sample\tfile\nx\tP3.pairs.gz\nx\tg.pairs.gz\n", "duplicate")):
+                     ("sample\tfile\nx\tP3.pairs.gz\nx\tP3.pairs.gz\n", "listed twice"),
+                     ("sample\tfile\nx\tP3.pairs.gz\nx\tg.mcool\n", "mix")):
         (h / "g.tsv").write_text(bad)
         with pytest.raises(CenfuseError, match=msg):
             hic_libraries(h, "g")

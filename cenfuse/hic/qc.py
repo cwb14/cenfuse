@@ -62,8 +62,24 @@ def rdna_intervals(df) -> dict:
     return merge_intervals(df[keep]) if keep.any() else {}
 
 
-def call_flags(k, pc, bins, hub, rdna_iv, rabl_passed, p_null, converged, cycle_unstable=False) -> list:
-    """Flags of one call (flags only: they never change the confidence level)."""
+def at_end(k: int, j: int, bins, good) -> bool:
+    """Bin j of chromosome k cannot be told from a chromosome end: at most END_TOL mappable bins lie between it and
+    the terminal bin of either end, counting at most END_FREE unmappable bins between them as no distance (the
+    agreement geometry of cenfuse, hicfuse.visible_dist, with the terminal bin as the interval)."""
+    off, nb = int(bins.off[k]), int(bins.nb[k])
+    g = good[off:off + nb]
+    for end in (0, nb - 1):
+        lo, hi = sorted((int(j), end))
+        between = max(0, hi - lo - 1)
+        mapp = int(g[lo + 1:hi].sum()) if between else 0
+        if mapp + max(0, between - mapp - params.END_FREE) <= params.END_TOL:
+            return True
+    return False
+
+
+def call_flags(k, pc, bins, hub, rdna_iv, rabl_passed, p_null, converged, cycle_unstable=False, good=None) -> list:
+    """Flags of one call (flags only: they never change the confidence level). good: the mappable bins (at_end);
+    None treats every bin as mappable."""
     f = []
     g = int(bins.off[k] + pc["peak"])
     if hub[g]:
@@ -75,7 +91,7 @@ def call_flags(k, pc, bins, hub, rdna_iv, rabl_passed, p_null, converged, cycle_
         rs, re_ = rdna_iv[chrom]
         if ((rs < bins.end[e]) & (re_ > bins.start[s])).any():
             f.append("rDNA")
-    if pc["peak"] < params.END_WIN or pc["peak"] >= bins.nb[k] - params.END_WIN:
+    if at_end(k, pc["peak"], bins, np.ones(bins.N, bool) if good is None else good):
         f.append("telomeric")
     if not rabl_passed:
         f.append("no_rabl")

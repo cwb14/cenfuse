@@ -12,7 +12,7 @@ import pandas as pd
 
 from . import __version__, morphology
 from .cdr import DIP_P
-from .params import GATE_MIN_REF
+from .params import AXIS_LEAN_P, GATE_MIN_REF
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
 # GFF3 types are Sequence Ontology terms (validators and annotation tools check them); cenfuse's own kind and member
@@ -106,6 +106,35 @@ def write_bedgraph(S, bins, members, path, title: str) -> None:
                 f.write(f"{bins.names[k]}\t{bins.start[g]}\t{bins.end[g]}\t{y[j] / med:.4g}\n")
 
 
+def _p(x) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def architecture(d: dict) -> str:
+    """What the deciding Hi-C library showed about the nucleus (0.10.1; reporting only, from tests already run):
+    rabl_axis = the arm fold, or the trans arm alignment with the fold leaning the same way (fuse.axis_line),
+    validated the prior-free peaks (centromeres clustered at one pole, arms aligned: Type I, Hoencamp et al. 2021);
+    centromere_clustering = the anchored gate passed (the centromeres meet in trans on most chromosomes);
+    weak_centromere_clustering = only the support tier passed (beyond chance, not on most: territorial nuclei);
+    untested = no gate references and no axis line; not_detected = none of these (a territorial or holocentric
+    nucleus, or sequence calls wrong genome-wide: Hi-C alone cannot tell which)."""
+    n = int(d.get("hic_chromosomes") or 0)
+    alone = bool(n) and int(d.get("hic_gate_untested") or 0) == n
+    if "hic_axis" in d:                                    # the decision fuse.genome_axis made (not re-derived from
+        if d["hic_axis"] in ("fold", "align"):            # rounded P values)
+            return "rabl_axis"
+    elif d.get("fold_gate") == "pass" or (d.get("align_gate") == "pass" and _p(d.get("fold_p")) <= AXIS_LEAN_P):
+        return "rabl_axis"
+    if int(d.get("hic_gate_pass") or 0):
+        return "centromere_clustering"
+    if int(d.get("hic_gate_support") or 0):
+        return "weak_centromere_clustering"
+    return "untested" if alone else "not_detected"
+
+
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
                 nors=(), cpg: dict | None = None, five_s=()) -> dict:
@@ -140,12 +169,16 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
         fo = hic.get("fold")
         d.update(fold_gate=fo["status"] if fo else ".", fold_on_denovo=f"{fo['k']}/{fo['n']}" if fo else ".",
                  fold_p=f"{fo['p']:.3g}" if fo else ".")
+        al = (fo or {}).get("align")
+        d.update(align_gate=al["status"] if al else ".", align_on_denovo=f"{al['k']}/{al['n']}" if al else ".",
+                 align_p=f"{al['p']:.3g}" if al else ".", hic_axis=hic.get("axis") or ".")
         fc = hic.get("classes")
         if fc is not None and len(fc):
             for name, key in (("centromeres (sequence calls)", "hic_3d_centromeres"), ("chromosome ends", "hic_3d_ends")):
                 r = fc[fc.feature_class == name]
                 if len(r):
                     d[key] = f"{r.fold.iat[0]:.2f}x P={r.p_enriched.iat[0]:.3g}"
+        d["hic_architecture"] = architecture(d)
     if meth is not None:
         sig = meth["signature"]
         d.update(meth_samples=len(meth["samples"]), meth_anchors=meth["n_anchors"], meth_direction=meth["direction"],

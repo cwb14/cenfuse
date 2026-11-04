@@ -272,3 +272,38 @@ def test_fewer_than_three_chromosomes_with_contacts_fails(done, tmp_path, capsys
     assert e.value.code == 2
     err = capsys.readouterr().err
     assert "cenfuse-hic: error:" in err and "contacts" in err
+
+
+def test_replicate_libraries_are_merged(tmp_path):
+    """0.10.1: two halves of one library given as replicates reproduce the full library's calls (one summed matrix)."""
+    t = make_genome(tmp_path / "g", n_trans=150_000, n_cis=150_000)
+    lines = Path(t["pairs"]).read_text().splitlines(keepends=True)
+    h1, h2 = tmp_path / "h1.txt", tmp_path / "h2.txt"
+    h1.write_text("".join(lines[0::2]))
+    h2.write_text("".join(lines[1::2]))
+    main(["call", "--pairs", str(t["pairs"]), "--fai", str(t["fai"]), "-o", str(tmp_path / "full" / "x"), "-t", "2"])
+    main(["call", "--pairs", str(h1), str(h2), "--fai", str(t["fai"]), "-o", str(tmp_path / "rep" / "x"), "-t", "2"])
+    a = pd.read_csv(tmp_path / "full" / "x.centromeres.tsv", sep="\t")
+    b = pd.read_csv(tmp_path / "rep" / "x.centromeres.tsv", sep="\t")
+    pd.testing.assert_frame_equal(a, b)
+    qc = (tmp_path / "rep" / "x.qc.tsv").read_text()
+    assert "files" in qc and "files" not in (tmp_path / "full" / "x.qc.tsv").read_text()
+
+
+def test_replicates_in_different_pair_layouts(tmp_path, caplog):
+    """Code review (v10.1): a 4DN file with MAPQ columns and a simple 6-column file as replicates: each is read with
+    its own layout; MAPQ is reported unchecked (one file has none) and nothing crashes."""
+    t = make_genome(tmp_path / "g", n_trans=60_000, n_cis=60_000)
+    lines = Path(t["pairs"]).read_text().splitlines()
+    four = tmp_path / "a.pairs"
+    with open(four, "w") as f:
+        f.write("## pairs format v1.0.0\n#columns: readID chrom1 pos1 chrom2 pos2 strand1 strand2 pair_type mapq1 mapq2\n")
+        for i, line in enumerate(lines[0::2]):
+            c1, p1, s1, c2, p2, s2 = line.split("\t")
+            f.write(f"r{i}\t{c1}\t{p1}\t{c2}\t{p2}\t{s1}\t{s2}\tUU\t60\t60\n")
+    six = tmp_path / "b.txt"
+    six.write_text("\n".join(lines[1::2]) + "\n")
+    with caplog.at_level(logging.WARNING, logger="cenfuse-hic"):
+        main(["call", "--pairs", str(four), str(six), "--fai", str(t["fai"]), "-o", str(tmp_path / "o" / "x"), "-t", "1"])
+    assert "uniqueness (MAPQ >= 30) was not checked" in caplog.text
+    assert (tmp_path / "o" / "x.centromeres.tsv").exists()

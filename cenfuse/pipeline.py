@@ -26,6 +26,7 @@ from . import __version__, cdr, fold, fuse, hicfuse, inputs, interpret, loci, me
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
+from .hic.score import block_means
 from .meth import io as mio
 from .meth import params as mp
 from .meth import track as mtrack
@@ -379,7 +380,8 @@ class Run:
         if not fai.exists() or fai.read_text() != txt:     # the Hi-C engine's matrix cache is keyed by the file's mtime
             fai.write_text(txt)
         fp = dict(version=__version__, code=code_key("hicfuse.py", packages=("hic",)),
-                  pairs=file_fingerprint(lib.path), chroms=obj_fingerprint(g.chroms),
+                  pairs=file_fingerprint(lib.path) if not lib.more else obj_fingerprint(
+                      [file_fingerprint(f) for f in lib.files]), chroms=obj_fingerprint(g.chroms),
                   calls=obj_fingerprint(calls), arrays=file_fingerprint(arrays), classes=obj_fingerprint(classes),
                   nors=obj_fingerprint(self._nors.get(g.name, [])))
         hit = self._cached("hic", name, fp)
@@ -388,7 +390,7 @@ class Run:
             return hit
         t0 = time.time()
         (self.out / "hic").mkdir(parents=True, exist_ok=True)
-        res = hicfuse.run(lib.path, fai, self.out / "hic" / name, [gff, arrays], calls,
+        res = hicfuse.run(lib.path if not lib.more else lib.files, fai, self.out / "hic" / name, [gff, arrays], calls,
                           min(self.threads, HIC_MAX_THREADS), classes, nors=self._nors.get(g.name, []))
         self._store("hic", name, fp, res)
         log.info(f"hic: {name} done ({time.time() - t0:.0f} s)")
@@ -406,8 +408,11 @@ class Run:
         if npz is not None and not npz.exists():
             log.warning(f"{g.name}: Hi-C matrix cache {npz} missing; arm fold skipped")
             return None
-        den = t[["chrom", "callable", "denovo_peak_start", "denovo_peak_end", "denovo_confidence"]].values.tolist()
-        fp = dict(version=__version__, code=code_key("fold.py"), matrix=file_fingerprint(lib.path if cool else npz),
+        den = t[["chrom", "callable", "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end",
+                 "denovo_confidence"]].values.tolist()
+        fp = dict(version=__version__, code=code_key("fold.py", packages=("hic",)),
+                  matrix=(obj_fingerprint([file_fingerprint(f) for f in lib.files]) if lib.more else
+                          file_fingerprint(lib.path)) if cool else file_fingerprint(npz),
                   size=int(b.size), chroms=obj_fingerprint(seqs), members=obj_fingerprint(hic["members"].tolist()),
                   denovo=obj_fingerprint(den))
         hit = self._cached("fold", name, fp)
@@ -415,15 +420,19 @@ class Run:
             log.info(f"fold: {name} checkpoint found")
             return hit
         if cool:
-            M = read_cool(lib.path, b.size, seqs)
+            M = sum(read_cool(f, b.size, seqs) for f in lib.files)
         else:
             M = sp.load_npz(npz).tocsr()
             base = Bins(seqs, int(hic["base_size"]))
             if b.size != base.size:
                 M = coarsen(M, base, b)
         bias, good, _, _ = ice(M)
-        calls = fold.scan(balanced(M, bias, good), b, good, hic["members"])
+        W = balanced(M, bias, good)
+        calls = fold.scan(W, b, good, hic["members"])
         res = dict(calls=calls, **fold.validate(calls, t))
+        cen, cores = fold.align_centers(t, b)              # partners of the alignment: the prior-free peaks
+        acalls = fold.align_scan(W, b, good, block_means(W, b, good, hic["members"]), hic["members"], cen, cores)
+        res["align"] = dict(calls=acalls, **fold.validate(acalls, t, label="trans arm alignment"))
         self._store("fold", name, fp, res)
         return res
 
@@ -525,6 +534,10 @@ class Run:
             meth = None if meth_items is None else meth_items.get(r.chrom, {})
             f = fo["calls"].get(r.chrom) if fo else None
             f = dict(f, status=fo["status"], agrees=fo["agrees"].get(r.chrom)) if f else None
+            al = (fo or {}).get("align")
+            a = al["calls"].get(r.chrom) if al else None
+            a = dict(a, status=al["status"], agrees=al["agrees"].get(r.chrom), fold_status=fo["status"],
+                     fold_p=fo["p"]) if a else None
             out.append(fuse.Evidence(r.chrom, int(r.chrom_len), dict(start=int(r.start), end=int(r.end),
                                                                     evidence=r.evidence, confidence=r.confidence,
                                                                     flags=r.flags, main_family=r.main_family,
@@ -532,7 +545,7 @@ class Run:
                                                                     alt_end=int(r.alt_end),
                                                                     overruled_start=int(r.overruled_start),
                                                                     overruled_end=int(r.overruled_end)),
-                                     te, h, meth, sat_bp(r.chrom), f))
+                                     te, h, meth, sat_bp(r.chrom), f, a))
         return out
 
     def provenance_of(self, g, seq, sat_dir: Path, tel: dict, telo: dict):
@@ -638,16 +651,18 @@ class Run:
                          f"plants and does not decide the reference calls")
             if hic is not None:
                 hic["fold"] = self.stage_fold(g, next(x for x in g.hic if x.name == dec_lib), hic)
+                hic["axis"] = fuse.genome_axis(hic["fold"])
                 hic["conflict"] = c = fuse.sequence_conflict(hic["table"])
-                folded = (hic["fold"] or {}).get("status") == "pass"
+                folded = hic["axis"] is not None
                 if c["conflict"]:
                     log.warning(f"{g.name}: Hi-C's prior-free calls are confident on {c['denovo_confident']}/{c['n']} "
                                 f"chromosomes but agree with the sequence calls on only {c['denovo_on_seq']}, and the "
                                 f"gate fails: the two lines disagree genome-wide, so at least one is wrong. " +
-                                ("The arm fold (cis Hi-C) sides with the prior-free calls: sequence calls both "
-                                 "contradict are moved or lowered" if folded else
+                                (f"The {'arm fold (cis Hi-C)' if hic['axis'] == 'fold' else 'trans arm alignment'}"
+                                 " sides with the prior-free calls: sequence calls both contradict are moved or "
+                                 "lowered" if folded else
                                  "The sequence calls are kept; give tes/ (CRM cores) or methylation to decide") +
-                                " (cenfuse_summary.tsv: hic_sequence_conflict, fold_gate)")
+                                " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
             evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []))
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}

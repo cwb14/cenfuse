@@ -15,6 +15,13 @@ MAX_GENOME_BINS = 50_000        # ... and the genome <= 50,000 bins (sparse matr
 MIN_EXPECTED_CEN = 25           # expected centromere contacts per bin: a 2x rise is then >= 5 SD over Poisson noise
 HALF_WIN = 4                    # partner window = estimate +/- 4 bins: a 1-2 Mb CENH3 domain plus one bin of error
 END_WIN = 8                     # telomere-pole window at each chromosome end (bins), about one partner window
+END_TOL = 1                     # a call is 'telomeric' when its peak cannot be told from a chromosome end: within one
+                                # mappable bin of the terminal bin (the placement error; cenfuse's HIC_TOL_BINS) ...
+END_FREE = HALF_WIN             # ... counting at most HALF_WIN unmappable bins between them as no distance (cenfuse's
+                                # HIC_FAR_BINS); a longer blind stretch separates the peak from the end. 0.10 flagged
+                                # every peak within END_WIN bins in bp: true centromeres lie there on acrocentric
+                                # chromosomes (moss 11/26, goat 29/30, horse 17/32), while the prior-free end clusters
+                                # it was made for lie in the terminal 0-1 bins (rice 12/12, giraffe 14/16)
 MIN_BINS = 20                   # callable sequence: two end windows plus an interior
 MIN_CALLABLE = 3                # fewer than 3 chromosomes leave a call fewer than 2 partners (no mean over
                                 # partners, no leave-one-out)

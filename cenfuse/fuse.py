@@ -15,16 +15,20 @@ The integrated call is the sequence call unless a validated functional line move
   chromosomes are beyond chance (>= GATE_MIN_REF of them at significant peaks, Hi-C level medium or high; P <=
   GATE_P), Hi-C may only support: a kept sequence call whose own significant anchored peak agrees goes up one level
   (relation concordant, flag hic_support). On this tier Hi-C never opposes, moves, chooses the competing cluster or
-  places a call. Where the arm fold passed, its rules govern Hi-C instead.
+  places a call. Where a Rabl-axis line passed (the arm fold, or the trans arm alignment), its rules govern Hi-C
+  instead.
 - Hi-C alone (0.10): in a genome with fewer than GATE_MIN_REF reference calls the gate cannot be tested on any
   chromosome (gate_genome_untested, pipeline.evidences), so nothing can validate Hi-C (point, regional and AT-rich
   centromeres: yeasts, Plasmodium, Neurospora). There, on a
-  chromosome without a sequence call and unless the arm fold passed, a clean prior-free Hi-C call (engine level high;
+  chromosome without a sequence call where no Rabl-axis line pairs, a clean prior-free Hi-C call (engine level high;
   no hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a low functional_only call at its core (flag
   hic_denovo_only): the best candidate, untested. Never where a sequence call or a test exists (prior-free high
   calls were right on 45% of T2T mammal chromosomes; with 10-kb bins on 16/16 yeast and 14/14 Plasmodium ones).
   Where such a genome has a sequence call and the clean prior-free peak lies beyond HIC_FAR_BINS of it, the call is
   kept and only flagged (hic_denovo_elsewhere; its caveat says where): nothing validates either line there.
+- A call with a competing cluster whose anchored peak agrees with both (no mappable bin between them) gets no Hi-C
+  support and no raise (flag hic_alt_ambiguous; 0.10.1): the agreement cannot tell the two apart (mouse: the major-
+  and minor-satellite arrays at each chromosome's start), as hic_chose_alt needs mappable bins to choose.
 - Methylation never moves a call alone.
 - Competing clusters (the satellite engine's second cluster, at least half the main one): a strong validated peak
   that agrees with the second cluster and is separated from the main one by mappable bins chooses it (flag
@@ -41,6 +45,12 @@ The integrated call is the sequence call unless a validated functional line move
   Otherwise each validated 3D line that opposes the kept sequence call lowers it one level (contested; flags
   fold_offset, hic_denovo_offset). The fold is arm-scale (core ~5-10% of the chromosome): it never raises a call.
   Barley: satellite calls at the chromosome ends, the fold and de novo Hi-C at the CENH3 domains.
+- Rabl axis (0.10.1): the trans arm alignment (fold.py) is a second readout of the same axis; where the fold's test
+  fails but leans the same way (P <= AXIS_LEAN_P) and the alignment's test passes, the alignment takes the fold's
+  place in every rule above (flags align_pair, moved_with_align, align_offset; support/against 'align'). Yeast and
+  Plasmodium: the fold fails in these small nuclei, the alignment holds the prior-free peak on 13/16 and 12/14
+  chromosomes. Hi-C alone then gives medium calls where the two agree, and keeps its low call where they do not
+  (0.10: no call where the fold had passed). Otherwise the alignment is reported only (axis_line).
 
 Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
 unmappable arrays, so a peak at an array's edge is adjacent to a call inside it. Agreement discounts at most
@@ -61,7 +71,7 @@ import numpy as np
 import pandas as pd
 
 from .hicfuse import SUPPORT_LEVELS, clean_peak, visible_gap
-from .params import GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
+from .params import AXIS_LEAN_P, GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
 from .sat.te import agrees
 from .util import gap, level_shift
 
@@ -72,7 +82,8 @@ FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "re
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "fold_gate", "fold_point", "fold_core_start",
-              "fold_core_end", "meth_seq", "meth_seq_score", "meth_hic", "meth_hic_score",
+              "fold_core_end", "align_gate", "align_point", "align_core_start", "align_core_end", "meth_seq",
+              "meth_seq_score", "meth_hic", "meth_hic_score",
               "meth_call", "meth_call_score"]
 
 
@@ -92,6 +103,7 @@ class Evidence:
     sat_bp: Callable | None = None   # (start, end) -> bp of centromeric-role satellite arrays inside
     fold: dict | None = None  # fold.call() of this chromosome + status (the genome's fold test) and agrees (its core
                               # holds the de novo peak), or None
+    align: dict | None = None  # the same for the trans arm alignment (fold.align_scan), or None
 
 
 def _iv(d, s="start", e="end"):
@@ -158,6 +170,12 @@ def _clean_denovo(h) -> bool:
                 and not set(fl.split(",")) & set(DENOVO_UNCLEAN))
 
 
+def _clean_flags(h) -> bool:
+    """The prior-free call carries no hub, rDNA, telomeric, not_converged or cycle_unstable flag (any level)."""
+    fl = str(h.get("denovo_flags") or "")
+    return bool(clean_peak(fl) and not set(fl.split(",")) & set(DENOVO_UNCLEAN))
+
+
 def _clean_medium(h) -> bool:
     """An anchored peak at Hi-C level medium without a hub, rDNA or telomeric flag."""
     return bool(h and h.get("anch_level") == "medium" and clean_peak(h.get("anch_flags")))
@@ -177,6 +195,37 @@ def _meth(ev: Evidence, item: str) -> dict:
     return (ev.meth or {}).get(item) or {"label": "", "score": np.nan}
 
 
+def genome_axis(fo: dict | None):
+    """The genome's validated Rabl-axis line from the fold stage's result (pipeline.stage_fold): 'fold' if the arm
+    fold's test passed; 'align' if the trans arm alignment's passed and the fold leans the same way (P <=
+    AXIS_LEAN_P); else None. axis_line applies the same rule per chromosome; the summary reports this one."""
+    if not fo:
+        return None
+    if fo.get("status") == "pass":
+        return "fold"
+    al = fo.get("align") or {}
+    if al.get("status") == "pass" and float(fo.get("p", 1.0)) <= AXIS_LEAN_P:
+        return "align"
+    return None
+
+
+def axis_line(ev: Evidence) -> tuple:
+    """(the chromosome's entry of the genome's validated Rabl-axis line, its name): the arm fold if its test passed;
+    else the trans arm alignment if its test passed and the fold's own test leans the same way (P <= AXIS_LEAN_P);
+    else (None, None). Each test at GATE_P / 2 (fold.py). The alignment is read relative to the other chromosomes'
+    prior-free peaks, so any arrangement symmetric about them looks Rabl-like (holocentric C. elegans, whose
+    arm/center compartments are symmetric about each chromosome's middle: 3/5 agreements, P 0.007; its fold, read
+    from each chromosome's own cis map, P 1); a Rabl axis shows in both readouts (yeast fold P 0.005, Plasmodium
+    0.02, barley at half depth 0.013)."""
+    if ev.fold and ev.fold.get("status") == "pass":
+        return ev.fold, "fold"
+    a = ev.align
+    if a and a.get("status") == "pass" and a.get("fold_status") != "pass" and \
+            float(a.get("fold_p", 1.0)) <= AXIS_LEAN_P:  # the genome's axis line: the fold where it passed (even on a
+        return a, "align"                                # chromosome it does not call), else the corroborated alignment
+    return None, None
+
+
 def decide(ev: Evidence) -> dict:
     """One chromosome's integrated call (see module doc). With ev.meth None it is the provisional call."""
     seq_iv = _iv(ev.seq)
@@ -184,8 +233,8 @@ def decide(ev: Evidence) -> dict:
     alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
     h = ev.hic
     valid = bool(h and h.get("gate_pass"))
-    folded = bool(h and not valid and ev.fold and ev.fold.get("status") == "pass")
-    weak = bool(h and not valid and not folded and h.get("gate_support"))   # support tier: Hi-C may only support
+    ax, axis = axis_line(ev) if h and not valid else (None, None)   # the validated Rabl-axis line (fold, alignment)
+    weak = bool(h and not valid and not ax and h.get("gate_support"))   # support tier: Hi-C may only support
     core, peak = hic_core(ev), hic_peak(ev)
     strong = bool(valid and h.get("anch_strong") and core)
     agree = bool(valid and seq_iv and _peak_agrees(ev, seq_iv))
@@ -195,13 +244,23 @@ def decide(ev: Evidence) -> dict:
         seq_iv, agree = alt_iv, True                                       # if mappable bins separate it from the
         flags.append("hic_chose_alt")                                      # other (it can tell the two apart)
     far = bool(seq_iv and _peak_far(ev, seq_iv))
-    fo = ev.fold if (h and not valid and ev.fold and ev.fold.get("status") == "pass") else None
+    # where no mappable bin separates the call from its competing cluster, Hi-C cannot tell the two apart (the
+    # principle of hic_chose_alt, which needs mappable bins between them to choose): an agreement with the call is
+    # no evidence for it over the competitor, so Hi-C neither raises nor supports the call (mouse: the minor- and
+    # major-satellite arrays at each chromosome's start, the peak at the inner edge of the blind block)
+    amb = bool(h and alt_iv and seq_iv and "hic_chose_alt" not in flags and _vgap(ev, seq_iv, alt_iv, False) == 0)
+    fo = ax
     f_core = (fo["core_start"], fo["core_end"]) if fo else None
-    dn_peak = _iv(h, "denovo_peak_start", "denovo_peak_end") if fo else None
-    dn_core = _iv(h, "denovo_core_start", "denovo_core_end") if fo else None
+    # the alignment (newer, conditional on the prior-free positions) pairs and opposes only through a clean prior-free
+    # peak (no hub, rDNA, telomeric, not_converged, cycle_unstable flag); the fold keeps 0.10's rule (barley: its 6
+    # moves, one at an rDNA-flagged peak, were right)
+    dn_ok = axis != "align" or _clean_flags(h)
+    dn_peak = _iv(h, "denovo_peak_start", "denovo_peak_end") if fo and dn_ok else None
+    dn_core = _iv(h, "denovo_core_start", "denovo_core_end") if fo and dn_ok else None
     pair = bool(fo and fo.get("agrees") and dn_peak and dn_core)
-    untested = bool(h and h.get("gate_genome_untested") and not valid and not fo and _clean_denovo(h))
-    dn_only = _iv(h, "denovo_core_start", "denovo_core_end") if untested and seq_iv is None else None
+    untested = bool(h and h.get("gate_genome_untested") and not valid and _clean_denovo(h))
+    # Hi-C alone: also where a passed axis line does not pair on this chromosome (0.10: no call there)
+    dn_only = _iv(h, "denovo_core_start", "denovo_core_end") if untested and not pair and seq_iv is None else None
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
     second = []
     if strong:
@@ -213,9 +272,9 @@ def decide(ev: Evidence) -> dict:
     if pair and (seq_iv is None or (_fold_far(ev, f_core, seq_iv) and _denovo_far(ev, dn_peak, dn_core, seq_iv))):
         call, source = dn_core, "hic"                              # two validated 3D lines at one locus, the
         relation = "functional_only" if seq_iv is None else "offset"   # sequence call at neither
-        flags.append("fold_pair")
+        flags.append(f"{axis}_pair")
         if sconf == "high":
-            flags.append("moved_with_fold")
+            flags.append(f"moved_with_{axis}")
     elif seq_iv is None and strong:
         call, relation, source = core, "functional_only", "hic"
     elif seq_iv is None and valid and core and _clean_medium(h):
@@ -226,11 +285,18 @@ def decide(ev: Evidence) -> dict:
         flags.append("hic_denovo_only")
     elif seq_iv is None:
         call, relation = None, "none"
+    elif agree and amb:
+        call = seq_iv
+        flags.append("hic_alt_ambiguous")
     elif agree:
         call, relation = seq_iv, "concordant"
     elif weak and _peak_agrees(ev, seq_iv) and h.get("anch_level") in SUPPORT_LEVELS:
-        call, relation = seq_iv, "concordant"
-        flags.append("hic_support")
+        call = seq_iv
+        if amb:
+            flags.append("hic_alt_ambiguous")
+        else:
+            relation = "concordant"
+            flags.append("hic_support")
     elif strong and far and (sconf != "high" or second):
         call, relation, source = core, "offset", "hic"
         if sconf == "high":
@@ -245,7 +311,7 @@ def decide(ev: Evidence) -> dict:
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, second=second, meth_call={"label": "", "score": np.nan})
-    if untested and source == "sequence":
+    if untested and not fo and source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
         if dpk and dco and _denovo_far(ev, dpk, dco, call):
             flags.append("hic_denovo_elsewhere")
@@ -254,21 +320,26 @@ def decide(ev: Evidence) -> dict:
         f_opp, d_opp = _fold_far(ev, f_core, call), bool(dn_peak and _denovo_far(ev, dn_peak, dn_core, call))
         if f_opp or d_opp:
             relation = "contested"
-            flags += [x for x, y in (("fold_offset", f_opp), ("hic_denovo_offset", d_opp)) if y]
-    m_call = _meth(ev, "provisional") if "hic_denovo_only" in flags else m_hic if source == "hic" else m_seq
+            flags += [x for x, y in ((f"{axis}_offset", f_opp), ("hic_denovo_offset", d_opp)) if y]
+    elif fo and "hic_denovo_only" in flags and _fold_far(ev, f_core, call):
+        f_opp = True                                       # the axis line passed genome-wide but points elsewhere
+        flags.append(f"{axis}_offset")                     # here: said, not hidden (the call is low already)
+    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags)   # the call sits at the prior-free
+    m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # core: its own item
     support = []
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second):
         support.append("te")
-    if valid and (_peak_agrees(ev, call) or (source == "hic" and h.get("anch_level") != "none")):
+    if valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, call) or
+                                                       (source == "hic" and h.get("anch_level") != "none")):
         support.append("hic")
     elif "hic_support" in flags or "hic_denovo_only" in flags:
         support.append("hic")
-    if "fold_pair" in flags:
-        support += ["hic", "fold"]
-    elif fo and gap(*call, *f_core) == 0:
-        support.append("fold")
+    if axis and f"{axis}_pair" in flags:
+        support += ["hic", axis]
+    elif fo and source == "sequence" and gap(*call, *f_core) == 0:
+        support.append(axis)
     if m_call["label"] == "centromere_like":
         support.append("meth")
     against = []
@@ -276,7 +347,7 @@ def decide(ev: Evidence) -> dict:
         against.append("hic")
     if ev.te and ev.te.get("decisive") and not (_te_agrees(ev, call) if source == "sequence" else "te" in second):
         against.append("te")
-    against += [x for x, y in (("fold", f_opp), ("hic", d_opp)) if y]
+    against += [x for x, y in ((axis, f_opp), ("hic", d_opp)) if y]
     if source == "sequence":
         if relation == "contested":
             conf = level_shift(sconf, -max(1, int(f_opp) + int(d_opp)) + int("meth" in support))
@@ -334,6 +405,9 @@ def row(ev: Evidence, d: dict) -> dict:
         fold_gate=ev.fold["status"] if ev.fold else na, fold_point=one(ev.fold["point"]) if ev.fold else na,
         fold_core_start=one(ev.fold["core_start"]) if ev.fold else na,
         fold_core_end=end(ev.fold["core_end"]) if ev.fold else na,
+        align_gate=ev.align["status"] if ev.align else na, align_point=one(ev.align["point"]) if ev.align else na,
+        align_core_start=one(ev.align["core_start"]) if ev.align else na,
+        align_core_end=end(ev.align["core_end"]) if ev.align else na,
         meth_seq=m["sequence_call"]["label"] or na, meth_seq_score=m["sequence_call"]["score"],
         meth_hic=m["hic_peak"]["label"] or na, meth_hic_score=m["hic_peak"]["score"],
         meth_call=m["call"]["label"] or na, meth_call_score=m["call"]["score"])

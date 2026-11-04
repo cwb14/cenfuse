@@ -47,7 +47,7 @@ OTHER = "#B0B0B0"
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
 BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8"}
 LINES = ["satellite", "te", "hic", "meth"]
-LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "meth": "meth"}
+LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "meth": "meth"}
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
              "functional_only": "functional only", "sequence_only": "sequence only", "none": "none"}
 VERDICT_COLOR = {"shared": "#BDBDBD", "shifted": "#D55E00", "possible_shift": "#E69F00", "call_absent": "#000000",
@@ -368,8 +368,8 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     rd = f.get("rdna") or {}
     rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
-    fold = any("fold" in (r["support"] | r["against"]) for r in rows)   # a fold column only where the fold acted
-    f["lines"] = LINES[:3] + (["fold"] if fold else []) + LINES[3:]
+    axis = [x for x in ("fold", "align") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
+    f["lines"] = LINES[:3] + axis + LINES[3:]                                                       # the line acted
     label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
     # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
     b_xmax = len(f["lines"]) - 0.35 + (max(_text_mm(_rel_label(r), 6) for r in rows) + 1.0) / B_COL_MM
@@ -641,8 +641,9 @@ def legends(f) -> tuple[str, str]:
             f"Poisson-binomial P <= 0.01) places a strong peak elsewhere; a high sequence call moves only with a "
             f"second line (retrotransposon core or methylation) at the Hi-C peak. Where that gate fails, the arm fold "
             f"(the anti-diagonal of each chromosome's own contact map in a Rabl nucleus) can validate the prior-free "
-            f"Hi-C peaks instead (majority, P <= 0.01); the two then move calls they both contradict. Lines used "
-            f"here: {lines_used}."]
+            f"Hi-C peaks instead (majority, P <= 0.005), or the trans arm alignment (loci at equal distances from "
+            f"their centromeres meet across chromosomes; P <= 0.005, where the fold leans the same way, P <= 0.05); "
+            f"the two 3D lines then move calls they both contradict. Lines used here: {lines_used}."]
     a = (f"A, {n} chromosomes in assembly order, to one base-pair scale. Each satellite array "
          f"is a box colored by its family's role in this genome ({len(f['seq'].arrays):,} arrays; arrays too small "
          f"to see are drawn at the minimum visible width). The orange area is the density of the "
@@ -678,8 +679,9 @@ def legends(f) -> tuple[str, str]:
                 ">= 5 kb of centromeric-family arrays inside it; TE: the marker core agrees; Hi-C: gated (or, on the "
                 "support-only test, significant) and the anchored peak within one bin, or the prior-free peak that "
                 "placed the call; methylation: centromere-like under the leave-one-chromosome-out "
-                "signature; fold, shown only where it acted: the call lies in the arm-fold core); cross, a gated "
-                "strong Hi-C peak, a CRM core, the arm fold or a validated prior-free Hi-C peak points elsewhere. "
+                "signature; fold and align, shown only where they acted: the call lies in the arm-fold or the trans "
+                "arm-alignment core); cross, a gated strong Hi-C peak, a CRM core, the arm fold or alignment, or a "
+                "validated prior-free Hi-C peak points elsewhere. "
                 "Text: relation and confidence.")
     long.append("C, Black bar: the sequence call, centered at 0. Orange: the TE marker core; blue: the anchored Hi-C "
                 "core with its peak; open diamond: the integrated call when it differs from the sequence call.")

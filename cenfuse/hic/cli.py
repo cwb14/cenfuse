@@ -72,6 +72,12 @@ def _warn_short(names_lengths, why):
                     f" in total; e.g. {ex})")
 
 
+def pair_files(pairs) -> list:
+    """The Hi-C input as a list of files: one path, or several replicate libraries of one plant (0.10.1), whose
+    contacts are summed."""
+    return [pairs] if isinstance(pairs, (str, Path)) else list(pairs)
+
+
 def chromosome_lengths(fai: dict, chromosome_set: bool) -> list:
     """Lengths the bin rule counts: the chromosomes of the .fai by cenfuse's length rule when the engine runs on its
     own (a genome .fai holds organelles and unplaced scaffolds), every sequence when cenfuse passes its chromosome
@@ -87,12 +93,15 @@ def bin_sizes(pairs, fai: dict, chromosome_set: bool = False) -> list:
     resolutions in that range; one with none there (a single fine resolution) gives those that fit in memory."""
     lengths = chromosome_lengths(fai, chromosome_set)
     sizes = candidate_sizes(lengths)
-    if is_cool(pairs):
-        have = cool_resolutions(pairs)
+    files = pair_files(pairs)
+    if is_cool(files[0]):
+        have = sorted(set.intersection(*(set(cool_resolutions(f)) for f in files)))
         cool = [r for r in have if sizes[0] <= r <= sizes[-1]] or \
             [r for r in have if r <= sizes[-1] and fits_memory(r, lengths)]
         if not cool:
-            raise InputError(f"{pairs}: no resolution up to {sizes[-1]} bp fits in memory (has {have})")
+            raise InputError(f"{', '.join(str(f) for f in files)}: no resolution up to {sizes[-1]} bp fits in memory"
+                             + (f" (shared resolutions: {', '.join(map(str, have))})" if have else
+                                " (the files share no resolution)" if len(files) > 1 else ""))
         return cool
     return sizes
 
@@ -105,9 +114,10 @@ def sequence_floor(sizes, lengths) -> int:
 
 def _base_matrix(args, seqs, sizes):
     """Base (finest) matrix and its Bins, from cache when the inputs are unchanged; also the cache file."""
-    cool = is_cool(args.pairs)
+    files = pair_files(args.pairs)
+    cool = is_cool(files[0])
     cache = Path(str(args.o) + ".cache")
-    key = fast_checksum(args.pairs, args.fai, sizes=sizes)
+    key = fast_checksum(*files, args.fai, sizes=sizes)
     npz, meta = cache / f"{key}.npz", cache / f"{key}.json"
     base = Bins(seqs, sizes[0])
     if npz.exists() and meta.exists():
@@ -121,17 +131,26 @@ def _base_matrix(args, seqs, sizes):
             return M, base, stats, npz
     t0 = time.time()
     if cool:
-        M, stats = read_cool(args.pairs, sizes[0], seqs), dict(source="cool")
+        M, stats = sum(read_cool(f, sizes[0], seqs) for f in files), dict(source="cool")
     else:
-        st = PairStats()
-        M, n_out = matrix_from_pairs(args.pairs, seqs, base, st)
-        stats = dict(source="pairs", read=st.read, kept=st.kept, cis=st.cis, dropped_mapq=st.dropped_mapq,
-                     dropped_chrom=st.dropped_chrom, malformed=st.malformed, mapq_checked=st.mapq_checked,
-                     out_of_range=n_out, unknown_chroms=st.unknown_chroms)
-        if st.kept == 0:
-            raise InputError(f"no pairs matched the .fai sequences; pairs use e.g. {st.unknown_chroms[:3]}, "
+        sts, M, n_out = [], None, 0
+        for f in files:                 # replicate libraries: one matrix, summed (the same bins); each file is read
+            st = PairStats()            # with its own stats (its own layout and MAPQ columns)
+            m, k = matrix_from_pairs(f, seqs, base, st)
+            M, n_out = (m if M is None else M + m), n_out + k
+            sts.append(st)
+        tot = lambda a: sum(getattr(x, a) for x in sts)
+        stats = dict(source="pairs", read=tot("read"), kept=tot("kept"), cis=tot("cis"),
+                     dropped_mapq=tot("dropped_mapq"), dropped_chrom=tot("dropped_chrom"), malformed=tot("malformed"),
+                     mapq_checked=all(x.mapq_checked for x in sts), out_of_range=n_out,
+                     unknown_chroms=sts[0].unknown_chroms if len(sts) == 1 else
+                     sorted({c for x in sts for c in x.unknown_chroms})[:20])
+        if stats["kept"] == 0:
+            raise InputError(f"no pairs matched the .fai sequences; pairs use e.g. {stats['unknown_chroms'][:3]}, "
                              f".fai has e.g. {list(seqs)[:3]}")
         _pair_warnings(stats)
+    if len(files) > 1:
+        stats["files"] = len(files)
     if M.nnz == 0:
         raise InputError(f"no contacts on the .fai sequences (name mismatch?); .fai has e.g. {list(seqs)[:3]}")
     cache.mkdir(parents=True, exist_ok=True)
@@ -176,8 +195,11 @@ def _annotation(paths, opt, attrs=True):
 
 def run_call(args) -> dict:
     # every input is checked and the annotations parsed before the long steps, so a bad file fails in seconds
-    check_readable([args.pairs, args.fai, *(args.satellites or []), *(args.repeats or [])])
-    cool = is_cool(args.pairs)
+    files = pair_files(args.pairs)
+    check_readable([*files, args.fai, *(args.satellites or []), *(args.repeats or [])])
+    cool = is_cool(files[0])
+    if any(is_cool(f) != cool for f in files):
+        raise InputError("replicate libraries mix .cool/.mcool and pairs files; give one kind")
     fai = read_fai(args.fai)
     sdf = _annotation(args.satellites, "--satellites") if args.satellites else None
     rep_iv = None
@@ -202,7 +224,7 @@ def run_call(args) -> dict:
         if size == base.size:
             return M0, b
         if cool:
-            return read_cool(args.pairs, size, seqs), b
+            return sum(read_cool(f, size, seqs) for f in files), b
         return coarsen(M0, base, b), b
 
     size, bin_table = choose_bin_size(get, sizes)
@@ -279,7 +301,7 @@ def run_call(args) -> dict:
             r.update(peak_over_median=round(pc["ratio"], 3), boot_in_core=round(inside, 3), lopo_stable=stable,
                      null_p=pnull[k], confidence=conf, rounds=loc.rounds, converged=loc.converged,
                      flags=",".join(qc.call_flags(k, pc, bins, hub, rdna, rabl["passed"], pnull[k], loc.converged,
-                                                  cycle_unstable=k in unstable)))
+                                                  cycle_unstable=k in unstable, good=good)))
             if len(bk):
                 bl, bh = _boot_interval(bk)
                 r.update(boot_lo=int(bins.start[g(bl)]), boot_hi=int(bins.end[g(bh)]))
@@ -303,7 +325,10 @@ def run_call(args) -> dict:
                 "rabl": pd.DataFrame([{k: v for k, v in rabl.items() if k != "per_chrom"}]),
                 "rabl_per_chromosome": rabl["per_chrom"]}
     if rep_iv is not None:
-        sections["read_class_split"] = qc.read_class_split(args.pairs, seqs, bins, members, pcs, est, rep_iv)
+        rc = pd.concat([qc.read_class_split(f, seqs, bins, members, pcs, est, rep_iv) for f in files])
+        rc = rc.groupby(["chrom", "zone", "cls"], as_index=False, sort=False)[["trans", "cen"]].sum()
+        rc["share"] = rc.cen / rc.trans.where(rc.trans > 0)
+        sections["read_class_split"] = rc
     write_qc(sections, f"{out}.qc.tsv")
     plot.overview(ratio, bins, members, rows, sat, rabl, f"{out}.overview.pdf")
     n = {lv: sum(r["confidence"] == lv for r in rows) for lv in ("high", "medium", "low", "none")}
@@ -330,7 +355,9 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"cenfuse-hic {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("call", help="call one centromere per chromosome from mapped Hi-C pairs")
-    c.add_argument("--pairs", required=True, help="4DN .pairs[.gz], simple 6-column pairs, or .cool/.mcool")
+    c.add_argument("--pairs", required=True, nargs="+",
+                   help="4DN .pairs[.gz], simple 6-column pairs, HiC-Pro/Juicer pairs, or .cool/.mcool; several = "
+                        "replicate libraries of one plant, merged")
     c.add_argument("--fai", required=True, help="genome .fai (sequence names and lengths)")
     c.add_argument("-o", required=True, help="output prefix")
     c.add_argument("--repeats", nargs="+", help="repeat annotation GFF3/BED (QC: read-class split; pairs input only)")

@@ -7,12 +7,16 @@ HIC_FAR_BINS = 4          # ... and points to another locus only beyond the Hi-C
 GATE_P = 0.01             # Hi-C gate: Poisson-binomial tail of agreements with the other chromosomes' sequence calls
                           # (conventional level; Hi-C engine P_HIGH; the benchmark's pre-registered C2 rule)
 GATE_MIN_REF = 3          # fewer reference chromosomes give no majority test (a call has < 2 partners, Hi-C engine)
+AXIS_LEAN_P = 0.05        # the trans arm alignment stands in for a failed arm fold only where the fold's own test leans
+                          # the same way at the conventional evidence level (Hi-C engine P_NONE): a Rabl axis shows in
+                          # both readouts, a symmetric compartment pattern (holocentrics) only in the trans one
 ANCHOR_LEVELS = ("high", "medium")   # calls good enough to anchor Hi-C partner windows and methylation calibration
                           # (wrong anchors blur both); low calls are used only when fewer than GATE_MIN_REF qualify
 STRONG_HIC_LEVEL = "high"            # an anchored Hi-C peak that may move a call passes all three Hi-C engine tests
                                      # (bootstrap in core >= 0.95, leave-one-partner-out stable, null P <= 0.01)
-NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NORs (they contact everything), or in
-                          # an end window (8 bins): chromosome-end clusters are the main non-centromeric trans attractor
+NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NORs (they contact everything), or not
+                          # resolved from a chromosome end (0.10.1: within a mappable bin of the terminal bin; 0.10: an
+                          # 8-bin end window): chromosome-end clusters are the main non-centromeric trans attractor
                           # (Hi-C engine benchmarks: rice 12/12 and giraffe 15/15 prior-free peaks at ends; 33 mammal misses).
                           # They may support a call, never oppose or move one. Added 2026-10-16 after the rice run
                           # (docs/design.md, 'Decisions and alternatives tried')

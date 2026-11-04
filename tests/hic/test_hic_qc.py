@@ -6,7 +6,7 @@ import scipy.sparse as sp
 
 from cenfuse.hic.bins import Bins
 from cenfuse.hic.io import read_intervals
-from cenfuse.hic.qc import call_flags, hub_bins, inside, merge_intervals, rdna_intervals, read_class_split, satellite_centres
+from cenfuse.hic.qc import at_end, call_flags, hub_bins, inside, merge_intervals, rdna_intervals, read_class_split, satellite_centres
 
 
 def test_merge_and_inside():
@@ -39,15 +39,36 @@ def test_satellite_centres_and_rdna(tmp_path):
 
 def test_flags():
     b = Bins({"a": 100 * 100}, 100)
-    pc = dict(peak=3, core_lo=2, core_hi=4)
+    pc = dict(peak=1, core_lo=0, core_hi=3)
     hub = np.zeros(b.N, bool)
-    hub[3] = True
+    hub[1] = True
     iv = {"a": (np.array([250]), np.array([260]))}
     f = call_flags(0, pc, b, hub, iv, rabl_passed=False, p_null=float("nan"), converged=False, cycle_unstable=True)
     assert set(f) == {"hub", "rDNA", "telomeric", "no_rabl", "null_untestable", "not_converged", "cycle_unstable"}
     pc = dict(peak=50, core_lo=49, core_hi=51)
     assert call_flags(0, pc, b, np.zeros(b.N, bool), {}, rabl_passed=True, p_null=0.01, converged=True,
                       cycle_unstable=False) == []
+
+
+def test_at_end_geometry():
+    """telomeric = within END_TOL (1) mappable bin of the terminal bin, at most END_FREE (4) unmappable bins free."""
+    b = Bins({"a": 100 * 100, "b": 100 * 100}, 100)
+    good = np.ones(b.N, bool)
+    # agreement geometry: at most one mappable bin strictly between -> the terminal bins 0-2 (and 97-99)
+    assert all(at_end(0, j, b, good) for j in (0, 1, 2, 97, 98, 99))
+    assert not any(at_end(0, j, b, good) for j in (3, 50, 96))
+    assert at_end(1, 1, b, good) and not at_end(1, 3, b, good)      # second chromosome: local bins
+    g = good.copy()
+    g[0:4] = False                       # an unmappable terminal block of 4 bins: its edge is the end
+    assert at_end(0, 4, b, g) and at_end(0, 5, b, g) and not at_end(0, 6, b, g)
+    g = good.copy()
+    g[0:6] = False                       # 6 unmappable bins: 5 between bin 6 and the terminal bin, 4 free -> 1
+    assert at_end(0, 6, b, g) and not at_end(0, 7, b, g)
+    g[0:8] = False                       # 7 between: beyond the free 4, the blind stretch separates it from the end
+    assert not at_end(0, 8, b, g)
+    # 0.10 flagged every peak within 8 bins (END_WIN): a centromere 3-6 bins from the end (moss) is no longer flagged
+    pc = dict(peak=5, core_lo=0, core_hi=9)
+    assert "telomeric" not in call_flags(0, pc, b, np.zeros(b.N, bool), {}, True, 0.01, True, good=good)
 
 
 def test_read_class_split_counts(tmp_path):

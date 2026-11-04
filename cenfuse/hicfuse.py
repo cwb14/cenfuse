@@ -60,7 +60,9 @@ HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confid
 
 def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
     """The Hi-C engine's `call`, as its own command runs it; returns its rows and in-memory state."""
-    args = Namespace(pairs=str(pairs), fai=str(fai), o=str(prefix), repeats=None,
+    files = hic_cli.pair_files(pairs)              # several = replicate libraries of one plant, merged (0.10.1)
+    args = Namespace(pairs=str(files[0]) if len(files) == 1 else [str(f) for f in files], fai=str(fai), o=str(prefix),
+                     repeats=None,
                      satellites=[str(s) for s in satellites] or None, t=max(1, threads), verbose=False,
                      chromosome_set=False)          # the .fai is cenfuse's chromosome set already
     try:
@@ -336,7 +338,7 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
             lp = lopo.get(k, np.array([], int))
             stable = bool(len(lp) and ((lp >= pc["core_lo"]) & (lp <= pc["core_hi"])).all())
             lev = level(inside, stable, pnull.get(k, np.nan))
-            flags = call_flags(k, pc, bins, state["hub"], state["rdna"], True, pnull.get(k, np.nan), True)
+            flags = call_flags(k, pc, bins, state["hub"], state["rdna"], True, pnull.get(k, np.nan), True, good=good)
             r.update(anch_peak_start=int(bins.start[g(pc["peak"])]), anch_peak_end=int(bins.end[g(pc["peak"])]),
                      anch_core_start=int(bins.start[g(pc["core_lo"])]), anch_core_end=int(bins.end[g(pc["core_hi"])]),
                      anch_ratio=round(pc["ratio"], 3), anch_boot_in_core=round(inside, 3), anch_lopo_stable=stable,
@@ -436,7 +438,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
         log.info(f"Hi-C feature classes: {len(fc)} tested; self-associated (P <= {GATE_P}): "
                  f"{', '.join(f'{r.feature_class} {r.fold:.2f}x' for r in sig.itertuples()) or 'none'}")
     n_pass = int(t.gate_pass.sum())
-    log.info(f"Hi-C {Path(pairs).name}: bin {st['size']} bp; anchored peaks on the sequence call "
+    log.info(f"Hi-C {'+'.join(Path(f).name for f in hic_cli.pair_files(pairs))}: bin {st['size']} bp; anchored "
+             f"peaks on the sequence call "
              f"{int(t.anch_agrees_seq.sum())}/{int(t.seq_start.ge(0).sum())}; de novo "
              f"{int(t.denovo_agrees_seq.sum())}; gate passes on {n_pass}/{len(t)} chromosomes")
     return dict(table=t, S=extra["S"], est=extra["est"], denovo_S=st["loc"].S, bins=st["bins"],

@@ -25,10 +25,26 @@ Rules:
   engine's half-maximum core rule).
 - Validation: a chromosome agrees when its de novo Hi-C peak overlaps the fold core; chance = (core + peak length)
   / scanned length. The fold passes at Poisson-binomial P <= GATE_P with a majority of the tested chromosomes
-  agreeing and >= GATE_MIN_REF tested (the Hi-C gate's rules)."""
+  agreeing and >= GATE_MIN_REF tested (the Hi-C gate's rules).
+
+Trans arm alignment (0.10.1), the same Rabl axis read from inter-chromosomal contacts: a locus d bins from its
+centromere sits about d from the centromere pole on every chromosome, so trans contacts are enriched between loci at
+equal distances from their own centromeres (the trans 'X' of Rabl Hi-C maps). With the other chromosomes' centers
+at their prior-free Hi-C peaks, chromosome x's alignment score of center c is the mean, over x's mappable bins i at
+|i - c| > HALF_WIN, of the row-centered O/E between i and the partner bins at radial distance |i - c|; the
+centromere cluster itself is left out on both sides (partner windows, radius <= HALF_WIN, and prior-free cores).
+It pools every partner's contacts, so it works where a chromosome's own cis map is too small for the fold (yeasts,
+Plasmodium: fold 6/16 and 3/14; alignment 13/16 and 12/14 hold the prior-free peak; randomized Hi-C 0). Center,
+core, CI_MIN and validation are the fold's. At a chromosome end centromere- and telomere-centered radial geometry
+cannot be told apart (moss: every prior-free peak at a telomere, and without CI_MIN the alignment 'agreed' with them
+on 22/26), the reason CI_MIN also applies here.
+- Each test passes at P <= GATE_P / 2 (Bonferroni: two readouts of one axis); a peak agrees when it overlaps or
+  touches the core, so the chance is (core + 2 peak) / scanned. The genome's axis line is the fold if it passes,
+  else the alignment where the fold leans the same way (fuse.axis_line)."""
 from __future__ import annotations
 
 import numpy as np
+import scipy.sparse as sp
 
 from .hic.params import HALF_WIN
 from .params import GATE_MIN_REF, GATE_P
@@ -61,23 +77,8 @@ def profile(W: np.ndarray, good: np.ndarray):
 
 def call(F: np.ndarray, size: int, length: int) -> dict | None:
     """Fold point and half-maximum core (bp, 0-based half-open) over the centers with CI >= CI_MIN, or None."""
-    F = F.copy()
     pos = (np.arange(len(F)) / 2 + 0.5) * size        # center bp: the midpoint of the pair's two bin centers
-    F[(pos < CI_MIN * length) | (pos > (1 - CI_MIN) * length)] = np.nan
-    ok = np.isfinite(F)
-    if not ok.any():
-        return None
-    j = int(np.nanargmax(F))
-    med = float(np.nanmedian(F))
-    half = med + (F[j] - med) / 2
-    lo = hi = j
-    while lo - 1 >= 0 and ok[lo - 1] and F[lo - 1] >= half:
-        lo -= 1
-    while hi + 1 < len(F) and ok[hi + 1] and F[hi + 1] >= half:
-        hi += 1
-    return dict(point=int(pos[j]), core_start=max(0, int(pos[lo] - size / 2)),
-                core_end=min(length, int(pos[hi] + size / 2)), scanned=int(ok.sum() * size / 2),
-                height=float(F[j]), median=med)
+    return _core(F, pos, size, length, size / 2)
 
 
 def scan(W, bins, good, members) -> dict:
@@ -92,8 +93,107 @@ def scan(W, bins, good, members) -> dict:
     return out
 
 
-def validate(folds: dict, table) -> dict:
-    """Agreement of the fold cores with the de novo Hi-C peaks (module doc). table: the hicfuse table."""
+def _core(F: np.ndarray, pos: np.ndarray, size: int, length: int, per: float) -> dict | None:
+    """Top center and half-maximum core (bp, 0-based half-open) of profile F at centers pos (bp), over the centers
+    with CI >= CI_MIN; per = bp each center stands for (scanned length). None when nothing is scanned."""
+    F = F.copy()
+    F[(pos < CI_MIN * length) | (pos > (1 - CI_MIN) * length)] = np.nan
+    ok = np.isfinite(F)
+    if not ok.any():
+        return None
+    j = int(np.nanargmax(F))
+    med = float(np.nanmedian(F))
+    half = med + (F[j] - med) / 2
+    lo = hi = j
+    while lo - 1 >= 0 and ok[lo - 1] and F[lo - 1] >= half:
+        lo -= 1
+    while hi + 1 < len(F) and ok[hi + 1] and F[hi + 1] >= half:
+        hi += 1
+    return dict(point=int(pos[j]), core_start=max(0, int(pos[lo] - size / 2)),
+                core_end=min(length, int(pos[hi] + size / 2)), scanned=int(ok.sum() * per),
+                height=float(F[j]), median=med)
+
+
+def align_profile(W, bins, good, mean, members, centers: dict, k: int, cores: dict | None = None) -> np.ndarray:
+    """Alignment score A(c) of every bin c of chromosome k (module doc). W: the genome's balanced sparse matrix (CSR),
+    mean: hic.score.block_means, centers: {chromosome index: center bin} of the partners (k's own is ignored),
+    cores: {chromosome index: (first, last) local bin of its prior-free core}. The centromere cluster itself is left
+    out on both sides, so the score reads arm contacts only: partner bins within HALF_WIN of their center or inside
+    their prior-free core, and bins of k within HALF_WIN of c (a cluster alone, with no aligned arms, otherwise
+    passes the test: a synthetic +/-4-bin centromere domain did, 15/16)."""
+    nb = int(bins.nb[k])
+    rad = np.full(bins.N, -1, dtype=np.int64)
+    for y, c in centers.items():
+        y = int(y)
+        if y != k and members[y]:
+            loc = np.arange(int(bins.nb[y]))
+            r = np.abs(loc - int(c))
+            r[r <= HALF_WIN] = -1                                  # the partner window: the cluster, not the arms
+            if cores and y in cores:
+                lo, hi = cores[y]
+                r[(loc >= lo) & (loc <= hi)] = -1                  # ... and the partner's prior-free core
+            rad[bins.sl(y)] = r
+    m = mean[k, bins.chrom_of]
+    valid = (rad >= 0) & good & np.isfinite(m) & (m > 0)
+    A = np.full(nb, np.nan)
+    if not valid.any():
+        return A
+    cols = np.flatnonzero(valid)
+    R = int(rad[cols].max()) + 1
+    ind = sp.csr_matrix((1.0 / m[cols], (np.arange(len(cols)), rad[cols])), shape=(len(cols), R))
+    S = np.asarray((W[bins.sl(k)][:, cols] @ ind).todense())       # nb x R: summed O/E by radial distance
+    n_r = np.bincount(rad[cols], minlength=R).astype(float)
+    P = np.full((nb, R), np.nan)
+    np.divide(S, n_r, out=P, where=n_r > 0)
+    P[:, :HALF_WIN + 1] = np.nan
+    P[~good[bins.sl(k)]] = np.nan
+    rows = np.isfinite(P).any(axis=1)
+    P[rows] -= np.nanmean(P[rows], axis=1, keepdims=True)
+    i = np.arange(nb)
+    for c in range(nb):
+        d = np.abs(i - c)
+        sel = (d > HALF_WIN) & (d < R)
+        v = P[i[sel], d[sel]]
+        v = v[np.isfinite(v)]
+        if len(v) >= N_MIN:
+            A[c] = v.mean()
+    return A
+
+
+def align_centers(table, bins) -> tuple:
+    """({chromosome index: prior-free peak bin}, {chromosome index: (first, last) local bin of its prior-free core})
+    of the callable chromosomes with a prior-free call (hicfuse table): the partners of the alignment."""
+    idx = {n: i for i, n in enumerate(bins.names)}
+    cen, cores = {}, {}
+    for r in table.itertuples(index=False):
+        if r.chrom in idx and r.callable and r.denovo_confidence != "none" and r.denovo_peak_start >= 0:
+            k = idx[r.chrom]
+            cen[k] = int(r.denovo_peak_start) // bins.size
+            if r.denovo_core_start >= 0:
+                cores[k] = (int(r.denovo_core_start) // bins.size, max(int(r.denovo_core_start),
+                                                                         int(r.denovo_core_end) - 1) // bins.size)
+    return cen, cores
+
+
+def align_scan(W, bins, good, mean, members, centers: dict, cores: dict | None = None) -> dict:
+    """{chromosome: alignment call} (the fold's call fields) for every callable chromosome with >= 2 centered
+    partners; centers and cores as in align_profile."""
+    out = {}
+    W = W.tocsr()
+    for k in np.where(members)[0]:
+        k = int(k)
+        if sum(1 for y in centers if int(y) != k and members[int(y)]) < 2:
+            continue
+        A = align_profile(W, bins, good, mean, members, centers, k, cores)
+        c = _core(A, (np.arange(len(A)) + 0.5) * bins.size, bins.size, int(bins.lengths[k]), bins.size)
+        if c is not None:
+            out[bins.names[k]] = c
+    return out
+
+
+def validate(folds: dict, table, label: str = "arm fold") -> dict:
+    """Agreement of the fold (or alignment) cores with the de novo Hi-C peaks (module doc). table: the hicfuse
+    table. Passes at P <= GATE_P / 2 (Bonferroni over the fold and the alignment)."""
     rows, chance = {}, []
     for r in table.itertuples(index=False):
         f = folds.get(r.chrom)
@@ -102,10 +202,11 @@ def validate(folds: dict, table) -> dict:
         agree = gap(r.denovo_peak_start, r.denovo_peak_end, f["core_start"], f["core_end"]) == 0
         rows[r.chrom] = agree
         core, peak = f["core_end"] - f["core_start"], r.denovo_peak_end - r.denovo_peak_start
-        chance.append(min(1.0, (core + peak) / max(1, f["scanned"])))
+        # agreement = overlap or touching (gap 0): a peak bin agrees from one bin before the core to one after it
+        chance.append(min(1.0, (core + 2 * peak) / max(1, f["scanned"])))
     n, k = len(rows), int(sum(rows.values()))
     p = poisson_binomial_sf(k, chance) if n else 1.0
-    status = "untested" if n < GATE_MIN_REF else "pass" if p <= GATE_P and 2 * k > n else "fail"
-    log.info(f"Hi-C arm fold: {len(folds)} chromosomes scanned; fold core holds the de novo peak on {k}/{n} "
+    status = "untested" if n < GATE_MIN_REF else "pass" if p <= GATE_P / 2 and 2 * k > n else "fail"
+    log.info(f"Hi-C {label}: {len(folds)} chromosomes scanned; its core holds the de novo peak on {k}/{n} "
              f"(P {p:.2g}): {status}")
     return dict(agrees=rows, k=k, n=n, p=p, status=status)

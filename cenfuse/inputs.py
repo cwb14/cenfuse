@@ -47,6 +47,12 @@ HIC_CONVERT = {".hic": "convert it: hictk convert {f} {stem}.mcool (or hic2cool 
 class HicLibrary:
     name: str                       # the plant: a methylation sample of the same name is the same plant
     path: Path
+    more: tuple = ()                # replicate libraries of the same plant (rows of hic/<g>.tsv with the same sample
+                                    # name): their contacts are summed before the Hi-C engine (0.10.1)
+
+    @property
+    def files(self) -> list:
+        return [self.path, *self.more]
 
 
 @dataclass
@@ -111,10 +117,18 @@ def hic_libraries(folder: Path, name: str) -> list:
         out.append(HicLibrary(n, p))
     if not out:
         raise CenfuseError(f"{table}: no rows")
-    names = [x.name for x in out]
-    if len(set(names)) < len(names):
-        raise CenfuseError(f"{table}: duplicate sample names")
-    listed = {x.path.resolve() for x in out}
+    merged = {}                     # rows of one sample = replicate libraries of one plant, merged (0.10.1)
+    for x in out:
+        merged.setdefault(x.name, []).append(x.path)
+    for n, ps in merged.items():
+        if len({p.resolve() for p in ps}) < len(ps):
+            raise CenfuseError(f"{table}: {n}: a file is listed twice (its contacts would count twice)")
+        if len({p.name.endswith((".cool", ".mcool")) for p in ps}) > 1:
+            raise CenfuseError(f"{table}: {n}: replicate libraries mix .cool/.mcool and pairs files (give one kind)")
+        if len(ps) > 1:
+            log.info(f"{table.name}: {n}: {len(ps)} replicate libraries merged")
+    out = [HicLibrary(n, ps[0], tuple(ps[1:])) for n, ps in merged.items()]
+    listed = {p.resolve() for x in out for p in x.files}
     for e in HIC_EXT:
         lone = folder / f"{name}{e}"
         if lone.exists() and lone.resolve() not in listed:
