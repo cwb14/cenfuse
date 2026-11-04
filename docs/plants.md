@@ -13,7 +13,7 @@ Not goals: mapping calls between assemblies, genotyping Hi-C from BAMs, CENH3 Ch
 
 - `meth/asm.tsv`: one row per sample; `sample` names the plant.
 - `hic/asm.tsv` (optional, for several libraries): columns `sample`, `file` (pairs, cool or mcool). Rows with the
-  same `sample` are replicate libraries of one plant, summed into one library (0.10.1; one kind of file per sample).
+  same `sample` are replicate libraries of one plant, summed into one library (one kind of file per sample).
 - The same `sample` name in both tables means the same plant. A lone `hic/asm.<ext>` is one library named `hic`.
 
 ## Provenance (per input)
@@ -81,7 +81,7 @@ every plant. The between-plant test keeps them from producing false `shifted` ve
 | `asm.centromeres.tsv` | `meth_samples`, `hic_library`, `hic_provenance`, `plants_shared/shifted/absent/unresolved` |
 | `asm.plants.png` | plants × chromosomes verdicts, and the most-shifted chromosome plant by plant |
 
-## Validation ([benchmark.md](benchmark.md))
+## Validation ([benchmark.md](benchmark.md#8-several-plants-poa-annua))
 
 | test | result |
 |---|---|

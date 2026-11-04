@@ -1,24 +1,25 @@
 # How cenfuse works
 
+cenfuse reads several kinds of evidence (*lines*) that each point to the centromere: satellite arrays, LTR
+retrotransposons, Hi-C contacts and DNA methylation. Each line calls on its own first. A line may then change the
+final call only after it has passed a test in the genome at hand, and every agreement and disagreement is reported.
+This page describes each line, the tests, how the lines are combined, and the alternatives that were tried and
+rejected. Benchmark numbers quoted here are from [benchmark.md](benchmark.md).
+
 ## Principles
 
-1. **Each line calls on its own first**: satellites (+ TEs), Hi-C, methylation.
-2. **Lines check each other.** No line is trusted on its own confidence: the Hi-C engine's prior-free `high` calls
-   were right on only 45% of T2T mammal chromosomes.
-3. **Whether Hi-C works in a genome is measured, not assumed.** Hi-C must find the *other* chromosomes' centromeres
-   (the gate) before it may act on one. CpG dips must mark them before they place a kinetochore.
-4. **The final call is the sequence call** unless a validated line moves it under the rules below. Every move and
-   every disagreement is reported.
-5. **Fixed constants, each with a reason** (a convention, a majority rule, a data-derived value, or a named
-   heuristic). Nothing is tuned to a benchmark, and there are no options for thresholds.
+1. **Each line calls on its own first.**
+2. **Lines check each other.** No line is trusted on its own confidence: the Hi-C calls the Hi-C engine rates `high` on
+   its own lie within 4 bins of CENP-A on only 14 of 63 T2T mammal chromosomes.
+3. **Whether a line works in a genome is measured, not assumed.** Hi-C must find the *other* chromosomes'
+   centromeres before it may act on one; CpG dips must mark them before they place a kinetochore.
+4. **The final call is the sequence call** unless a tested line moves it under the rules below.
+5. **Fixed constants, each with a reason** (a convention, a majority rule, a value measured in the data, or a named
+   heuristic). Nothing is tuned to a benchmark, and there are no threshold options.
 
-Not goals: centromeres from methylation alone (false dips are as deep as true ones); Hi-C choosing the satellite
-family.
-
-**LTR annotations: LTRquest only** (decided 2026-10-28). The LTR line is developed and benchmarked with LTRquest
-annotations only, and work on it assumes LTRquest input. The DANTE_LTR and EDTA + TEsorter readers stay as they are,
-with their tests, but get no further work: no new rules, workarounds or benchmark arms for them. Their results in
-[benchmark.md](benchmark.md) (LTR annotation) are the final record of how they compare.
+Not goals: centromeres from methylation alone (false dips are as deep as true ones); Hi-C choosing between satellite
+families. The LTR line is developed and benchmarked with LTRquest annotations only; the readers for DANTE_LTR and
+EDTA + TEsorter files stay as they are, with their tests, but get no further work.
 
 ## Stages
 
@@ -27,598 +28,280 @@ satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> ka
 fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot
 ```
 
-The satellite engine checkpoints its stages on stage version and parameters: a change stops the run and names the
-`--force` stage, and changed input files (FASTA, `genes/`, `tes/`) are not detected (after adding `tes/` or `genes/`
-to an earlier run: `--force classify`). Its checkpoints also stand on the chromosome set, which cenfuse checks itself
-(below). telomere, rdna, rdna5s, gaps, genotype, hic, fold, karyotype, meth and cpg are
-keyed on their inputs and code, so a rerun resumes; the later stages are cheap and always rerun. Their keys include
-the code of their modules and `params.py`: a constant used by one new module lives in that module, so adding it does
-not recompute every stage. `genotype`, `karyotype` and `plants` handle several plants ([plants.md](plants.md)).
-In 0.9 the satellite engine keeps its version (0.9.0) and its stage versions, so nothing forces a rerun, although its
-summary and region tables gained the `overruled_*` columns; the standalone methylation engine (`python -m
-cenfuse.meth`, 0.1.0) now counts chromosomes with the 0.9 rule (`track.chromosome_count`). 0.10 changes only the Hi-C line
-(Hi-C engine 0.2.0: bins for small chromosomes, other pipelines' pairs files; cenfuse: the support tier, Hi-C alone):
-the satellite engine's checkpoints are kept, and the hic stage and every later one are computed once more (their
-keys carry cenfuse's version and code). 0.10.1 again changes only the Hi-C line (Hi-C engine 0.3.0: the `telomeric`
-flag from the agreement geometry, replicate libraries summed; cenfuse: the trans arm alignment, Hi-C alone beside an
-axis line, the `hic_architecture` summary), with the same consequences.
+The chromosome set is chosen once per genome ([outputs.md](outputs.md#which-sequences-are-analyzed)) and every line
+reads the same set. Each stage is checkpointed on its inputs and code, so a rerun resumes. `genotype`, `karyotype`
+and `plants` handle inputs from several plants ([plants.md](plants.md)).
 
-### Chromosome set (`inputs.py`, `meth/track.py`)
+## Satellites (`cenfuse.sat`)
 
-An assembly also holds unplaced scaffolds, and every line needs whole chromosomes (the satellite engine's prevalence
-tests count them; Hi-C and methylation need chromosome-scale sequences). The set is chosen once per genome, and all
-three engines read it through a view of the genome folder (the FASTA is a symlink and its `.fai` lists the
-chromosomes only).
+**From tandem repeats to a call.**
 
-- **Rule** (`track.chromosome_count`, GAP_FOLD = 10). Start from 0.8's set (`tenfold_count`): the sequences above the
-  first >= 10x drop in sorted length between neighbors, looked for once half the assembly is accounted for; all
-  sequences when there is none. A gradual scaffold tail has no tenfold step, so that set takes it whole. The tail test:
-  take the first sequence, after half the assembly, shorter than a tenth of the median length of the sequences before
-  it (`_median_cut`); if the sequences from there to the end of 0.8's set span a >= 10x range, they are a tail and the
-  set ends before the first of them. A few small sequences of similar size before a clean gap (dot chromosomes,
-  microchromosomes) span less and stay, as in 0.8.
-- **List** (`<genome>.chromosomes.txt`, named after the FASTA, in GENOME_DIR): the chromosomes, one sequence name per
-  line. A line starting with `#` is a comment (a `#` inside a name, as in `HG002#1#chr1`, is part of it); blank lines,
-  CRLF line ends, trailing spaces and a UTF-8 byte-order mark are accepted. An unknown name, a duplicate or no names
-  stops the run (a list is the user's decision, never guessed at); a list that matches no genome logs a warning. It
-  replaces the rule for every line, also for a `--classify-from` target, which otherwise keeps 0.8's rule (a contig
-  assembly has no chromosome/scaffold distinction for the tail test to find). It must name every chromosome: the
-  methylation line's expected domain size is D = d_formula(G, number of chromosomes), so a partial list inflates D.
-- **Source**: the length rule, the 0.8 rule of a `--classify-from` target, or the list's name is logged, with the number
-  of sequences left out, and shown in the report's Notes. When the tail cut fired (`chromosome_count` below
-  `tenfold_count`), the note says the set ends at a gradual tail of short sequences, with the number left out and the
-  shortest one kept, and does not call them unplaced scaffolds (a dot chromosome can be among them): if chromosomes were
-  left out, list every chromosome in `<genome>.chromosomes.txt`. The cut fires on none of the 234 benchmark and batch
-  assemblies and on 16 of the 149 polyploid ones.
-- **Evidence** (383 assemblies: 49 benchmark genomes, 185 batch genomes, 149 polyploid assemblies). The set is 0.8's on
-  all 234 benchmark and batch assemblies (chicken's 40 chromosomes with 2.5-Mb microchromosomes included). On the 121
-  polyploid assemblies that come with a list of their chromosomes, extra sequences fall from 5,614 to 31 (in 12
-  assemblies) and none of the listed chromosomes is lost; an exact match rises from 102 to 109. The 31 left are
-  1.5-117 Mb sequences outside the lists that a length rule cannot tell from chromosomes.
-- **Resume guard** (`Run._check_chromosome_set`). The satellite engine's resume check covers its code and parameters,
-  not the chromosomes, and 0.9 changes the set (gradual tails, a list). `satellite/work/chromosome_set.json` records
-  {genome: sorted names}. cenfuse writes it once the engine is set up and before it runs, since every checkpoint,
-  present or future, then stands on this set. A resumed folder whose set differs (a genome added, removed or changed)
-  stops before anything is written, names the genomes with their chromosome counts, and says `rerun with --force
-  satellite` (`--force seeds` also proceeds: it redoes the seeds, the first stage the set shapes). A folder made before
-  0.9 has no record: each current genome is compared with what 0.8's rule gives on its `.fai`, so a genome added or
-  removed since is detected only once a record exists; one without `seeds.done` has nothing to protect.
-  `--satellite-dir` imports are taken as they are and only warn when the imported summary's chromosomes differ from
-  the set.
-
-## Lines
-
-### Satellites and TEs (`cenfuse.sat`)
-
-The pipeline: tandem-repeat seeds (FasTAN or TRF) → families (clustered, consensus) → genome-wide annotation
-(nhmmer) → a role per family → one call per chromosome → HOR structure.
-
-Roles: `centromeric`, `cen_associated`, `subtelomeric`, `interstitial` (knobs and other blocks), `dispersed`,
-`minor`, `rDNA` (rRNA genes found with Rfam models).
-
-How the stages run (none of this changes a call):
-
-- **Seeds.** FasTAN (or TRF) runs on 5-Mb chunks that overlap by 10 kb (at least twice the longest seed unit, so no
-  array is lost at a chunk edge). FasTAN 0.8 aborts on some large satellite arrays (a 642-kb array of *Oryza minuta*:
-  SIGABRT, `malloc(): corrupted top size`, at the same place on every run). A piece on which it dies by SIGABRT,
-  SIGSEGV, SIGBUS, SIGFPE or SIGILL is cut in two halves that overlap by 10 kb, and each is retried, recursively
-  (`fastan.chunk_rows`); `seeds.dedupe` merges what both halves report, as for chunk overlaps. A piece of at most 20 kb
-  (2 x the overlap) that still crashes is skipped with a warning. A chunk longer than that of which no piece was
-  searched (FasTAN crashed on every piece with sequence, down to 20 kb) stops the run (`fastan.ChunkFailed`):
-  FasTAN's known crash is local to one array (the *Oryza minuta* chunk lost 0 bp after 4 splits), so a whole chunk
-  failing means FasTAN itself is failing, and a run without the chunk's seeds could pass for a satellite-free genome.
-  A piece of N only has nothing to search and counts as searched, so a mostly-N chunk whose one array crashes is
-  skipped with warnings, as a local crash. The error names the chunk, the signal and the crash table, written first
-  with the genome's crashes so far, and suggests `--seed-engine trf`; no seed table is cached. Each crash (chromosome,
-  start, end, signal, `split` or `skipped`; 0-based) goes to `<seed cache file>.fastan_crashes.tsv` beside the cached
-  seeds, so a shared `--seed-cache` keeps it, linked as `satellite/work/seeds/<genome>.fastan_crashes.tsv`; the
-  genome's summary line in the log counts the chunks crashed, the pieces split and the bp skipped. SIGKILL (the OOM
-  killer), SIGTERM, SIGINT and every other failure still stop the run. A piece FasTAN does not crash on gives the rows
-  cenfuse 0.8 gave, so FasTAN's cache key (`fastan.KEY`) and the seeds stage version are unchanged; the genome part of
-  the key changed only for a FASTA indexed beside a symlink (seed cache key, below). An *Oryza minuta* 5-Mb piece that
-  aborts FasTAN gives 757 seed rows after 4 splits.
-- **Seed clustering** (`cluster_seeds`, `absorb_multimers`). BLAST is 97.7% of the wall time, driven by the HSP volume
-  of multimeric seeds; Python is about 2%. *Acanthus* (5,456 seeds) took 76 min at 16 threads, against a median of 0.7 min
-  over the 106 genomes of an allotetraploid plant set. No speedup that keeps the clusters exact was found, so 0.9 only
-  logs each round and the seeds left at INFO ([future.md](future.md)).
-- **Families.** A family's model is built in the monomer frame of the most similar earlier family (`frame_rotation`;
-  references within `RELATED_LEN_TOL` = 15% in length), so models are not independent, and `build_models` builds them
-  concurrently with a guarantee: the result is the serial one. A build starts with the families already accepted as
-  references (final ones only) and records the length and the rotation of each `frame_rotation` call, the only steps
-  that read the references. Families are accepted in family order, each with all earlier families final. A finished
-  build is kept if no earlier family it started without is a frame candidate (within 15% in length) for one of its
-  queries, or if replaying its recorded rotations with all earlier families gives the same rotations (the build is
-  then the same computation step for step); otherwise it is rebuilt with all earlier families. Build k samples with
-  `random.Random(k + 1)`, so a model never depends on another's sampling. Up to threads // `THREADS_PER_BUILD` (4)
-  builds run at once, no more than there are families, and the threads are shared out among them (16 threads and 2
-  families: 2 builds of 8; 16 and 40: 4 of 4); a failed build raises once the running builds end. families.tsv and
-  .fa, families.hmm without its DATE and COM lines, and seeds.tsv.gz are byte-identical to the serial code on
-  *Arabidopsis* Col-CC, rice T2T-NIP and *Panax japonicus*. Families stage, 0.8 (models one at a time) -> 0.9 at 16
-  threads: *Panax* 2,290 s (0.8 at 16 threads) -> 674 s, 3.4x, the one like-for-like pair (model phase
-  1,755 -> 402 s); Col-CC 230 s (0.8 at 8) -> 130 s; rice 138 s (0.8 at 12) -> 87 s. Which families a build started
-  with depends on timing, so the BLAST scratch folders of the stage (`fam*/frame*/`, `fam*/replay*/`) can differ
-  between runs and from 0.8's; the models, and so every results file, cannot.
-- **Annotate.** nhmmer searches every (chunk x model) job on a thread pool. The search is the longest stage and hard to
-  predict (*Panax*: 7.9 h predicted from family length x genome size, more than 25 h actual), so it logs at INFO each 10%
-  of its work (chunk bp x model length, counted as searches finish; the time left assumes the rest costs per unit what
-  the done part did, so it is an estimate) and, checked as each search finishes, after an hour without a line. Each
-  finished search also adds the thread CPU time and wall time its nhmmer call took, and the hits kept, to its family's
-  totals: `satellite/work/annotate/<genome>.search_cost.tsv` (family, model_len, searches, cpu_h, cpu_share, wall_h,
-  hits_reported, monomers_kept; costliest first; wall_h sums the searches' own times, the threads' busy time). CPU
-  times differ between runs, so this is a work table, never a results table: `satellite_families.tsv` is unchanged and
-  this is the one run-dependent table (README, Reproducible). The log names the three costliest families when the
-  search ends, and the output stage names them again with their final role (a dispersed family that cost much decides
-  nothing, which only the roles, known after annotate, show). The cost sits in short-unit families with millions of
-  hits in mammals (CHM13's 172-bp alpha satellite: 62% of the CPU) and in 1-2-kb families in plants and chicken.
-- **Replaced calls.** Every call that a TE core took the place of (`centromere.te_call(core, call)`) is kept: the
-  satellite summary gains `overruled_start`, `overruled_end` (1-based start) and `overruled_family` (its final name),
-  and centromeres.tsv `seq_overruled_start`, `seq_overruled_end` right after `seq_alt_end`. That is, in a genome that
-  is not borrowed (`--classify-from`): with a decisive (CRM) core, a weak call (weak-satellite or long-unit evidence, or
-  less than `low_sat_bp` of satellite) that agrees with the core without overlapping it (`weak_satellite_beside_core`),
-  a satellite call that agrees with it without overlapping it and holds significantly fewer of the clade's elements
-  (`satellite_beside_core`), and a satellite or weak-satellite call that does not agree with it, unless the call is
-  `high` or `medium` on its own and the clade does not mark the core significantly more (`satellite_away_from_core`);
-  and, with a core of any clade, decisive or not, a long-unit call that does not agree with it (no flag). Agreeing is
-  a gap of at most the wider of the two intervals; a long-unit call is made only on a chromosome without a satellite
-  call, and with a core there the long-unit scan covers the core and `lu_flank` (500 kb) on each side. The report's
-  `basis` sentence names the interval for the three flagged branches, and the `caveat` names the array for all of them
-  ("the tandem array at X-Y Mb was overruled by the CRM core"). They are never written to `seq_alt_*`, which validated
-  Hi-C can move a call to (`hic_chose_alt`), so they change no call. A kept call (`te_concordant`, `te_discordant`)
-  and a chromosome without a call record nothing. Folders from 0.8 without a rerun of the centromeres stage read `.`,
-  also on a chromosome whose flags say a core replaced a call. Replays of the centromeres stage on 3 stored runs (49
-  chromosomes): every 0.8 column identical; the intervals equal an earlier audit's on all 16 chromosomes it covers.
+1. *Seeds.* FasTAN (or TRF) finds tandem repeats in 5-Mb chunks that overlap by 10 kb, so no array is lost at a cut.
+2. *Families.* Seeds are clustered by sequence (BLAST) into families, and each family gets a consensus and a profile
+   HMM (MAFFT alignment).
+3. *Genome-wide search.* nhmmer finds every copy of every family.
+4. *Roles.* Each family gets a role from where and how it occurs across the chromosomes: `centromeric`,
+   `cen_associated`, `subtelomeric`, `interstitial` (knobs and other blocks), `dispersed`, `minor` or `rDNA` (rRNA
+   genes, found with Rfam models).
+5. *The call.* On each chromosome, the array cluster of the chosen centromeric family; where no satellite call is
+   possible, a long-unit tandem array or a retrotransposon core.
+6. *Higher-order repeats* are reported for each call.
 
 | rule | test | why |
 |---|---|---|
-| family founding | a seed cluster becomes a family only if one of its seeds is a tandem array (>= 3 copies of its unit by FasTAN, 5% short allowed); then by size (>= 20 kb of seeds, at most 40) | a satellite is tandem. Clusters founded on two-copy duplications only (0.8-2-kb units, retrotransposon-like) were dispersed or absent in every genome of the 216-genome replay (12 families in 7 genomes) and took most of the genome-wide search where they occur (T2T sheep 93%, siamang 52%, orangutans 19-28%, barley 14%); without them calls and roles were unchanged (siamang, barley, B. orangutan); search CPU at equal machine load: sheep 11.7x, siamang 2.0x, B. orangutan 1.3x, barley 1.16x less |
-| dispersed repeat | tandem_frac < 0.5 **and** whole-unit hits < 0.5 **and** locus fold < 2 → never centromeric, and role `dispersed` (never a satellite block) whatever its concentration | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits. Satellites are tandem; retrotransposon-derived centromeric arrays are concentrated (fold ≥ 2.5). Before v7 the role ignored the test: one 0.5-1.9-kb family per genome (chimpanzee, bonobo, S. orangutan, rhesus, sheep; 215-719 Mb, 2-14% in tandem) was an `interstitial` block chained along whole chromosomes, making chromosome-scale loci |
-| satellite kind | dominance judged per kind: subfamilies related by sequence are pooled | splitting alpha into 6 subfamilies let a pericentric satellite out-count it |
-| acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival (judged per satellite kind) → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs ~16+ chromosomes. A subfamily at the inner edge of a terminal block is that block, not a rival (T2T mouse: a major-satellite subfamily beyond the 5% end zone had blocked the test) |
-| the call | the cluster holding classify's chosen family (layered families pooled); a decisive CRM core may favor the largest cluster | |
-| competing cluster | a second cluster ≥ half the main one, or the terminal block of a second acrocentric satellite unrelated to the call → two levels down (`low`), reported in `seq_alt_*` | such calls were right 2/10 times on CENP-A/CENH3 truth. The acrocentric test finds a centromere's end, not which of two satellites there holds the kinetochore (mouse: the 234-bp major satellite out-sizes the 120-bp minor satellite that carries CENP-A; related layers, as in goat, are pooled instead) |
-| CRM cores (`tes/`) | the clade's densest cores (full width at half maximum of its density; any clade's core needs >= 3 independent insertion sites, overlapping elements counting once); any marker's core takes a chromosome without a call (`medium` if decisive, else `low`). A decisive (CRM) core supports a call it agrees with (`te_concordant`, at least `medium`) and replaces a weak call beside it (`weak_satellite_beside_core`) and a disagreeing call that is `low` on its own; a disagreeing `high`/`medium` call, or a non-weak call beside it, it replaces only if the clade marks the core significantly more than the call (its elements in the core vs in the call, binomial at 1/2, P <= 0.01; `satellite_away_from_core` / `satellite_beside_core`); otherwise a disagreeing call stays, `te_discordant`, one level down, and a call beside it stays `te_concordant` | CRM retrotransposons mark grass centromeres. Site floor: *Chlorella* NS4-2's Osser (Copia) cores, 2-8 elements per chromosome, 53/54 inside CENH3: 0 -> 8/10 right (all `low`); no call changed in 12 crop `tes/` arms, B. rapa, soybean, sorghum. Head-to-head: in a broad CRM plateau the densest window is noise (B. rapa CC1/CC2 A09, soybean X26 chr1/chr6: CENH3 on the satellite, 16-26 vs 14-32 elements); a satellite on a smaller second cluster loses (P. annua Pa1A 19 vs 62; Ae. geniculata 7M/2U) |
-| CRM cores short of a majority | where CRM is not the decisive marker, each significant CRM core replaces the marker's core on its chromosome (flags only; without a qualifying clade, the CRM cores alone are the marker) | CRM is the prior centromere-specific lineage. With less sensitive annotations CRM concentrates on only some chromosomes: rice DANTE_LTR 5/12, EDTA + TEsorter 4/12, LTRquest thinned to 50% 3/12; every such core lay on CENH3 (24/24 over 8 arms of rice, potato, maize and *Brachypodium* not used to make the rule), every rice Tekay core off it |
-| honesty cap | centromeric families but none dominant, and no decisive (CRM) core: every call `low` (`no_dominant_satellite`); a flags-only marker (Athila, Tekay, Bryco) lifts the cap only for the calls it supports (`te_concordant`) | satellite evidence alone cannot tell a centromeric array from an interstitial one, and a line that contradicts a call, or says nothing about it, is no evidence for it. Before v6 any marker lifted the cap genome-wide: moss with `tes/` had 4 confident wrong calls (0 from FASTA alone), the 185-genome batch 66 confident calls the TE line did not support |
-| `tes/` formats | an element's clade from `clade=` (type holding `LTR_retrotransposon`: LTRquest, EDTA + TEsorter) or from a DANTE_LTR `transposable_element`'s `Final_Classification` (its last REXdb lineage field; an element classified only to `Ty3/gypsy`, `chromovirus` etc. has none; rank D, domains without LTRs, is not an element). `.gff3` or `.gff`. A file with no classified element on the chromosomes is reported with the reason (no lineage, or other sequence names) | DANTE_LTR is a common plant classifier; Arabidopsis with its file: the same 5 calls as with LTRquest. Its rank-D clusters made 195 of potato's 223 CRM and put decisive cores up to 15 Mb off CENH3 (6 confidently wrong calls; 2 without them). EDTA alone gives superfamilies only, which no rule can use |
-| genes (`genes/`) | gene-rich families are vetoed; subtelomeric = beyond the outermost genes. GFF3 or GTF; protein-coding `gene` lines (`gene_biotype`, `biotype`, GENCODE `gene_type`), or one locus per transcript `Parent` in a file without `gene` lines | potato DM v6.1 (Spud DB: mRNA lines only) 2 -> 4/11 on CENH3; barley: the 3 confident wrong satellite calls become `low` |
+| family founding | a seed cluster becomes a family only if one of its seeds is a tandem array (≥ 3 copies of its unit), then by size (≥ 20 kb of seeds, at most 40 families) | a satellite is tandem. Clusters founded on two-copy duplications were dispersed or absent in every genome of a 216-genome replay, and took most of the search time where they occur (T2T sheep: 93%) |
+| dispersed repeat | less than half in tandem, less than half whole-unit hits, and no locus concentration (fold < 2) → never centromeric, role `dispersed` | interspersed elements (LINE/SINE fragments) annotate as chains of partial hits; satellites are tandem, and retrotransposon-derived centromeric arrays are concentrated |
+| satellite kind | dominance is judged per kind: subfamilies related by sequence are pooled | splitting alpha satellite into 6 subfamilies let a pericentric satellite outcount it |
+| acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs about 16 or more chromosomes |
+| competing cluster | a second cluster at least half the size of the main one, or a second, unrelated satellite that also marks the acrocentric end → `low`, reported in `seq_alt_*` | such calls were right only 2/10 times. Which of two satellites at one end holds the kinetochore is not in the sequence (mouse: the major satellite is larger than the CENP-A minor satellite) |
+| honesty cap | centromeric families exist but none is the largest cluster on most chromosomes, and no CRM core decides → every call `low` (`no_dominant_satellite`) | satellite evidence alone cannot tell a centromeric array from an interstitial one |
+| genes (`genes/`) | gene-rich families are vetoed; subtelomeric = beyond the outermost genes | potato: 2 → 4/11 right; barley: the 3 confident wrong satellite calls become `low` |
 
-### rDNA and telomeres
+## LTR retrotransposons (`tes/`)
 
-- **NORs** (`rdna.py`): tandem runs of ≥ 3 copies of the universal 18S motif (GTACACACCGCCCGTC), ≤ 100 kb apart.
-  This finds CHM13's 5 NORs in 32 s. Hi-C peaks beside a NOR never oppose a call (NORs cluster in the nucleolus).
-- **5S rDNA** (`rdna.py`): tandem runs of >= 3 whole 5S genes, <= 20 kb apart. A gene is a hit of the Rfam 5S profile
-  HMM (RF00001, the filter model inside the bundled covariance model) covering >= 90% of it, E <= 1e-5 per chromosome.
-  Whole genes, because pseudogenes and 5S-derived fragments are mostly partial (CHM13: 126/126 hits of its 1q42 array
-  whole, 108/434 scattered hits), and dispersed genes form no array (*S. pombe*: 36 genes, none). The satellite engine
-  sees a 5S array only as one of its <= 40 families with units <= 2 kb, so it missed the 2.2-kb units of every T2T
-  mammal. A loci feature only: 5S arrays do not gather in the nucleolus, so Hi-C does not use them. CHM13: 24 s.
-- **Telomeres** (`telomere.py`): the unit is found de novo; arrays are reported at chromosome ends: >= 300 bp of unit
-  copies anywhere in the terminal 100 kb, or >= 100 bp when the array reaches the sequence end (within 1 kb). Short
-  telomeres are real (Neurospora NC12: 157-207 bp at 13/14 ends) and assemblers trim them; once the unit is the
-  genome's (10-fold denser in tandem at the ends), 100 bp of it at an end is no chance match.
-- **Interstitial telomeric sequences** (ITS, `telomere.py`): arrays of the same unit inside the chromosomes (beyond the
-  terminal 100 kb; >= 300 bp of unit copies), as `interstitial_telomeric` loci. They mark old chromosome fusions (CHM13:
-  16 arrays, most within 1 Mb of an end, one at the 2q13 fusion site) and the cores of some centromeres (chicken:
-  78-210-kb TTAGGG blocks at the CENP-A domain of several chromosomes).
+cenfuse finds, for each lineage of LTR retrotransposon, the chromosomes where its elements concentrate at one locus.
 
-### Hi-C (`cenfuse.hic` engine + `hicfuse.py`)
+- **Cores.** A lineage's core on a chromosome is its densest region (the full width at half maximum of its density),
+  and it needs at least 3 independent insertion sites (overlapping elements count once). *Chlorella* centromeres
+  hold only 2-7 Copia insertions each; 53 of the genome's 54 sit in the CENH3 domains.
+- **The marker.** The lineage most concentrated at one locus per chromosome. A CRM marker is **decisive** when its
+  cores are significant on most chromosomes: CRM is the known centromeric lineage of grasses and many other plants.
+  Any other marker (Athila, Tekay, Bryco...) only flags (`te_concordant`, `te_discordant`) and may lift the honesty
+  cap only for the calls it supports.
+- **What a decisive core does.** It raises a call it agrees with to at least `medium`, takes a chromosome without a
+  call, and replaces a weak call beside it or a disagreeing call that is `low` on its own. A `high` or `medium` call,
+  or a non-weak call beside the core, it replaces only when the lineage's elements sit significantly more in the core
+  than in the call (binomial at 1/2, P ≤ 0.01); otherwise the call stays, one level lower (`te_discordant`). The
+  replaced array is reported in `seq_overruled_*`. Reason: in a broad CRM plateau the densest window is noise (*B.
+  rapa* A09 and soybean chr1/chr6 had CENH3 on the satellite, 16-26 vs 14-32 elements), while a satellite beside a
+  core that holds hundreds of elements is pericentromeric (*Ae. tauschii*: 3/7 → 5/7).
+- **CRM short of a majority.** Where CRM is not decisive, each significant CRM core replaces the marker's core on its
+  chromosome (flags only): with less sensitive annotations CRM concentrates on only a few chromosomes, but every such
+  core lay on CENH3 (24/24 in rice, potato, maize, *Brachypodium*).
+- **Formats.** An element's lineage comes from `clade=` (LTRquest, EDTA + TEsorter) or from a DANTE_LTR element's
+  `Final_Classification`. DANTE_LTR's rank-D clusters (protein domains without LTRs) are not elements: in potato they
+  made 195 of 223 CRM and put cores up to 15 Mb off CENH3. A file without lineages (EDTA alone gives superfamilies
+  only) is reported and the line is off.
 
-0. **Bins from the chromosomes** (engine `bins.candidate_sizes`; ladder 5 kb, 10 kb, 50 kb, 250 kb, 500 kb, 1 Mb, 2 Mb,
-   each a multiple of every finer one so coarsening is exact). A chromosome needs 20 bins to be called. When every
-   chromosome of the set has 20 bins at 250 kb, the candidates are 250 kb and coarser, as in 0.9 (identical results).
-   Otherwise the ladder goes down to the coarsest size that gives the shortest chromosome 20 bins (*S. cerevisiae* and
-   *P. falciparum* 10 kb, *S. pombe* and *N. crassa* 50 kb), but not below the size at which the largest chromosome
-   would exceed 4,000 bins (its dense cis block) or the genome 50,000 bins (chicken: chr1 needs 4,001 at 50 kb, so it
-   stays at 250 kb). Sequences shorter than 20 x 5 kb never count (an organelle in the set). Run on its own
-   (`python -m cenfuse.hic call`), the engine first applies cenfuse's chromosome-set rule to the `.fai` it is given
-   (organelles, unplaced scaffolds); cenfuse passes its set, which is taken as given. A `.cool`/`.mcool` offers its
-   own resolutions in the candidate range (or, with none there, those that fit in memory). The depth rule then
-   picks the finest candidate with >= 25 expected centromere contacts per bin. Windows are in bins (partner window
-   +/- 4, telomere-pole window 8, null exclusion 20), so they scale with the bin. Replicate libraries of one plant
-   (rows of `hic/asm.tsv` with the same `sample`; 0.10.1) are summed into one matrix before all of this: a test near
-   its depth threshold should see the plant's whole library, not flip with how it was split.
-1. **Prior-free call**: the engine's own iteration. It decides nothing by itself; only the fold test can validate it,
-   except in a genome where nothing can (step 6).
-2. **Anchored score.** For chromosome x: its mean contact with partner windows at the *other* chromosomes' sequence
-   calls (calls ≥ `medium`; all calls if fewer than 3). x's own call never shapes its score.
-   - A partner window is the call midpoint ± 4 bins when most of those bins are mappable.
-   - Otherwise it is the 9 mappable bins nearest the call: the array's flanks, since the array itself is unmappable.
-3. **Peak tests** (the engine's): 100 bootstraps, leave one partner out, 200 null replicates.
-   - A peak is *strong* when it passes all three and is not flagged `hub`, `rDNA` (incl. beside a NOR) or
-     `telomeric`: the peak cannot be told from a chromosome end, i.e. it would agree with the terminal bin under the
-     agreement rule of step 4 (at most one mappable bin between, at most 4 unmappable bins discounted; 0.10.1).
-     0.10 flagged every peak within 8 bins of an end, but centromeres lie there on acrocentric chromosomes (moss
-     11/26, goat 29/30, horse 17/32): the moss peaks 3-6 bins from the end were right and could not move wrong
-     calls. The prior-free end clusters the window was made for lie in the terminal 0-1 bins (rice 12/12, giraffe
-     14/16, moss 26/26) and stay flagged. Contact-based tests (the opposite end's height, partner windows mirrored
-     to the other end, a core reaching the end) did not separate right from wrong end peaks (v10.1 dead ends). A
-     peak at the edge of a terminal unmappable array (chicken microchromosomes) stays `telomeric`: there the
-     centromere and the end are one place for Hi-C.
-   - A peak with any of those flags may support a call but never moves or opposes one.
-4. **Distances in mappable bins.**
-   - Agreement: within 1 bin, forgiving ≤ 4 unmappable bins (a peak at an array's edge supports a call inside it).
-   - Opposition: beyond 4 *mappable* bins. Across a longer blind stretch Hi-C neither supports nor opposes.
-5. **Gate** (per chromosome x).
-   - References: the other chromosomes with `high` calls (`high` + `medium` if fewer than 4 calls are `high`).
-   - x passes when most references' own peaks agree with their calls, beyond chance (Poisson-binomial P ≤ 0.01),
-     and also a majority of the whole reference set.
-   - Fewer than 3 references: `untested`.
-   - No call high or medium anywhere (no satellite family dominates, so every call is capped `low`: siamang without
-     genes, chicken): the low calls are the references, and an agreement counts only at a clean peak (no hub, rDNA or
-     telomeric flag); in that genome a peak supports a call only when clean. Chromosome ends, hubs and NORs cluster in
-     3D whatever the centromere: in a Rabl nucleus, wrong calls at the ends would agree with Hi-C. Two independent
-     lines that agree beyond chance on most chromosomes validate each other. `hic_gate_refs` says which references
-     were used.
-   - **Support tier** (0.10): agreements beyond chance (the same Poisson-binomial tail <= 0.01, at least 3 of them)
-     but not on a majority, counting only agreements at significant anchored peaks (Hi-C level `medium` or `high`:
-     at least two of the engine's three tests). Hi-C then carries centromere information but its peak is often
-     elsewhere, so it may only support: a kept call whose own significant anchored peak agrees goes up one level
-     (`hic_support`); on this tier Hi-C never opposes, moves, chooses the competing cluster or places a call.
-     Without the majority each agreement must stand on its own: randomized Hi-C (partners re-paired, coverage kept)
-     still puts 3-6 peaks per genome on the calls (chance ~1), at the low-coverage edges of unmappable arrays, almost
-     all at level `low` or `none`; counting those, the tier would pass on 21-25 chromosomes of 4 randomized genomes. Reason: a peak lands on a call by chance on
-     ~1-2% of chromosomes, so an agreement is strong evidence (likelihood ratio ~10-25), while a peak elsewhere is
-     weak evidence against. Where 0.9's gate failed only for want of a majority (rhesus, goat, giraffe, horse,
-     EquCab3, moss, chicken; stored runs), an agreeing peak marked a right call 61 of 64 times (wrong: pig, sheep,
-     potato).
-6. **Hi-C alone** (0.10). A genome with fewer than 3 reference calls (the gate's references) cannot test the gate on
-   any chromosome (a genome-level condition: where the gate ran on some chromosomes, Hi-C alone acts on none) (point,
-   regional and AT-rich centromeres: yeasts, *Plasmodium*, *Neurospora*). There the Rabl-axis line decides first
-   (the arm fold, or the trans arm alignment where the fold leans the same way, below): where it passed and agrees
-   with the prior-free peak, the call is `medium` (`fold_pair`, `align_pair`). On a chromosome without a sequence call where no axis line pairs, a clean
-   prior-free call at engine level `high` (no hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a
-   `low` call at its core (`hic_denovo_only`): the best candidate, untested (0.10.1: also on a chromosome where a
-   passed axis line does not pair, flagged `fold_offset`/`align_offset` where its core lies elsewhere; 0.10 made no
-   call there). A prior-free core within a bin of a 45S array is not clean (NORs meet in the
-   nucleolus; the anchored peaks get the same test). A sequence call is kept; where the clean prior-free peak lies beyond 4 bins of it,
-   it is flagged (`hic_denovo_elsewhere`) with the place in the caveat. Prior-free `high` calls cannot be trusted
-   where they can be tested (right on 45% of T2T mammal chromosomes; potato's strongest mutual trans cluster is not
-   its centromeres), which is why such calls stay `low`.
+## rDNA and telomeres
 
-### Arm fold (`fold.py`)
+- **45S rDNA (NORs):** tandem runs of ≥ 3 copies of the universal 18S motif, ≤ 100 kb apart (CHM13's 5 NORs in 32 s).
+  Hi-C peaks beside a NOR never oppose a call: NORs meet in the nucleolus.
+- **5S rDNA:** tandem runs of ≥ 3 whole 5S genes (the Rfam 5S profile HMM, ≥ 90% of the gene, E ≤ 1e-5), ≤ 20 kb
+  apart. Whole genes, because pseudogenes and fragments are mostly partial; dispersed 5S genes form no array.
+- **Telomeres:** the repeat unit is found from scratch; an end holds a telomere array with ≥ 300 bp of unit copies in
+  the terminal 100 kb, or ≥ 100 bp that reach the sequence end (assemblers trim short telomeres: *Neurospora* has
+  157-207 bp).
+- **Interstitial telomeric arrays:** ≥ 300 bp of the unit inside a chromosome. They mark old fusions (human 2q13) and
+  the cores of some centromeres (chicken).
 
-In a Rabl nucleus both arms run from the centromere pole to the telomere pole. The chromosome's own (cis) contact
-map then has an anti-diagonal ridge through the centromere.
+## Hi-C (`cenfuse.hic` and `hicfuse.py`)
 
-- **Fold score of a center**: mean observed/expected over the pairs (c - d, c + d) spanning ≥ 9 bins, both
-  mappable. A center inside an unmappable array is read from its flanks.
-- **Scan only centers with centromeric index ≥ 12.5%.** Below that a chromosome is telocentric (Levan 1964) and the
-  short arm cannot fold. Without the bound, centers near the ends won on noise.
-- **Fold point** = top center; **core** = its half-maximum run. It is coarse: 5-10% of the chromosome.
-- **Fold test**: the prior-free Hi-C peak lies inside the fold core on a majority of chromosomes, beyond chance
-  (P ≤ 0.005: 0.01 shared with the trans alignment, Bonferroni; 0.10: 0.01). Trans clustering and cis folding are
-  independent readouts, so passing validates both without the sequence line.
-- Passes in barley and P. annua; fails in all mammals, potato and rice (rice's prior-free peaks are wrong).
+Centromeres cluster in many nuclei, so the inter-chromosomal (trans) contacts of a chromosome's centromere are
+strongest with the other chromosomes' centromeres. Chromosome ends, the nucleolus and other hubs cluster too, which
+is why Hi-C is tested before it may act.
 
-### Trans arm alignment (`fold.py`, 0.10.1)
+1. **Bins.** 250 kb or coarser, chosen by the library's depth (at least 25 expected centromere contacts per bin). A
+   chromosome needs 20 bins; for genomes with small chromosomes the bins go down to the coarsest size that gives the
+   shortest one 20 bins (yeast and *Plasmodium* 10 kb; *S. pombe* and *Neurospora* 50 kb), within memory caps (at
+   most 4,000 bins on the largest chromosome). Replicate libraries of one plant are summed first.
+2. **Prior-free peak.** The Hi-C engine's own iteration, using no sequence call. It decides nothing by itself.
+3. **Anchored score.** For each chromosome, its mean contact with windows at the *other* chromosomes' sequence calls
+   (its own call never shapes its score). Where the window falls in an unmappable satellite array, the 9 mappable
+   bins nearest the call (the array's flanks) stand in for it.
+4. **Peaks.** A peak is *strong* when it passes the engine's three tests (bootstrap, leave one partner out, null
+   replicates) and is not flagged as a `hub`, `rDNA` (beside a NOR) or `telomeric` (it cannot be told from the
+   chromosome end). A flagged peak may support a call but never moves or opposes one: chromosome ends cluster in 3D
+   whatever the centromere.
+5. **Distances in mappable bins.** A peak agrees with a call within 1 bin, forgiving up to 4 unmappable bins between
+   them (a peak at an array's edge supports a call inside it); it opposes only beyond 4 mappable bins.
+6. **The test (gate).** For chromosome x, the references are the other chromosomes' `high` calls (with `medium` if
+   fewer than 4 are `high`). x passes when the references' own peaks agree with their calls on most of them, beyond
+   chance (Poisson-binomial P ≤ 0.01). Fewer than 3 references: `untested`. Where no call is `high` or `medium`
+   anywhere, the `low` calls are the references, and only agreements at clean peaks count.
+7. **Support tier.** Where agreements are beyond chance (P ≤ 0.01, at least 3) but not on most chromosomes, Hi-C
+   carries centromere information, yet its peak is often elsewhere. It may then only support: a call whose own
+   significant peak agrees goes up one level (`hic_support`); it never opposes, moves or places a call. Only
+   agreements at peaks of strength `medium` or `high` count, because randomized libraries put weak peaks on 3-6 calls
+   per genome at the edges of unmappable arrays.
+8. **Hi-C alone.** In a genome with fewer than 3 reference calls (point, regional, AT-rich centromeres) nothing can
+   test Hi-C against the sequence. There the Rabl axis decides (below): where it passed and agrees with the
+   prior-free peak, the call is `medium` (`fold_pair`, `align_pair`). Elsewhere a clean `high` prior-free peak gives
+   a `low` call (`hic_denovo_only`): the best candidate, untested. A sequence call is kept; a clean prior-free peak
+   away from it is reported (`hic_denovo_elsewhere`).
 
-The same Rabl axis read from inter-chromosomal contacts: a locus d bins from its centromere lies about d from the
-centromere pole on every chromosome, so trans contacts are enriched between loci at equal distances from their own
-centromeres (the trans 'X' of Hoencamp et al. 2021).
+## The Rabl axis: the arm fold and the trans arm alignment (`fold.py`)
 
-- **Alignment score of a center c** on chromosome x: with the other chromosomes' centers at their prior-free peaks,
-  the mean over x's mappable bins i (|i - c| > 4) of the row-centered O/E between i and the partner bins at radial
-  distance |i - c| from their own centers. The centromere cluster is left out on both sides (partner bins within 4
-  bins of their center or inside their prior-free core; x's bins within 4 of c), so the score reads arm contacts
-  only: a synthetic nucleus with clustered centromeres and no aligned arms passed the first form (code review).
-  Row-centering removes each bin's coverage and compartment.
-- Center scan (CI >= 12.5%), top center, half-maximum core and test as the fold's (P ≤ 0.005). A peak agrees when
-  it overlaps or touches the core, so the chance is (core + 2 peak) / scanned (for the fold too; 0.10 counted one
-  peak).
-- It pools every partner's contacts, so it works where one chromosome's cis map is too small for the fold: the
-  prior-free peak lies in the alignment core on 13/16 yeast (fold 6/16) and 12/14 *Plasmodium* (fold 3/14)
-  chromosomes, 6/7 *Neurospora*, 7/7 barley; 0 in every randomized control.
-- Under the alignment, only clean prior-free peaks (no hub, rDNA, telomeric, not_converged, cycle_unstable flag)
-  pair with it or oppose a call; the fold keeps 0.10's rule (barley's rDNA-flagged chr2H peak moved right).
-- **It stands in for a failed fold only where the fold leans the same way** (the fold's own agreement test at P ≤
-  0.05, the conventional level; no majority needed). It is read relative to the prior-free peaks, so any
-  configuration with arms arranged symmetrically about them looks Rabl-like: in holocentric *C. elegans* the
-  arm/center compartments are symmetric about each chromosome's middle, where the prior-free peaks also lie (3/5
-  agreements, P 0.007). The fold reads each chromosome's own cis map, independent of those positions (*C. elegans*
-  P 1, *Rhynchospora* 1, *Bombyx* 0.08), and a real Rabl axis shows in both (yeast fold P 0.005, *Plasmodium* 0.02,
-  barley at half depth 0.013). In moss, where every prior-free peak sits at a telomere, scanning ends too gave 22/26
-  (a telomere-centered rosette); the CI bound removes that. (A first form let the alignment act only in genomes
-  without gate references; it then could not rescue barley at half depth, where the fold just fails: PLAN.md
-  amendments of 16:55 and 17:05.)
+In a Rabl nucleus the centromeres sit at one pole and the arms extend toward the other, so a locus's position in
+the nucleus follows its distance from its own centromere. Two readouts of that axis can test Hi-C without any
+sequence call:
 
-### Methylation (`cenfuse.meth` engine + `methfuse.py`)
+- **Arm fold (cis).** Both arms of a chromosome run side by side, so its own contact map has an anti-diagonal ridge
+  through the centromere. The fold score of a center is the mean observed/expected contact over bin pairs (c - d,
+  c + d) at least 9 bins apart. Only centers with a centromeric index ≥ 12.5% are scanned (below that a chromosome
+  is telocentric and the short arm cannot fold). The fold core is the top center's half-maximum run.
+- **Trans arm alignment.** Arms of different chromosomes also lie side by side, so loci at equal distances from
+  their own centromeres meet (the trans "X" of Hoencamp et al. 2021). The score of a center on chromosome x is the
+  contact between x's bins and the other chromosomes' bins at the same distance from their prior-free peaks, with
+  the centromere cluster itself left out, so only the arms count. It pools every partner chromosome, so it works
+  where one chromosome's map is too small for the fold (yeast: alignment 13/16, fold 6/16).
+- **The test.** The prior-free Hi-C peak lies in the core on most chromosomes, beyond chance (P ≤ 0.005 for each
+  readout). The alignment stands in for a failed fold only where the fold leans the same way (P ≤ 0.05): the
+  alignment is read relative to the prior-free peaks, and a holocentric genome whose compartments are symmetric about
+  each chromosome's middle can mimic it (*C. elegans*: 2/5), while the fold reads each chromosome's own map.
+- **What it does.** Where the gate fails, an axis line that passed and agrees with the prior-free peak can move a call
+  that both contradict (barley: 6 calls moved, all onto CENH3).
 
-- **Anchors**: provisional calls ≥ `medium`.
-- **Signature**: calibrated with x's anchor left out.
-- **Candidate interval**: `centromere_like` when the signature score at its most extreme CHG window is ≥ 0.5.
-- **Role**: support and second line only; it never moves a call alone. Only samples from the assembled plant (or of
-  unknown origin) decide.
-- Needs `tes/` and a CHG file for every sample.
+## Methylation: CHG (`cenfuse.meth` and `methfuse.py`)
 
-### CpG kinetochores (`cdr.py`)
+The CHG line learns, leave-one-chromosome-out, what methylation looks like at the confident calls of the other
+chromosomes, and labels each candidate interval `centromere_like` when its signature score is ≥ 0.5. It supports and
+can be a second line for a Hi-C move; it never moves a call alone, and only samples of the assembled plant (or of
+unknown origin) decide. It needs `tes/` and a CHG file for every sample.
 
-In primates CENP-A sits in a CpG-hypomethylated dip of the methylated active array (the CDR). The satellite and Hi-C
-lines locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it. Inputs: the CG file of each deciding
-methylation sample (modkit bedMethyl; ENCODE bedMethyl, whose coverage and percent are modkit's own columns 10-11,
-read as counts; or a bedGraph of methylated fraction); `tes/` and CHG are not needed. The assembly check reads ENCODE
-rows too. A CHG file must be modkit bedMethyl (the provenance test reads modkit's counts of failed and differing
-calls); in any other layout it is not used (warning) and the sample's CG file is kept.
+## CpG kinetochores (`cdr.py`)
 
-- **Profile**: CpG methylation per 5-kb bin (CDR-Finder's window) on bins that centromeric-role arrays cover for at
-  least half, inside the final call: the bin's pooled calls (methylated over valid, every CpG with a call) from a
-  bedMethyl, the mean fraction from a bedGraph. DNA between arrays (CpG islands, genes) is left out. Pooling is the
-  binomial estimate at any coverage: with a 3-call floor per CpG, MMU8 thinned to 1/16 of its reads (~1 call per CpG
-  strand) lost its gate; pooled, it keeps 21/21 kinetochores within 50 kb of full depth.
-- **Dip**: the most prominent valley (higher methylation on both sides, so an array edge is never a dip), extended to
-  its half-depth run (bins below the midpoint between its bottom and the array median).
-- **Dip test**: the run is longer than in the call's own bins shuffled (200 shuffles; significant at P ≤ 0.05).
-- **Positional test**: the run is longer than when the chromosome's CpG values are rotated by 200 random offsets onto
-  the call's own CpGs and array bins (methylation from elsewhere; same size, bins and CpG density).
-- **Gate** (per chromosome, leave one out): references = the other chromosomes' `high` calls (`high` + `medium` if
-  fewer than 4 are `high`). k of n have a positional
-  dip; binomial tail at 0.05 (each reference's chance under the null) ≤ 0.01. No majority is required: the
-  positional test is conservative (passing primates: 28-95% of tested calls; rotated tracks: 4-9%).
-- **Role**: where the gate passes, every call with a significant dip test gets its kinetochore (`cpg_kt_start/end`,
-  GFF3 `regional_centromere_central_core`, Name=kinetochore). It never moves a call or changes its confidence, and it
-  cannot tell a wrong array.
-- **Assembly check**: bedMethyl rows must sit on reference CpGs (as for CHG); bedGraph rows too, at the row start or
-  one base off (public tracks differ by one base).
+In primates CENP-A sits in a CpG-hypomethylated dip of the methylated active array. The satellite and Hi-C lines
+locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 
-## Fusion rules (`fuse.py`)
+- **Profile.** CpG methylation per 5-kb bin over the centromeric arrays inside the final call; a bedMethyl's calls are
+  pooled per bin, so low coverage works (rhesus thinned to 1/16 of its reads kept 21/21 kinetochores within 50 kb).
+- **Dip.** The most prominent valley (higher methylation on both sides, so an array edge is never a dip), extended to
+  its half-depth run.
+- **Tests.** The dip is longer than in the call's own bins shuffled (P ≤ 0.05), and than methylation from elsewhere on
+  the chromosome rotated onto the call's CpGs makes (the positional test).
+- **The test (gate).** For each chromosome, the other chromosomes' confident calls hold a positional dip more often
+  than chance (binomial at 0.05, P ≤ 0.01).
+- **Role.** Where the gate passes, each call with a significant dip gets its kinetochore (`cpg_kt_*`). It changes no
+  call or confidence, and it cannot tell a wrong array: an inactive array has dips too.
+- **Inputs.** The CG file of each deciding sample (modkit or ENCODE bedMethyl, or a bedGraph of methylated fraction);
+  rows must sit on reference CpGs.
+
+## Integration (`fuse.py`)
 
 | situation | result |
 |---|---|
-| no validated line | sequence call, `sequence_only` |
-| validated Hi-C (or methylation) agrees | sequence call, `concordant`, +1 level per line (max +2) |
-| validated strong Hi-C peak > 4 mappable bins away, call `low`/`medium` | moves to the Hi-C core, `offset`, `medium` |
-| same, call `high` | moves only with a second line at the peak and not at the call: a CRM core within 4 bins, or methylation `centromere_like` at the peak and a measured dip at the call (`moved_with_te`/`_meth`, `high`). Otherwise `contested` (`hic_offset`), -1 |
+| no tested line | the sequence call, `sequence_only` |
+| tested Hi-C (or methylation) agrees | the sequence call, `concordant`, +1 level per line (+2 at most) |
+| tested strong Hi-C peak more than 4 mappable bins away, call `low`/`medium` | moves to the Hi-C core, `offset`, `medium` |
+| same, call `high` | moves only with a second line at the peak (a CRM core within 4 bins, or methylation `centromere_like` at the peak and a dip at the call): `high`. Otherwise `contested` (`hic_offset`), one level lower |
 | Hi-C peak 1-4 bins away | neither supports nor opposes (`hic_near`) |
-| competing cluster, strong peak agrees with the second one, mappable bins between them | the second cluster is chosen (`hic_chose_alt`) |
-| competing cluster with no mappable bin between it and the call (0.10.1) | Hi-C neither raises nor supports the call (`hic_alt_ambiguous`): it cannot tell the two apart (mouse: the minor- and major-satellite arrays at each chromosome's start) |
-| no sequence call, strong peak | Hi-C core, `functional_only`, `medium` |
-| no sequence call, clean medium peak | Hi-C core, `functional_only`, `low` (`hic_medium_peak`) |
-| gate not passed, axis test passed (the fold; or the trans alignment where the fold leans, P ≤ 0.05); its core and the prior-free peak agree, the sequence call at neither | moves to the prior-free core, `offset`, `medium` (`fold_pair`/`align_pair`; `moved_with_fold`/`_align` for a high call). Under the alignment only through a clean prior-free peak |
-| same, but the axis line or the prior-free peak opposes the kept call | `contested`, -1 per opposing line (`fold_offset`/`align_offset`, `hic_denovo_offset`) |
-| support tier only (significant agreements beyond chance, no majority), the call's own significant peak agrees | sequence call, `concordant`, +1 (`hic_support`); never opposes, moves or places |
-| no references anywhere (gate untested), no sequence call, clean `high` prior-free call, no axis line pairing here | prior-free core, `functional_only`, `low` (`hic_denovo_only`; `{axis}_offset` where a passed axis line points elsewhere) |
-| same, with a sequence call that the clean prior-free peak does not reach | sequence call kept, flag `hic_denovo_elsewhere` |
+| competing cluster: a strong peak agrees with the second cluster, mappable DNA between them | the second cluster is chosen (`hic_chose_alt`) |
+| competing cluster with no mappable bin between it and the call | no Hi-C support (`hic_alt_ambiguous`): Hi-C cannot tell the two apart |
+| no sequence call, strong peak | the Hi-C core, `functional_only`, `medium` (a clean medium peak: `low`, `hic_medium_peak`) |
+| gate failed, a Rabl-axis test passed, its core and the prior-free peak agree away from the call | moves to the prior-free core, `offset`, `medium` (`fold_pair`/`align_pair`) |
+| same, but the axis or the prior-free peak opposes the kept call | `contested`, one level lower per opposing line |
+| support tier only, the call's own significant peak agrees | `concordant`, +1 (`hic_support`) |
+| no references anywhere, no sequence call, clean `high` prior-free peak | the prior-free core, `functional_only`, `low` (`hic_denovo_only`) |
 
-- **Confidence**: the satellite engine's level, then ±1 per line as above. A contest keeps the level when
-  methylation supports the call. A moved or Hi-C-placed call is `medium`, `high` with a second line.
-- **Support / against columns**: `satellite` (centromeric arrays inside the call, ≥ 5 kb), `te`, `hic`, `meth`,
-  `fold`, `align`.
-- **CpG kinetochores** are added after fusion (`cdr.py`): they change no call, confidence or flag.
-- **`hic_sequence_conflict`** (per genome): Hi-C's prior-free peaks are confident but disagree with the sequence
-  calls and the gate fails. One line is wrong genome-wide. The Rabl-axis line (fold or alignment) settles it in Rabl
-  nuclei; otherwise add `tes/` or methylation.
-- **`hic_axis`, `hic_architecture`** (per genome, 0.10.1; reporting only): the axis line that acted, and what the
-  deciding library showed: `rabl_axis`, `centromere_clustering` (gate passed), `weak_centromere_clustering` (support
-  tier only), `untested` (no references, no axis), `not_detected`.
+CpG kinetochores are added after the integration and change nothing. Per genome, `hic_sequence_conflict` says when
+Hi-C's prior-free peaks are confident but disagree with the sequence calls while the gate fails: one line is wrong
+genome-wide, which only the Rabl axis, `tes/` or methylation can settle.
 
 ## Reading the integration (`morphology.py`, `interpret.py`)
 
 Nothing here changes a call; every statement is read from the tables cenfuse writes.
 
-- **Morphology.** The integrated call fixes where the arms meet. Arms are measured from the CpG kinetochore's
-  midpoint where the CpG line placed one, else from the call's midpoint: centromeric index (short arm / length), arm
-  ratio (long / short), Levan class (Levan, Fredga & Sandberg 1964: metacentric <= 1.7 < submetacentric <= 3 <
-  subtelocentric <= 7 < acrocentric; telocentric falls in the last, a sequence cannot show a missing short arm). A
-  call spanning two classes gets both; `short_arm` is `.` when the call spans the chromosome's middle (CHM13 chr1's p
-  arm is 50 kb the longer by sequence). The summary's karyotype counts `high` and `medium` calls only: a `low` call's
-  class is a guess. Sequence classes are not cytogenetic descriptors: by sequence, CHM13's acrocentric chr21 and chr22
-  are submetacentric/subtelocentric (their T2T p arms, rDNA included, are 11-15 Mb).
-- **Completeness.** Telomere arrays at the ends (telomere.py), assembly gaps (runs of >= 10 N, the satellite
-  engine's rule) on the chromosome and inside the call; `t2t` = both telomeres and no gap.
-- **basis / caveat.** One sentence each per call: the sequence evidence and its size in the call, a CRM core that
-  replaced the satellite call (with the interval of the call it replaced), a move and its second line, every agreeing
-  line, the kinetochore; then the array a TE core overruled, with where it lies (`seq_overruled_*`), every flag that
-  lowered the call, every opposing line with where it points, gaps in the call, and the input that would decide where
-  cenfuse's own tests say one can (two arrays of one satellite: CENP-A/CENH3 data, since Hi-C needs mappable DNA
-  between them and CpG methylation was tested and does not choose; satellite-free or capped calls: Hi-C or a CRM core
-  when not given).
-- **Report** (`cenfuse_report.md`): per genome, the lines and their tests, the calls by confidence and what they stand
-  on, the calls that are not `high` with their caveats, morphology and completeness, the other features with their
-  satellite share and 3D association. A failing report section is a warning; the results stay complete.
+- **Morphology.** The arms are measured from the kinetochore's midpoint where the CpG line placed one, else from the
+  call's: centromeric index, arm ratio and Levan class (Levan, Fredga & Sandberg 1964). The summary's karyotype counts
+  only `high` and `medium` calls. The classes are sequence measurements, not cytogenetic descriptors: CHM13's
+  acrocentric chr21 and chr22 come out submetacentric/subtelocentric, because their T2T short arms (rDNA included)
+  are 11-15 Mb.
+- **Completeness.** Telomere arrays at the ends and assembly gaps (runs of ≥ 10 N) on the chromosome and in the call.
+- **`basis` and `caveat`.** One sentence each: what the call stands on (the satellite and its size in the call, a CRM
+  core and the array it replaced, a move and its second line, each agreeing line, the kinetochore); then what speaks
+  against it (the overruled array, each lowering flag, each opposing line and where it points, gaps) and the input
+  that would settle it, where cenfuse's own tests say one can (two arrays of one satellite: CENP-A/CENH3 data;
+  satellite-free or capped calls: Hi-C or `tes/` when not given).
+- **The report.** Per genome, the lines and their tests, the calls by confidence, the uncertain calls with their
+  caveats, morphology and completeness, and the other features with their 3D association.
 
-## Loci (`loci.py`)
+## Constants
 
-Every candidate interval becomes a locus member:
-- satellite clusters ≥ 20 kb of feature roles;
-- TE cores;
-- Hi-C cores and hubs;
-- methylation candidates;
-- 45S and 5S rDNA arrays;
-- telomere arrays at the ends and inside the chromosomes;
-- the sequence and final calls.
-
-Overlapping members merge; only Hi-C members are padded (1 bin). Each locus gets every line's value there and the
-first kind that matches:
-
-`centromere` > `sequence_centromere` (where the call moved from) > `telomere` > `interstitial_telomeric` > `rDNA` >
-`subtelomeric_block` >
-`interstitial_block` (knobs) > `alt_centromere_candidate` > `hic_hub` > `hic_peak` > `te_core` > `satellite_block` >
-`meth_candidate` > `other`.
-
-## Constants (`cenfuse/params.py`; engines keep their own)
+Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`; each engine keeps its own
+(`sat/params.py`, `hic/params.py`, `meth/params.py`).
 
 | constant | value | reason |
 |---|---|---|
-| HIC_TOL_BINS | 1 | Hi-C placement error |
-| HIC_FAR_BINS | 4 | Hi-C opposes only beyond its partner half-window (its resolution) |
-| GATE_P | 0.01 | conventional evidence level |
-| GATE_MIN_REF | 3 | fewer references give no majority test |
+| HIC_TOL_BINS, HIC_FAR_BINS | 1, 4 bins | Hi-C placement error; Hi-C opposes only beyond its partner half-window (its resolution) |
+| GATE_P, GATE_MIN_REF | 0.01, 3 | conventional evidence level; fewer references give no majority test |
 | ANCHOR_LEVELS | high, medium | wrong anchors blur Hi-C and methylation |
 | NOT_STRONG_FLAGS | hub, rDNA, telomeric | hubs and NORs contact everything; chromosome ends are the main non-centromeric trans cluster |
-| MAX_RAISE | 2 | low → high at most |
-| METH_SCORE | 0.5 | the methylation engine's signature rule |
+| MAX_RAISE | 2 | `low` → `high` at most |
 | SAT_SUPPORT_BP | 5 kb | the satellite engine's weak-satellite floor |
-| satellite engine (`sat/params.py`): TANDEM_FRAC, ACRO_ALPHA | 0.5, 0.01 | majority rule; conventional level |
-| sat: LOCUS_FOLD | 2 | heuristic (as the Hi-C engine's hub fold) |
-| sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | nested copies are one insertion, three independent ones make a locus; conventional levels |
-| sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array (also founds a family); unit-length tolerance |
-| chromosome set (`meth/params.py`): GAP_FOLD | 10 | a tenfold step in sorted length ends the chromosomes, and a tail is a run under a tenth of the median before it that spans a tenfold range: heuristic, the methylation engine's factor reused |
-| sat: seed_overlap, FasTAN skip floor | 10 kb, 2 x overlap | the overlap is >= 2 x SEED_MAX_PERIOD, so no array of a seed-length unit is lost at a cut; at 20 kb the overlap is half the piece and each half three quarters of it, so the recursion stops there (heuristic) |
-| sat: THREADS_PER_BUILD, RELATED_LEN_TOL | 4, 15% | the fewest threads per build while families remain: MAFFT is 3.6x faster at 4 threads and 5.6x at 16 (*Panax* fam006, identical alignment), so 4 builds of 4 beat 1 of 16, and spare threads go to the builds; length tolerance of related families (subfamilies with indels) |
-| sat: progress step, heartbeat | 10%, 1 h | a line per tenth of the work; a line after an hour without one, checked only when a search finishes (so while every thread is busy with a long search the log can stay quiet for longer) |
-| fold: S_MIN, CI_MIN | 9 bins, 12.5% | beyond the ± 4-bin centromeric domain; Levan's telocentric bound |
-| Hi-C engine (`hic/params.py`): BIN_LADDER | 5 kb, 10 kb, 50 kb, 250 kb, 500 kb, 1 Mb, 2 Mb | each a multiple of every finer one: coarsening the base matrix is exact |
-| Hi-C engine: STD_FLOOR | 250 kb | 0.9's finest bin, kept while every chromosome has 20 bins at it: finer bins only make small chromosomes callable |
-| Hi-C engine: MAX_CHROM_BINS, MAX_GENOME_BINS | 4,000, 50,000 | memory: the largest dense cis block (128 MB) and the genome matrix with its bootstrap copies (0.9 ran 3-4-Gb genomes at 12,000-16,000 bins) |
-| CpG (`cdr.py`): BIN, MIN_SITES, MIN_BINS | 5 kb, 10 CpGs, 10 bins | CDR-Finder's window; heuristics (a dip needs shoulders) |
-| CpG: N_PERM, N_ROT, DIP_P | 200, 200, 0.05 | P resolution 10× finer than the conventional level |
-| 5S (`rdna.py`): FIVE_S_E, FIVE_S_UNIT_MAX, MIN_UNITS | 1e-5, 20 kb, 3 | the satellite engine's nhmmer E; twice the longest 5S-bearing unit (9.1-kb yeast rDNA); a tandem array |
-| morphology (`morphology.py`): LEVAN, GAP_MIN_N | 1.7 / 3 / 7, 10 N | Levan et al. 1964 (convention); the satellite engine's gap rule (assemblers write gaps as >= 10 N) |
+| METH_SCORE | 0.5 | the methylation engine's signature rule |
+| fold: S_MIN, CI_MIN; axis P | 9 bins, 12.5%; 0.005 (0.05 to lean) | beyond the ± 4-bin centromeric window; Levan's telocentric bound; 0.01 shared by two readouts (Bonferroni) |
+| Hi-C bins | 5 kb-2 Mb ladder, ≥ 20 bins per chromosome, ≤ 4,000 per chromosome, ≤ 50,000 per genome | each size a multiple of every finer one; a centromere needs flanks; memory |
+| sat: TANDEM_FRAC, ACRO_ALPHA, LOCUS_FOLD | 0.5, 0.01, 2 | majority rule; conventional level; heuristic |
+| sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | three independent insertions make a locus; conventional levels |
+| sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array; unit-length tolerance |
+| chromosome set: GAP_FOLD | 10 | a tenfold step in length ends the chromosomes (heuristic) |
+| CpG: BIN, MIN_SITES, MIN_BINS; N_PERM, N_ROT, DIP_P | 5 kb, 10 CpGs, 10 bins; 200, 200, 0.05 | CDR-Finder's window; a dip needs shoulders; P resolution 10× finer than the level |
+| 5S: E, unit max, copies | 1e-5, 20 kb, 3 | the satellite search's E; twice the longest 5S-bearing unit (yeast rDNA); a tandem array |
+| morphology: Levan bounds, gap | 1.7 / 3 / 7, 10 N | Levan et al. 1964; assemblers write gaps as ≥ 10 N |
 
-## Decisions and alternatives tried
+## Choices tested and rejected
 
-| question | chosen | tried and rejected (why) |
+| question | chosen | rejected, and why |
 |---|---|---|
-| fix Hi-C from inside the Hi-C data | anchor to the sequence calls | random restarts and caps: held-out accuracy unchanged |
-| Hi-C partner windows over unmappable arrays | engine window if mostly mappable, else the 9 nearest mappable bins | padding every window: lost agreements in CHM13, chimpanzee, S. orangutan. Replacing only empty windows: right peaks 97 → 86 of 139 |
-| blind bins in Hi-C distances | ≤ 4 forgiven for agreement, none for opposition | full credit: let Hi-C support a wrong bonobo call |
-| gate chance | uniform share + majority of the whole reference set | chance from the null replicates: removed 1 of 2 spurious passes on randomized sheep Hi-C (the majority removed both) |
-| NOR detection | 18S motif scan | Rfam SSU HMM search: stalled for minutes on low-complexity sequence |
-| 5S detection | Rfam 5S HMM scan, whole genes in tandem | satellite families tagged by Rfam (kept): miss units > 2 kb (mammals, birds) and arrays outside the 40 families |
-| Hi-C from a Juicer `.hic` | stop with the `hictk convert` recipe | reading `.hic` natively: a new dependency for what one command does (rice: converted `.mcool` gives the same calls as the pairs) |
-| LTR elements without a lineage (fungi) | not used | pooling them when no lineage concentrates (Cryptococcus JEC21 1 -> 10/14 on CENP-A with 20-kb TE bins): in fish and *Oryza minuta* B the pool lifted the no-dominant cap (`low` -> `high`). Again with the per-call cap, unclassified elements inside satellite arrays left out and a pool that never lifts the cap: JEC21 10/14 and the hybrid's D subgenome 0 -> 10/13 (all `low`, none wrong), but the pool still qualified in 9 fish genomes (18-46 flags each, no truth there) and the 20-kb bins lost a CRM call in *O. punctata* |
-| dispersed-repeat test | tandem + whole-unit + locus fold | without the locus fold: 160 batch calls moved off TE-derived centromeric arrays (Coffea, Glycine, Rosa) |
-| CRM core vs classify's choice | the core may favor only the largest cluster | any cluster the core touches: lost the CENH3 call of Ae. geniculata chr02U |
-| decisive core vs a distant confident satellite call | the core replaces it only if the clade marks the core significantly more (binomial head-to-head) | the core always (v7): A09 wrong with `tes/` in B. rapa CC1/CC2 (9/10 vs 10/10 without), soybean X26 chr1/chr6 (17/20 vs 20/20). Bootstrap of the core position (keep the call unless <= 1% of resampled cores agree): fixed A09 but lost P. annua Pa1A, whose satellite sits on a real second CRM cluster (15% agreement vs A09's 6%). Element counts without a margin: A09 16 vs 18 |
-| confident satellite call beside a decisive core | the core replaces it if the clade marks it significantly more (the same binomial head-to-head) | kept as agreeing (v7): Ae. tauschii Chr2/Chr4 arrays 5-7 Mb beside a 292-332-element CRM core holding CENH3 (3/7 with `tes/`; with the rule 5/7); replay: 17 calls in 15 genomes move to the core, with truth Ae. geniculata chr02M wrong -> right, S. verrucosum chr05 wrong -> wrong (closer); B. rapa A06 (call holds more CRB than the core) kept |
-| TE core floor | 3 independent insertion sites | 5 elements (v7): *Chlorella* Osser cores on 5/12 chromosomes, no marker. Sites in the binomial test too: cores moved in 113/220 replay genomes |
-| skip dispersed families on a sample of the genome (sample screen) | not adopted | every model searched on each chromosome's end chunks + every 5th chunk; a family skipped elsewhere when the sample shows at P <= 0.01 that classify would call it dispersed, and dropping it changes no other family's sampled arrays. Simulated on 216 stored annotations: 0 false skips. On real runs (sheep, mouse, S. orangutan, moss, *Brachypodium*): 0 skips. Dispersed families overlap each other on the same retrotransposon copies, and dropping them changes a few sampled arrays of small families (mouse: of the minor and major satellites); the check is needed (without it moss Chr08's call moved); < 7 chromosomes never reach the sign test; families whose hits rarely chain into arrays cannot be measured. Without the check mouse would gain <= 1.6x |
-| FasTAN reruns (reproducibility) | FasTAN under `setarch -R` (address-space randomization off) where the OS allows | as is: FasTAN 0.8's cuts depend on memory layout (one moss 5-Mb chunk, 5 runs: 17/982 arrays cut differently), so consensuses, families and some calls varied between fresh runs (moss: 5 call boundaries, one by 0.9 Mb); off: 5/5 runs identical; two whole fresh moss runs identical apart from header dates and commands |
-| fold center selection | centromeric index ≥ 12.5% | lower confidence bound of the mean: biased to the chromosome middle (barley 2/7) |
-| Hi-C peaks in end bins | support only, never oppose | (rice chr4: an end-bin peak contested a correct call) |
-| numpy huge pages | off by default | on: Hi-C bootstrap 30× slower on fragmented memory |
-| CRM on a minority of chromosomes | its cores replace the marker's per chromosome | CRM as the genome's marker when its cores beat chance (binomial, P <= 0.01): with 5 chromosomes one core is enough, and in TAIR10 one CRM core displaced Athila (te_concordant on 5/5), two right `high` calls fell to `low` |
-| Hi-C that finds the centromeres beyond chance but not on most chromosomes | a support tier: supports agreeing calls only (+1) | the 0.9 rule (no role at all): goat, rhesus, giraffe, horse, EquCab3, moss and chicken peaks that agree with calls were right 61/64 and were not used. Opposition or moves on this tier: not adopted (a disagreeing peak is weak evidence; many disagreeing calls are right) |
-| genomes without sequence calls (point, regional, AT-rich centromeres) | Hi-C's clean `high` prior-free calls as `low` calls | nothing (0.9: no Hi-C call where no test is possible; yeast 0/16 calls). Validating them with the Rabl polarity test: it passes in nearly every genome, randomized Hi-C included. With the arm fold: fails in yeast (6/16) and *Plasmodium* (3/14), whose prior-free calls are 16/16 and 14/14 right |
-| bins finer than 250 kb | only where a chromosome has < 20 bins at 250 kb, down to the coarsest size that makes the shortest one callable | a fixed 250-kb floor (0.9: chromosomes < 5 Mb never analyzed). The finest size the depth allows everywhere: changes every mid-size genome's results without a reason in them |
-| trans O/E with an end-distance expected (removes generic telomere clustering) | not adopted | oracle-anchored peaks on truth: moss 23 -> 25/26 but sheep 9 -> 5, chicken 7 -> 6, goat 12 -> 11 (v10 dead_ends.md); end peaks surviving the correction: right 15, wrong 16 |
-| prior-free clustering from many starts | not adopted | potato: every start except the truth converges on a non-centromeric set 3.5x more mutually clustered than CENH3 (the 0.x note "random restarts: accuracy unchanged" holds) |
-| cis profiles (insulation, compartment) as 3D lines | not adopted | informative in single genomes only (tomato insulation maximum on CENH3 9/12, potato minimum 6/11, mammals at chance), and no per-genome test is specific: cis-anchored trans agreement fires on telomeres and on rice's non-centromeric features (8/12 at P 2e-10, 0 right). A lead in future.md |
-| telomeric Hi-C peaks | never strong, so never move a call (ends cluster in 3D whatever the centromere: all 10 such peaks in rice, barley, CHM13 and orangutan wrong; at reduced depth plant ones 0/27 right, other peaks 27/120) | strong when the LTR marker's core lies within 4 bins: moss (11/26 CENH3 domains within 2 Mb of an end) 22 -> 26/26, all confident, and no other run changes; moss alone prompted it and is the only genome where it acts (lead) |
-| Hi-C pairs without MAPQ columns | a warning (uniqueness not checked) | an input check reading pairtools' parse command, or refusing such pairs: not needed. The same reads kept at MAPQ >= 1 changed no gate or fold and made no call confidently wrong in 5 genomes (CHM13, orangutan, rice, barley, moss); multi-copy repeat reads map at MAPQ 0, which pairtools drops at any floor |
-| Hi-C fragility | reported as depth guidance | a split-half check (gate and fold rerun on half the contacts, flag when the result flips): stable genomes agree with another random half (13/13), but where two halves disagree with each other (rice, barley's fold, both orangutans, *P. annua*'s fold) one half matched another in 1/5, and Hi-C time doubles |
-| CpG bin estimate | pooled calls per bin (bedMethyl) | mean of per-CpG fractions with >= 3 calls (the CHG floor): kinetochores within 50 kb of full depth at 1/8 and 1/16 of the reads: MMU8 15.3 and 0 of 21 (gate fails), MFA8 21 and 14.3; pooled: 21 everywhere |
-| CpG dip inside a call | most prominent valley on array bins, half-depth run | deepest bin: lands on array edges (CHM13). Longest run below half the median: on the CDR 52/90 (valley 88/90) |
-| CpG dip significance | shuffle test per call; positional (rotation) test for the gate | equal-length windows of other satellite DNA as null: infeasible where most satellite DNA is centromeric (MFA8: 3.7 Mb outside calls vs 3.5-11 Mb calls). Dips in calls vs dips in satellite clusters away from calls: passed on rotated (misplaced) methylation in gorilla, because long calls hold coherent runs of any structured profile |
-| pyhmmer search pipelines (memory) | one per thread, reused (`annotate.search_one`) | a new pipeline per search (pyhmmer's `nhmmer()`): each sits in a reference cycle and its workspace waits for Python's full collection (chicken 277 GB). glibc `malloc_trim` after each search: 229 GB. Model-major job order: 125 GB. Smaller pyhmmer blocks: less memory, but hits change |
-| MAFFT threads (reproducibility) | `--thread N --threadit 0` | `--thread N` alone: the multithreaded refinement gave a different alignment on every run (4 runs, 4 HMMs). `--thread 1`: reproducible but 2.5× slower MAFFT |
-| TE marker among several qualifying clades | most concentrated (median core share) | chromosomes with a core first: picked Retand over Tekay in *Arabidopsis* (DANTE_LTR), but agreed less with the satellite calls over the 185-genome batch (te_discordant 111 → 129) |
-| centromeric region (call + satellite clusters chained through gaps <= 500 kb) and a `pericentromeric_block` kind | not adopted | held out (HG002 CenSat, 5 ape centromeric regions): apes median precision 0.07 (an interspersed 1.5-kb family classed `interstitial` chains whole chromosomes), HG002 median recall 0.60 (0.5-0.7-Mb non-satellite stretches stop the chain); a longer gap would be fitted to this truth |
-| chromosome-scale loci from an interspersed family classed as a satellite | the family's role follows classify's own dispersed-repeat test (`dispersed`) | loci members that are mostly satellite (sparse clusters split into dense runs): removed the chromosome-scale loci of 5 genomes but made thousands of small loci of the same family (chimpanzee +5,757); dropping sparse clusters would erase diffuse real satellites (barley subtelomeric, 108/156 clusters) |
-| GFF3 feature types | Sequence Ontology terms; cenfuse's kind as `kind=`, members linked by `locus=` | cenfuse's own kinds as types (`interstitial_block`, `hic_hub`): no SO validator or annotation pipeline accepts them. `Parent=` for members: GFF3's Parent means SO part_of, and a satellite block is no part of a centromere (gt gff3validator rejects it) |
-| CpG choosing among satellite clusters | not done | least-methylated window anywhere: on the CDR 3/23 (CHM13). Most prominent valley across clusters: wrong cluster on 8-10/25 (orangutans). A cluster with half the call's valley floor: 6 changes in 7 primates, 1 right (B. orangutan), 2 wrong (CHM13) |
-| chromosome set | 0.8's set (the sequences above the first >= 10x drop between neighbors, after half the assembly), ended before a gradual scaffold tail (the sequences from the first one after half the assembly under a tenth of the median length of those before it, when they span >= 10x); a `<genome>.chromosomes.txt` replaces the rule | 0.8 alone: a gradual tail has no tenfold step, so it took the whole tail (*Cissus*: 646 extra sequences for 24 chromosomes; 5,614 extra over 121 polyploid assemblies), which dilutes the prevalence tests (rerun on the assemblies' own chromosome lists: *Cissus* 0 -> 14 `high` calls with all 24 positions unchanged, *Mimulus* 9 -> 25). The median cut alone: 27 extras, but on synthetic karyotypes it drops dot chromosomes that 0.8 keeps (*D. melanogaster* chromosome 4 beside the Y: 7 -> 6; a chicken with five 0.3-1.5-Mb dot chromosomes added: 45 -> 40). The mean instead of the median: 33 extras and a chicken microchromosome lost (40 -> 39). The largest neighbor ratio after half the assembly: 106 extras, 3 listed chromosomes lost, 11 of 234 benchmark and batch sets changed |
-| `--classify-from` targets | keep 0.8's rule | the tail test: a target is a contig assembly, with no chromosome/scaffold distinction for it to find |
-| chromosome-set record for the resume guard | written once the satellite engine is set up, before it runs | after the engine finishes: a run that fails after its seeds leaves seeds made on the new set beside the old record, and a return to the old set then passes the guard and resumes on them; and a first run that fails after its seeds leaves no record, so the next run is compared with 0.8's rule and can stop although nothing changed |
-| seed cache key | the chromosome set joins the key whenever the real FASTA has no `.fai` of its own to compare with | the FASTA md5 alone, as before: when the user's FASTA is a symlink indexed beside the link, two chromosome sets of one file shared an entry, so `--force satellite` (the guard's own advice) reused the old set's seeds. Such folders compute their seeds once more; with the real file indexed (the standard layout) every key is unchanged (4 stored runs checked) |
-| FasTAN crash (SIGABRT on a large array) | split the piece in two halves overlapping by 10 kb and retry, recursively, on a crash signal only (SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL); skip a piece of <= 20 kb that still crashes, with a warning; record every crash; stop when no piece of a chunk longer than 20 kb was searched | 0.8: the first crash stops the run (two genomes of an allotetraploid plant set died, *Sonchus oleraceus* and *Oryza minuta*, both with the crash inside a high-confidence centromere call, so complete assemblies are hit hardest). Splitting on any failure: SIGKILL is the OOM killer and SIGTERM or SIGINT the scheduler or the user, not FasTAN's bug, and a retry on smaller pieces would hide the cause. Skipping without a ceiling: if FasTAN crashed on every piece after its self-test passed, the run would log a skip per piece and go on with almost no seeds, a satellite-free result that reads as biology; the known crash is local (*Oryza minuta*: 0 bp lost after 4 splits; the local patch that recovered both genomes stopped on a crash of any piece under 200 kb, and neither genome had one) |
-| family models built in parallel | concurrently, at least 4 threads each (with fewer families than threads // 4, the threads are shared out among them); a build is kept if no earlier family it started without is a frame candidate for its queries (length within 15%), or if its recorded rotations replay unchanged with all earlier families; else rebuilt with all of them | rebuilding on every flag (the length test alone): 33 of 40 *Panax* families flagged, 11 for real and the rest length coincidences, and the rebuilds ran one after another in family order: model phase 1,927 s against 1,755 s serial. One thread per build (threads // workers): MAFFT is 3.6x faster at 4 threads and 5.6x at 16. Exactly 4 threads per build: with fewer families than builds the spare threads idled (16 threads, 2 families: 8 idle) |
-| seed clustering speedup | none in 0.9; the rounds are logged | aligning only the pairs `seed_match` can consult (length-banded, N-padded databases, `-dbsize` pinned): 10x on *Acanthus* (266 + 69 s against 2,223 + 1,123 s) with identical clusters on 8 genomes, but BLAST's hit lists differ for 0.2-0.5% of those pairs (borderline hits near E 1e-5 depend on the query batch), so it is not exact by construction. Queries as single-thread jobs on the same database: 1.6-1.9x per call, hits differ (3 of 873k). `-mt_mode`: hits identical in 12 of 13 reruns, times mixed. [future.md](future.md) |
-| CPU time per family | a work table (`search_cost.tsv`) and log lines | columns of `satellite_families.tsv`: a results file would differ between fresh runs |
-| array replaced by a TE core | reported in `seq_overruled_*` (satellite summary: `overruled_*`) and named in the caveat | `seq_alt_*`: fusion lets validated Hi-C move a call to the alternative cluster (`hic_chose_alt`), so the replaced array would become a candidate and change calls |
-| overview pages | drawn, saved and closed one at a time | all pages built first (0.8): a 670-sequence assembly held 28 figures open (matplotlib warns at 20) and 243 MB; one at a time: 1 figure and 144 MB, the same PDF and PNG |
+| fix Hi-C from inside the Hi-C data | anchor to the sequence calls | random restarts and caps: accuracy unchanged; in potato every start converges on a non-centromeric cluster 3.5× more mutually connected than the CENH3 set |
+| Hi-C partner windows over unmappable arrays | the 9 nearest mappable bins | padding every window: lost agreements in three apes |
+| Hi-C peaks at chromosome ends | flagged only where a peak cannot be told from the end; such peaks support, never move | an 8-bin end window: moss centromeres 3-6 bins from the end could not move wrong calls. Contact-based tests (the other end's height, mirrored windows) did not separate right from wrong end peaks |
+| Hi-C that finds centromeres beyond chance but not on most chromosomes | support agreeing calls only | no role (the agreeing peaks were right 61/64 times); letting it oppose or move (a disagreeing peak is weak evidence) |
+| genomes without sequence calls | Hi-C's clean prior-free peaks as `low` calls, `medium` with a Rabl-axis line | a Rabl polarity test: passed on randomized Hi-C too |
+| cis profiles (insulation, compartments), an end-distance expected for trans contacts | not used | informative in single genomes only (tomato, potato), with opposite signs and no per-genome test |
+| Hi-C depth fragility | reported as depth guidance | a split-half check: unstable halves did not predict each other, and Hi-C time doubles |
+| `.hic` files | stop with the `hictk convert` recipe | reading `.hic` natively: a new dependency for what one command does |
+| a CRM core vs a confident distant or adjacent satellite call | replace only if CRM marks the core significantly more | always replace: wrong on *B. rapa* A09 and soybean chr1/chr6. A bootstrap of the core position: lost *P. annua* Pa1A |
+| TE core floor | 3 independent insertion sites | 5 elements: missed *Chlorella*'s 2-7-insertion centromeres |
+| LTR elements without a lineage (fungi) | not used | pooling them found *Cryptococcus* centromeres (10/14, `low`) but lifted the honesty cap in fish and *Oryza* genomes |
+| several qualifying TE lineages | the most concentrated | chromosomes with a core first: agreed less with independent satellite calls |
+| CpG dip inside a call | most prominent valley, half-depth run | deepest bin: lands on array edges. Longest run below half the median: on the CDR 52/90 (valley 88/90) |
+| CpG null | positional (rotation) test for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla |
+| CpG choosing between arrays | not done | least-methylated window: on the CDR 3/23; most prominent valley across clusters: wrong cluster on 8-10/25 |
+| the centromeric region (call + nearby satellite clusters) | not reported | held out: precision 0.07 in apes (an interspersed family chains whole chromosomes) |
+| chromosome set | tenfold drop, tapering tail cut, optional list | the drop alone kept 5,614 extra scaffolds over 121 polyploid assemblies; other cuts dropped dot chromosomes or microchromosomes |
+| a sample screen to skip dispersed families | not used | no family was skipped on real genomes |
+| a faster, inexact seed clustering | not used | 10× faster, but BLAST's hit lists differ for 0.2-0.5% of pairs, so it is not exact by construction ([future.md](future.md)) |
+| GFF3 feature types | Sequence Ontology terms, cenfuse's kind as `kind=` | cenfuse's own kinds as types: no validator or pipeline accepts them |
 
 ## Known risks
 
-- The gate takes the sequence calls as references. If those are wrong genome-wide, only the fold (Rabl nuclei),
-  `tes/` or methylation can rescue Hi-C. Potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of
-  them (v10 survey), so the signal is there; the anchors are not.
-- Support tier: a wrong call that sits on a non-centromeric trans cluster (heterochromatin, a knob) can agree with
-  Hi-C and be raised (1 of the 64 stored agreements: potato, where the strongest trans cluster is not the centromeres;
-  its genome has only 2 agreements, below the tier's floor of 3).
-- Hi-C alone (`hic_denovo_only`) trusts the strongest trans cluster to be the centromeres where nothing can test it;
-  in a genome without sequence calls whose dominant trans cluster is something else, these `low` calls are wrong. A
-  holocentric genome without sequence calls would get them too: *C. elegans* Hi-C (N2 embryos) has clean `high`
-  prior-free calls on 3 of 6 chromosomes; its 6 `low` sequence calls keep the rule off there.
-- One wrong Hi-C peak in a genome where Hi-C mostly works passes the gate. Only `high` calls need a second line to move.
-- Hi-C tests lose power gradually but flip at their threshold: the gate failed in both orangutans at half depth and
-  barley's fold below its 9.2 M pairs; the pig gate passed only at 10-25% depth. A failed test reverts to the sequence
-  line (no mammal call became confidently wrong at any depth). One random half does not flag them reliably (tested); the
-  share of several halves passing might.
-- The decisive CRM test counts chromosomes with a significant core: annotation sensitivity matters (potato: 214 CRM
-  elements give exactly a majority; half of them, DANTE_LTR or EDTA's intact set do not).
-- Centromeres within 8 Hi-C bins of a chromosome end: Hi-C cannot move a call there (`telomeric` flag), and without
-  `tes/` its gate cannot pass where every sequence call is `low` (moss FASTA + Hi-C: 0/26). Moss keeps 4 wrong `low`
-  calls where Hi-C and the Bryco core both sit on CENH3.
-- Satellite-free centromeres beside large pericentromeric satellites are beyond the sequence lines: in tomato
-  Heinz 1706, 11/12 CENH3 domains hold no satellite array and no LTR clade marks them; the dominant 53-bp satellite
-  (largest cluster on 7/12 chromosomes, so no honesty cap) took 7 confident wrong calls (1/12 right).
-- Methylation leave-one-out signatures need ≥ 3 anchors with data.
-- Hi-C resolution is a mappable bin (250 kb-2 Mb). Offsets inside an unmappable array are invisible.
-- CpG kinetochores need an array long enough for a dip with shoulders (≥ 10 bins with data). A small array that is
-  hypomethylated as a whole (bonobo and B. orangutan minicentromeres) is not refined, and CpG never chooses it.
-- The CpG line was designed on the same primates it is benchmarked on (docs/benchmark.md says which tests are held out).
-- Satellite-search memory: about one pyhmmer workspace per thread (model length × the 256-kb search block, up to ~2.4
-  GB for 2-kb units): chicken 58 GB at 24 threads (277 GB before v5), *Arabidopsis* 4.8 GB at 8.
-- The chromosome-set rule cannot tell an unplaced scaffold from a short chromosome by length. The tail cut's own
-  failures, where 0.8 kept the chromosomes: dot chromosomes followed by a gradual scaffold tail are cut with the tail (a
-  bird-like karyotype of 37 chromosomes plus 300 scaffolds tapering from 0.4 Mb: 0.8 keeps all 337 sequences, 0.9
-  keeps 31 and drops six 0.5-1.4-Mb dot chromosomes; with a clean gap before the scaffolds both keep 37), and small
-  chromosomes that themselves span a tenfold range are cut as a tail. Shared with 0.8: a dot chromosome more than
-  tenfold shorter than every other chromosome with nothing between stays out (*D. melanogaster* X, 2, 3 and 4 without
-  the Y), and large unplaced scaffolds can stay in (31 sequences in 12 of 121 polyploid assemblies). A list in
-  `<genome>.chromosomes.txt` settles any of them, and must name every chromosome.
-- FasTAN crash recovery skips a piece of at most 20 kb that still crashes; only a chunk of which no piece was searched
-  stops the run, so pieces skipped here and there in many chunks would pass with a warning each. The genome's summary
-  line counts the bp skipped (an upper bound: skipped pieces overlap their neighbors).
-- The time left in the progress lines is a linear extrapolation of the work done, and the work (bp x model length)
-  ignores that families differ in cost per unit (*Arabidopsis* Col-CC: one 502-bp family took 75% of the search CPU),
-  so it can be far off: at 8 threads the line at 90% said about 46 s left and the last tenth took 5 min. The hourly line
-  is checked when a search finishes, so while all threads are busy with long searches the log can stay quiet for longer.
-- Satellite outputs of earlier versions read with `--satellite-dir` keep their version's rules: before v7 an
-  interspersed family classed `interstitial` (one 0.5-1.9-kb family each in chimpanzee, bonobo, S. orangutan, rhesus
-  and sheep) chains into chromosome-wide clusters and chromosome-scale loci; before v8 the TE floor is 5 elements, a
-  CRM core replaces every confident distant call, two-copy duplications can found families, and FasTAN's cuts vary
-  between runs; before 0.9 the chromosome set was 0.8's and a replaced call was not recorded (`overruled_*` read as
-  empty). A rerun in an earlier version's output folder stops at the first changed stage (`seeds` from v7): rerun the
-  satellite engine (`--force satellite`) to apply the current rules. A 0.8 folder keeps its satellite checkpoints (0.9
-  changed no satellite stage version) unless its chromosome set changed; cenfuse's own stages carry cenfuse's version
-  in their keys and are computed once more after the upgrade.
-- Morphology is only as right as the call: a wrong call gives a wrong class (`low` calls are kept out of the summary's
-  karyotype). An incomplete chromosome (a missing telomere, gaps) shifts the index.
+- The Hi-C test takes the sequence calls as references. Where those are wrong genome-wide, only the Rabl axis,
+  `tes/` or methylation can rescue Hi-C (potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of
+  them; anchored at the calls, none).
+- Hi-C alone trusts the strongest trans cluster to be the centromeres. In a genome without sequence calls whose
+  dominant cluster is something else, its `low` calls are wrong; a holocentric genome without sequence calls would get
+  them too.
+- One wrong Hi-C peak passes in a genome where Hi-C mostly works; only `high` calls need a second line to move.
+- Hi-C tests lose power gradually but flip at their threshold (both orangutans at half depth); a failed test reverts
+  to the sequence line.
+- The decisive CRM test needs a sensitive annotation (potato: 214 CRM elements give exactly a majority).
+- Satellite-free centromeres beside a large pericentromeric satellite are beyond the sequence lines (tomato).
+- Hi-C resolution is a mappable bin (10 kb-2 Mb); offsets inside an unmappable array are invisible.
+- The CpG line was designed on the primates it is benchmarked on; rhesus, *Arabidopsis* and HG002 were held out.
+- Morphology is only as right as the call; an incomplete chromosome shifts the index.
+- Satellite outputs of earlier versions read with `--satellite-dir` keep that version's rules; rerun with
+  `--force satellite` to apply the current ones.
+
+## Engineering notes
+
+- **Reproducibility.** FasTAN's array cuts depend on memory layout, so it runs with address-space randomization off
+  (`setarch -R`); MAFFT's refinement runs single-threaded (`--threadit 0`). Fresh runs are then identical.
+- **Memory.** One pyhmmer search pipeline per thread, reused: a new pipeline per search held its workspace until
+  Python's garbage collection (chicken: 277 → 58 GB).
+- **Parallel family models.** A family's model is built in the frame of the most similar earlier family, so models
+  are built concurrently but accepted in family order, each rebuilt if an earlier family it did not see could have
+  changed it: the result is the serial one (*Panax*: families stage 3.4× faster at 16 threads).
+- **FasTAN crashes** are recovered by splitting the piece ([outputs.md](outputs.md#running)).
+- **Resume guard.** The satellite checkpoints stand on the chromosome set, which is recorded before the engine runs; a
+  changed set stops the run instead of reusing seeds made on other sequences.
 
 ## Tests
 
-`pytest -q -n 8`: 753 tests on small synthetic fixtures (about 3 min).
-- Unit tests of every rule above.
-- A synthetic end-to-end genome with planted cases: a functional offset with a CRM core (must move), the same
-  without a second line (`contested`), a hub decoy, a satellite-free chromosome, permuted Hi-C (no moves), three
-  plants.
-- One full run of the satellite engine on its synthetic genome.
-- CpG: planted dips (found, positional), shifted tracks and dips everywhere (gate fails), every input format (modkit
-  and ENCODE bedMethyl, bedGraph), malformed rows, the bedGraph assembly check, and a CG-only table that changes no
-  call.
-- Inputs: `.gff`/`.gtf` annotations, two gene files for one genome, and a `.hic` or BAM in `hic/` (stops with the
-  conversion recipe).
-- Reading: Levan classes at their bounds, arms from the kinetochore, gaps across scan chunks; one sentence test per
-  relation and flag; the synthetic run's report (every chromosome, the moved, contested and placed calls).
-- Chromosome set: the length rule on synthetic length vectors (a gradual tail, a deep tail, dot chromosomes before a
-  clean gap, the documented limit), equal to the rule written out in full on 600 random vectors, a million contigs
-  counted in one pass; the list file (hand-written and Windows files, unknown and duplicate names, an empty list,
-  `--classify-from` targets); the resume guard, with a stand-in for the satellite engine that writes only its seeds
-  checkpoint (same set, changed set, no record, forced reruns, a run that fails after its seeds, `--satellite-dir`
-  imports); cache keys of both FASTA layouts; the note when the tail cut fires, and the 0.8 wording otherwise.
-- FasTAN crashes (a stub that dies by signal): the recursion, absolute offsets, the 20-kb floor, pieces at a
-  sequence's edges and mostly N, kills and exit statuses that still stop the run, the crash table beside the cache; a
-  chunk crashing on every piece stops the run with the chunk and the crash table named, while one crashing piece among
-  searched ones, a short crashing sequence and a mostly-N chunk whose one array crashes do not.
-- Parallel family models: the acceptance and replay rules, output byte for byte equal at 1 (the serial build), 4 and
-  16 threads, a failing build that raises instead of hanging, no reference that is not accepted; the thread split.
-- Progress and cost: each tenth once, the hourly line, no line for no work, thread safety; one cost row per family and
-  shares that sum to 1, no lost search under concurrent callbacks, `satellite_families.tsv` columns those of 0.8, and a
-  malformed cost table that only warns while the output stage completes.
-- Plots: a genome with more pages than matplotlib's warning limit ends with one figure open at a time, and none after
-  an error.
-- Replaced calls: each branch of the CRM replacement records its interval, `.` for outputs of 0.8, and the basis and
-  the caveat name it.
-- Hi-C bins (0.10): candidate sizes for large, yeast-like, *Plasmodium*-, *S. pombe*- and chicken-like karyotypes,
-  the memory caps, an organelle ignored; the ladder's sizes divide each other; a synthetic yeast-like Rabl genome
-  (16 chromosomes of 0.23-0.9 Mb) called at 10 kb with its centromeres found; a 1-Mb contig that makes 50 kb a
-  candidate on a library too shallow for it (250 kb chosen, the contig reported as not callable).
-- Support tier: significant agreements beyond chance without a majority (leave-one-out counts, the floor of 3, high
-  chance, low-level agreements ignored); it raises an agreeing call one level, needs the call's own significant
-  peak, never opposes, moves or places, and needs a clean peak with low references.
-- Hi-C alone: a `low` call where no test is possible, none where a sequence call, a gate test or a passed fold
-  exists, none from a medium, low or flagged prior-free call; the `hic_denovo_elsewhere` note; their sentences.
-- Pairs layouts: HiC-Pro (12 and 8 fields), Juicer long, medium, short and short-with-score, plain and gzip, read
-  like the 4DN pairs of the same contacts; the 7-field read-ID layout kept 0-based; an unknown headerless layout
-  stops with the layouts read; HiC-Pro and Juicer files found as libraries.
+`pytest -q -n 8`: 774 tests on small synthetic fixtures (about 3 min). They cover every rule above with unit tests; a
+synthetic genome with planted cases (a Hi-C move with a CRM core, the same without a second line, a hub decoy, a
+satellite-free chromosome, randomized Hi-C, three plants); a full satellite-engine run on its synthetic genome;
+planted CpG dips and every methylation format; every Hi-C pairs layout; a yeast-like Rabl genome called at 10-kb
+bins; the chromosome-set rule, the list file and the resume guard; FasTAN crash recovery; parallel family models
+byte for byte equal to the serial build; the report's sentences.
