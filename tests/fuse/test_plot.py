@@ -42,14 +42,14 @@ def _fig(rdna, n=1):
 
 
 def test_overview_marks_45s_and_5s_rdna_arrays():
-    """45S arrays (NORs) as filled and 5S arrays as open green diamonds at their midpoints, in the key and the legend;
+    """45S arrays (NORs) as filled and 5S arrays as open gray diamonds at their midpoints, in the key and the legend;
     a genome without either says so."""
     from matplotlib.colors import to_hex
     f = _fig(dict(nors=[("c1", 100_000, 400_000, 30, 9_100)], five_s=[("c1", 8_000_000, 8_200_000, 80, 500)]))
     fig = plot._pages(f)[0]
     marks = sorted((float(x.get_xdata()[0]), to_hex(x.get_markerfacecolor())) for x in fig.axes[0].lines
                    if x.get_marker() == "D")
-    assert marks == [(250_000.0, to_hex(plot.ROLE_COLOR["rDNA"])), (8_100_000.0, "#ffffff")]
+    assert marks == [(250_000.0, to_hex(plot.RDNA_MARK)), (8_100_000.0, "#ffffff")]
     labels = [t.get_text() for t in fig.legends[0].get_texts()]
     assert "45S rDNA array (NOR)" in labels and "5S rDNA array" in labels
     plt.close(fig)

@@ -44,6 +44,7 @@ ROWS_PER_PAGE = 24
 ROLE_COLOR = {"centromeric": "#D55E00", "cen_associated": "#F4A582", "interstitial": "#CC79A7",
               "subtelomeric": "#56B4E9", "rDNA": "#009E73"}
 OTHER = "#B0B0B0"
+RDNA_MARK = "#8C8C8C"                            # rDNA arrays: context, so they do not outshine the centromere calls
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
 BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8"}
 LINES = ["satellite", "te", "hic", "meth"]
@@ -184,10 +185,10 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax, b_xmax):
             if tc == c:
                 ax.plot((ts + te_) / 2, y0 + fh + 0.06, marker="v", ms=3.0, color="black", mew=0, zorder=5,
                         clip_on=False)
-        for arr, face in ((rdna.get("nors", ()), ROLE_COLOR["rDNA"]), (rdna.get("five_s", ()), "white")):
+        for arr, face in ((rdna.get("nors", ()), RDNA_MARK), (rdna.get("five_s", ()), "white")):
             for rc, rs, re_, *_ in arr:                          # 45S filled, 5S open
                 if rc == c:
-                    ax.plot((rs + re_) / 2, y0 + fh + 0.06, marker="D", ms=2.6, mew=0.6, mec=ROLE_COLOR["rDNA"],
+                    ax.plot((rs + re_) / 2, y0 + fh + 0.06, marker="D", ms=2.0, mew=0.5, mec=RDNA_MARK,
                             mfc=face, ls="", zorder=5, clip_on=False)
         if has_hic:
             hl, hh = lanes["hic"]
@@ -334,10 +335,9 @@ def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False)):
         items.append(Line2D([], [], color=METH, lw=0.6, label="adjusted CHG (down = loss)"))
     items.append(Line2D([], [], ls="", marker=">", ms=3.4, color="black", label="telomere array"))
     items.append(Line2D([], [], ls="", marker="v", ms=3.4, color="black", label="interstitial telomeric array"))
-    for has, face, label in zip(rdna, (ROLE_COLOR["rDNA"], "white"), ("45S rDNA array (NOR)", "5S rDNA array")):
+    for has, face, label in zip(rdna, (RDNA_MARK, "white"), ("45S rDNA array (NOR)", "5S rDNA array")):
         if has:
-            items.append(Line2D([], [], ls="", marker="D", ms=3.0, mew=0.6, mec=ROLE_COLOR["rDNA"], mfc=face,
-                                label=label))
+            items.append(Line2D([], [], ls="", marker="D", ms=2.6, mew=0.5, mec=RDNA_MARK, mfc=face, label=label))
     items += [Line2D([], [], ls="", marker="o", ms=3.4, color="black", label="line supports the call"),
               Line2D([], [], ls="", marker="x", ms=3.4, mew=0.9, color="#D55E00", label="line opposes the call"),
               Patch(fc="none", ec="#C8C8C8", hatch="////", lw=0, label="no data")]
@@ -671,7 +671,7 @@ def legends(f) -> tuple[str, str]:
         a += " No telomere unit was enriched in tandem arrays at the chromosome ends."
     rd = f.get("rdna") or {}
     n45, n5 = len(rd.get("nors", ())), len(rd.get("five_s", ()))
-    a += (f" Green diamonds: rDNA arrays, {n45} of 45S (filled; the 18S motif in tandem) and {n5} of 5S (open; whole "
+    a += (f" Gray diamonds: rDNA arrays, {n45} of 45S (filled; the 18S motif in tandem) and {n5} of 5S (open; whole "
           f"5S genes in tandem)." if n45 or n5 else " No 45S or 5S rDNA array was found.")
     a += " Hatching: no data (masked or uncovered bins). Bands: integrated calls; arrows: sequence call to moved call."
     long.append(a)

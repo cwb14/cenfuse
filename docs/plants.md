@@ -1,7 +1,8 @@
 # Several plants: provenance and per-plant scoring
 
 Methylation samples and Hi-C libraries often come from plants other than the assembled one, and centromeres can sit
-elsewhere in other plants (in *P. annua*, other accessions use other Pa1A centromeres). cenfuse therefore:
+elsewhere in other plants (in *P. annua*, young CRM insertions suggest that other accessions use other Pa1A
+centromeres, [not yet confirmed](future.md#22-pa1a-in-other-p-annua-plants)). cenfuse therefore:
 
 1. **tells where each input comes from**: the assembled (reference) plant, another plant, or unknown;
 2. **lets only reference and unknown inputs decide the reference calls**;

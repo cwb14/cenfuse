@@ -21,6 +21,15 @@ from a run on 106 allotetraploid plant genomes (2,320 calls: 54% `high`, 23% `me
 | 13 | [bird microchromosomes in Hi-C](#13-bird-microchromosomes-in-hi-c) | a sparse fold scan; deep bird Hi-C |
 | 14 | [the Rabl axis where the fold has no power](#14-the-rabl-axis-where-the-fold-has-no-power) | more small genomes with truth and Hi-C |
 | 15 | [centromeres at the edge of a terminal unmappable array](#15-centromeres-at-the-edge-of-a-terminal-unmappable-array) | acrocentric genomes with truth |
+| 16 | [the CHG line has changed no call](#16-the-chg-line-has-changed-no-call) | CHG from the assembled plant, with CENH3 truth |
+| 17 | [knobs kept out only by a size floor](#17-knobs-kept-out-only-by-a-size-floor) | knob-rich lines with CENH3 truth |
+| 18 | [organelle insertions called 45S arrays](#18-organelle-insertions-called-45s-arrays) | a rerun of the rDNA stage |
+| 19 | [long-unit calls are mostly wrong](#19-long-unit-calls-are-mostly-wrong) | a rerun of the centromeres stage |
+| 20 | [the rDNA spacer tag at its threshold](#20-the-rdna-spacer-tag-at-its-threshold) | *B. rapa* accessions run together |
+| 21 | [moved calls whose sentences disagree](#21-moved-calls-whose-sentences-disagree) | a rerun of the report |
+| 22 | [Pa1A in other *P. annua* plants](#22-pa1a-in-other-p-annua-plants) | CENH3 or deeper reads from those plants |
+| 23 | [a family's unit length can overstate its copies](#23-a-familys-unit-length-can-overstate-its-copies) | output only |
+| 24 | [telomeres outside the rules](#24-telomeres-outside-the-rules) | T2T assemblies as a no-change control |
 
 ## 1. Weak (single-sequence) family models
 
@@ -161,3 +170,78 @@ chicken's calls stay `low`.
 **Approach.** Where the sequence line finds an acrocentric karyotype, compare the two ends of each chromosome:
 telomere clustering lifts both, a centromere one. It needs a per-genome test before it may count.
 **Check.** Chicken with CENP-A truth (25/33 centromeres within 8 bins of an end), goat, sheep, horse; randomized Hi-C.
+
+## 16. The CHG line has changed no call
+
+**Evidence.** Only *P. annua* and *Arabidopsis* have CHG data here, and across all 3,595 chromosomes of the release
+runs the line supported no call and backed no move. *P. annua*'s five samples come from other plants, so they do not
+decide; *Arabidopsis* learned a signature on 1 of 5 chromosomes. The signal is real in *P. annua*: the dip is the
+chromosome's lowest point on 12 of 14.
+**Approach.** None until the line has been seen to act.
+**Check.** CHG from the assembled plant of a genome with CENH3 truth.
+
+## 17. Knobs kept out only by a size floor
+
+**Evidence.** Nothing recognizes a knob. In maize Mo17 the 180-bp knob family misses the centromeric role only because
+its median largest block (74 kb) is under the 100-kb floor (`strong_cluster_bp`). At a 70-kb floor, FASTA only, it takes
+chr4, chr6 and chr8 (none with `tes/`). `classify.related` is one-way by unit length (155 vs 180 bp passes, 180 vs 155
+fails), so CentC's chromosomes count for the knob.
+**Approach.** Relatedness by sequence only (`same_sequence`): in a scratch rerun at the 70-kb floor CentC takes all ten.
+**Check.** Knob-rich lines with CENH3 truth; no call changes elsewhere.
+
+## 18. Organelle insertions called 45S arrays
+
+**Evidence.** A 45S array is 3 or more motif hits, each within 100 kb of the next; neither spacing nor strand is
+tested, and organelle rRNA holds the motif too. Rice chr4 9.23-9.37 Mb, reported as a NOR, is a chloroplast insertion
+(4 hits, mixed strands, 99.8% identical to the plastid genome). By the base after the motif (G in 18S, A in organelle
+rRNA), 12 of 272 arrays look organelle-like. A tested Hi-C peak beside one is flagged `rDNA` and can no longer oppose or
+place a call; the effect on calls is not measured.
+**Approach.** Require one strand, or test that base. Even spacing is too strict: only 100 of 272 arrays are regular.
+**Check.** Those 12 go; every other array stays.
+
+## 19. Long-unit calls are mostly wrong
+
+**Evidence.** A long-unit array (units over 2 kb) is the call on 24 of 908 chromosomes FASTA only: 2 right, 16 wrong (6
+of them holocentric), 6 without truth, all `low`.
+**Approach.** Report such arrays as features unless another line agrees.
+**Check.** Right and wrong counts after a rerun of the centromeres stage.
+
+## 20. The rDNA spacer tag at its threshold
+
+**Evidence.** A family is tagged as an rDNA spacer when 45S genes flank at least half of its 10 largest arrays. *B.
+rapa*'s 238-bp family reaches 5-6 of 10 in 5 accessions (tagged) and 3-4 in 6 (not). In CX1, at 4 of 10, it stays
+eligible and leads A05 (wrong, `low`) and A06 (right).
+**Approach.** Run the accessions together: a family tagged in one genome of a complex is tagged in all.
+**Check.** The 11 accessions against CENH3.
+
+## 21. Moved calls whose sentences disagree
+
+**Evidence.** On moss's 4 moved calls `basis` says, for example, "21 kb of centromeric satellite inside", while `caveat`
+says "no sequence or LTR evidence at this place": the caveat does not read the evidence the basis reports.
+**Approach.** Word the caveat from the same evidence (`interpret.py`).
+**Check.** A unit test with a moved call on a small array; no call changes.
+
+## 22. Pa1A in other P. annua plants
+
+**Evidence.** Young CRM insertions of four of the five other plants cluster 9-15 Mb from the assembled plant's Pa1A
+call (163.0-169.4 Mb), which suggests other centromeres; J10's lie inside it. C11 and J10 show a plant-only methylation
+dip at their clusters. No verdict confirms it: on Pa1A 4 `shared` and 1 `unclear`; over all chromosomes 0 `shifted` and
+2 `possible_shift` (J10 Pa4B, Pa5A) of 70, at 4-8× reads.
+**Approach.** None in the code until the data can settle it.
+**Check.** CENH3 ChIP or deeper long reads from those plants.
+
+## 23. A family's unit length can overstate its copies
+
+**Evidence.** In rice, 19 of the 28 large arrays (≥ 20 kb) of the 165-bp CentO family are not spaced 165 bp, 17 of them
+about 155 bp: the 165-bp profile fits 155-bp copies with a 10-bp gap and scores higher. The forms are pooled, so calls
+are unaffected (12/12), but `basis` reports a 165-bp unit.
+**Approach.** Report the array's own spacing beside the family's unit.
+**Check.** Output only; no call changes.
+
+## 24. Telomeres outside the rules
+
+**Evidence.** Units of 13-29 bp fall between the telomere search (5-12 bp) and the satellite search (30 bp and up): *C.
+tropicalis*'s 23-bp unit, at 13 of 14 ends, is missed. Of 208 ends without an array, 28 hold a real stretch under half
+unit copies, which the density rule rejects (soybean chr3: 48 kb, 20.2 kb of copies).
+**Approach.** Extend the unit range; relax the density rule for stretches that reach the end.
+**Check.** T2T assemblies unchanged; those ends gain arrays, and no new interstitial array appears.

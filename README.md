@@ -28,7 +28,8 @@ the ends and inside; ◆ ◇ 45S and 5S rDNA arrays. **B** the evidence that sup
    repeat (point, regional, AT-rich), Hi-C places the calls itself: `medium` where the arms confirm them, else `low`.
 4. **Methylation** (`meth/`). In primates, CpG methylation dips where the kinetochore sits: where cenfuse shows that
    the dips mark centromeres in your genome, it places the kinetochore inside each call. In plants, CHG methylation
-   is a second line of evidence.
+   can be a second line of evidence, though it [changed no call](docs/future.md#16-the-chg-line-has-changed-no-call)
+   in the benchmark.
 5. **Integration.** The sequence call stands unless tested evidence moves it. Agreement raises its confidence,
    disagreement lowers it. `low` means "unsure": cenfuse prefers right, then uncertain, over wrong.
 
@@ -75,7 +76,8 @@ Every number is from cenfuse 0.10.1. Per genome, the controls and every failure 
 **Where it is strong:** satellite centromeres from the FASTA alone; satellite-free centromeres from centromeric
 retrotransposons (CRM in potato and *Ae. tauschii*, Copia lineages in moss and *Chlorella*); point, regional and
 AT-rich centromeres from Hi-C (yeasts, *Plasmodium*, fungi); no confident call on holocentric chromosomes; knobs and
-other large satellites are not mistaken for centromeres.
+other large satellites were not mistaken for centromeres, though in maize
+[only a size floor](docs/future.md#17-knobs-kept-out-only-by-a-size-floor) keeps the knob out.
 
 **Where it is weak:** satellite-free centromeres beside a dominant satellite (tomato); a small active array beside a
 large inactive one of the same satellite is called confidently on the large one (one orangutan chromosome, whose
@@ -125,7 +127,7 @@ mygenome/
 | FASTA | satellite families and their roles, telomeres, rDNA arrays, one sequence call per chromosome |
 | `tes/` | CRM retrotransposon cores, which mark many plant centromeres (without them, satellite calls were wrong on barley 7/7 and potato 9/11) |
 | `hic/` | a test of every call; tested Hi-C can move a call, and where the FASTA gives no call (point, regional, AT-rich centromeres) it places one |
-| `meth/` | CpG: the kinetochore inside each call (primates); CHG (with `tes/`): a second line of evidence in plants |
+| `meth/` | CpG: the kinetochore inside each call (primates); CHG (with `tes/`): a possible second line of evidence in plants |
 | `genes/` | gene density at every locus; rejects gene-rich repeats as centromeres |
 
 **Which sequences are chromosomes.** cenfuse keeps the sequences above the first tenfold drop in length and leaves
