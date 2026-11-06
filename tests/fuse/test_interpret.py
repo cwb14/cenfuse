@@ -37,6 +37,74 @@ def test_satellite_call_with_every_supporting_line():
     assert it.caveat(r, ctx()) == "."
 
 
+def moved(**kw):
+    """A call the 3D lines moved, `medium`: the row the caveat of a moved call reads."""
+    return row(**{**dict(call_source="hic", relation="offset", confidence="medium", offset_bp=5_000_000, support="hic",
+                         seq_start=30_000_001, seq_end=30_100_000), **kw})
+
+
+def test_caveat_of_a_moved_call_says_no_evidence_only_where_there_is_none():
+    r = moved()
+    assert "no sequence or LTR evidence at this place" in it.caveat(r, ctx())
+    assert "rests on the 3D lines alone" in it.caveat(r, ctx())
+
+
+def test_caveat_of_a_moved_call_reads_the_satellite_its_basis_reports():
+    """Moss's moved calls: basis says '21 kb of centromeric satellite inside', the caveat said there was none."""
+    r = moved(support="hic,satellite")
+    c = ctx(sat_bp=lambda chrom, s, e: 21_000)
+    assert "21 kb of centromeric satellite inside" in it.basis(r, c)
+    cav = it.caveat(r, c)
+    assert "no sequence or LTR evidence" not in cav and "alone" not in cav
+    assert "21 kb of centromeric satellite" in cav
+
+
+def test_caveat_of_a_moved_call_reads_a_core_or_methylation_at_the_peak():
+    cav = it.caveat(moved(support="hic,te", te_clade="CRM"), ctx())
+    assert "no sequence or LTR evidence" not in cav and "the CRM core" in cav
+    cav = it.caveat(moved(support="hic,meth"), ctx())
+    assert "no sequence or LTR evidence" not in cav and "CHG methylation" in cav
+
+
+def test_no_call_where_only_an_unsupported_long_unit_array_stands_says_so():
+    r = row(relation="none", start=".", end=".", confidence="none", call_source="none", flags="long_unit_unsupported",
+            seq_evidence="long_unit_tandem", seq_confidence="low", support=".", main_family="long_unit")
+    c = it.caveat(r, ctx(hic=False, tes=False))
+    assert "long-unit tandem array (40.00-42.00 Mb)" in c and "no line" in c
+    assert "satellite-free" not in c and c.endswith("-> Hi-C or a CRM core (tes/; plants) can place one")
+    assert it.basis(r, ctx()) == "."
+
+
+def test_a_chain_family_is_not_called_a_satellite():
+    r = row(seq_flags="partial_chain", confidence="low", main_family="g_sat01_1790", support="satellite")
+    c = ctx(unit={"g_sat01_1790": 1790})
+    b = it.basis(r, c)
+    assert not b.startswith("satellite") and "g_sat01_1790" in b and "partial copies" in b
+    assert "not a tandem satellite" in it.caveat(r, c)
+
+
+def test_a_chain_caveat_says_what_would_settle_it():
+    r = row(seq_flags="partial_chain", confidence="low", support="satellite")
+    assert it.caveat(r, ctx(tes=False)).endswith("-> a CRM core (tes/; plants) or CENP-A/CENH3 data would decide")
+    assert it.caveat(r, ctx(tes=True)).endswith("-> CENP-A/CENH3 data would decide")
+
+
+def test_a_family_rejected_by_the_crm_line_is_named():
+    r = row(seq_evidence="retrotransposon", te_clade="CRM", support="te", main_family=".", confidence="medium",
+            seq_rejected_family="g_sat02_170", seq_rejected_start=10_000_001, seq_rejected_end=11_000_000)
+    cav = it.caveat(r, ctx(decisive=True))
+    assert "the CRM line rejected g_sat02_170" in cav and "10.00-11.00 Mb" in cav
+    assert it.caveat(row(), ctx()) == "."                     # older tables: no such column
+
+
+def test_copy_spacing_is_named_when_it_differs_from_the_unit():
+    c = ctx()
+    assert "171-bp unit, copies spaced 155 bp here" in it.basis(row(seq_spacing=155), c)
+    assert "copies spaced" not in it.basis(row(seq_spacing=170), c)                      # within LEN_TOL of the unit
+    assert "copies spaced" not in it.basis(row(seq_spacing="."), c)
+    assert "copies spaced" not in it.basis(row(), c)                                     # older tables: no such column
+
+
 def test_sequence_evidence_kinds():
     assert it.basis(row(seq_evidence="weak_satellite"), ctx()).startswith("weak satellite g_sat01_171")
     assert it.basis(row(seq_evidence="long_unit_tandem", main_family="long_unit"), ctx()).startswith(

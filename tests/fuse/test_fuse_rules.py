@@ -521,6 +521,92 @@ def test_hic_alone_needs_a_clean_high_prior_free_call(conf, flags):
     assert fuse.decide(_alone(conf=conf, flags=flags))["call"] is None
 
 
+# ------------------------------------------------------------------- long-unit arrays are features unless a line agrees
+def _long(e):
+    """e with its sequence call a long-unit tandem array, as the satellite engine reports it: low, not a satellite."""
+    e.seq.update(evidence="long_unit_tandem", main_family="long_unit", confidence="low")
+    e.sat_bp = lambda a, b: 0
+    return e
+
+
+def test_a_long_unit_array_no_line_supports_is_no_call():
+    """24 such calls from the FASTA alone: 2 right, 16 wrong, 6 without truth."""
+    d = fuse.decide(_long(ev()))
+    assert d["call"] is None and d["relation"] == "none" and d["confidence"] == "none" and d["source"] == "none"
+    assert d["flags"] == ["long_unit_unsupported"]
+
+
+def test_the_array_of_a_dropped_call_stays_in_the_sequence_columns():
+    e = _long(ev())
+    r = fuse.row(e, fuse.decide(e))
+    assert (r["seq_start"], r["seq_end"], r["seq_evidence"]) == (1_000_001, 1_400_000, "long_unit_tandem")
+    assert (r["start"], r["end"], r["relation"]) == (".", ".", "none")
+
+
+def test_a_long_unit_call_stands_where_tes_or_validated_hic_or_methylation_agree():
+    near = dict(clade="Tekay", start=1_100_000, end=1_300_000, decisive=False)
+    e = _long(ev())
+    e.te = near
+    assert fuse.decide(e)["call"] == (1_000_000, 1_400_000) and "te" in fuse.decide(e)["support"]
+    d = fuse.decide(_long(ev(peak=1_500_000)))                                # one bin from the call: agrees
+    assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "concordant" and "hic" in d["support"]
+    m = {"sequence_call": dict(label="centromere_like", score=0.8)}
+    d = fuse.decide(_long(ev(meth=m)))
+    assert d["call"] == (1_000_000, 1_400_000) and "meth" in d["support"]
+
+
+def test_satellite_bp_inside_is_no_support_for_a_long_unit_call():
+    e = _long(ev())
+    e.sat_bp = lambda a, b: 100_000
+    assert fuse.decide(e)["call"] is None
+
+
+def test_a_hic_peak_merely_near_a_long_unit_call_is_no_support():
+    """Beyond one bin, within four: neither supports nor opposes (hic_near). The array is dropped; a strong validated
+    peak then places the call, as on any chromosome without a sequence call, and a weak one does not."""
+    d = fuse.decide(_long(ev(peak=2_000_000)))
+    assert d["call"] == (2_000_000, 2_250_000) and d["relation"] == "functional_only"
+    assert "long_unit_unsupported" in d["flags"]
+    d = fuse.decide(_long(ev(peak=2_000_000, strong=False)))
+    assert d["call"] is None and "long_unit_unsupported" in d["flags"]
+
+
+def test_an_arm_axis_at_a_long_unit_call_is_no_support():
+    e = _long(ev())
+    e.hic = dict(bin_size=BIN, gate_pass=False, anch_strong=False, anch_level="none", anch_peak_start=-1, anch_peak_end=-1,
+                 anch_core_start=-1, anch_core_end=-1, denovo_peak_start=-1, denovo_peak_end=-1, denovo_core_start=-1,
+                 denovo_core_end=-1, denovo_flags="", gate_support=False, gate_genome_untested=False)
+    e.fold = dict(status="pass", agrees=False, core_start=1_000_000, core_end=1_500_000, point=1_200_000)
+    d = fuse.decide(e)
+    assert d["call"] is None and "fold" not in d["support"]
+
+
+def test_hic_alone_can_place_a_call_once_a_long_unit_array_is_dropped():
+    e = _long(_alone(seq=(1_000_000, 1_400_000)))
+    d = fuse.decide(e)
+    assert d["call"] == (140_000, 170_000) and d["relation"] == "functional_only" and d["confidence"] == "low"
+    assert d["flags"] == ["hic_denovo_only", "long_unit_unsupported"]
+
+
+def test_a_long_unit_call_a_validated_peak_moves_is_moved_as_before():
+    d = fuse.decide(_long(ev(peak=30_000_000, core=(29_500_000, 30_750_000))))
+    assert d["call"] == (29_500_000, 30_750_000) and d["relation"] == "offset" and "long_unit_unsupported" not in d["flags"]
+
+
+def test_a_satellite_call_with_no_support_stands():
+    d = fuse.decide(ev(conf="low", sat=False))
+    assert d["call"] == (1_000_000, 1_400_000) and d["flags"] == []
+
+
+def test_a_dropped_array_is_a_long_unit_feature_in_the_loci():
+    fused = dict(call=None, relation="none", seq_evidence="long_unit_tandem", seq=(5_000, 9_000), long_unit_dropped=True)
+    mem = loci.members("c", 100_000, fused, pd.DataFrame(columns=["chrom"]), {}, None, None)
+    assert [(m[2], m[3]) for m in mem] == [("long_unit_array", "satellite")]
+    assert loci.kind(mem) == "long_unit_array"
+    kept = dict(fused, long_unit_dropped=False)
+    assert loci.kind(loci.members("c", 100_000, kept, pd.DataFrame(columns=["chrom"]), {}, None, None)) == "sequence_centromere"
+
+
 def test_untested_prior_free_peak_elsewhere_only_flags_a_sequence_call():
     e = _alone(seq=(1_000_000, 1_400_000))
     e.hic.update(denovo_peak_start=30_000_000, denovo_peak_end=30_010_000, denovo_core_start=29_990_000,

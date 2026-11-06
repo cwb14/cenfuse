@@ -544,7 +544,13 @@ class Run:
                                                                     alt_start=int(r.alt_start),
                                                                     alt_end=int(r.alt_end),
                                                                     overruled_start=int(r.overruled_start),
-                                                                    overruled_end=int(r.overruled_end)),
+                                                                    overruled_end=int(r.overruled_end),
+                                                                    spacing=int(r.spacing),
+                                                                    te_core_elements=int(r.te_core_elements),
+                                                                    te_call_elements=int(r.te_call_elements),
+                                                                    rejected_family=r.rejected_family,
+                                                                    rejected_start=int(r.rejected_start),
+                                                                    rejected_end=int(r.rejected_end)),
                                      te, h, meth, sat_bp(r.chrom), f, a))
         return out
 
@@ -731,7 +737,8 @@ class Run:
             if psites is not None:
                 output.write_tsv(plants.one_based(psites, ("start", "mid")), self.out / f"{g.name}.plant_sites.tsv")
             fused = {e.chrom: dict(call=d["call"], relation=d["relation"], seq_evidence=e.seq["evidence"],
-                                   seq=(e.seq["start"], e.seq["end"]) if e.seq["start"] >= 0 else None)
+                                   seq=(e.seq["start"], e.seq["end"]) if e.seq["start"] >= 0 else None,
+                                   long_unit_dropped="long_unit_unsupported" in d["flags"])
                      for e, d in zip(evs, final)}
             hic_l = None
             if hic is not None:

@@ -12,7 +12,8 @@ from .util import clipped_bp, log, merge_intervals, union_bp
 
 CLS_COLS = ["family", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
             "median_main_bp", "eligible", "cls", "strength", "defines", "dominant", "reason", "subtelomeric",
-            "rdna_tag", "role", "in_ltr", "ltr_clade", "tandem_frac", "whole_frac", "locus_fold", "acrocentric"]
+            "rdna_tag", "role", "in_ltr", "ltr_clade", "tandem_frac", "whole_frac", "locus_fold", "acrocentric",
+            "dominant_satellite", "te_rejected"]
 # what a family is in one genome, first match wins (assign_roles); the tool's purpose is the centromere, the rest is
 # what its tests found along the way
 ROLES = ["rDNA", "centromeric", "cen_associated", "subtelomeric", "interstitial", "dispersed", "minor"]
@@ -80,12 +81,17 @@ def interval_gap(a, b) -> int:
 
 
 def related(f: str, g: str, fam_info) -> bool:
-    """Families that may share a centromere as layers: same superfamily or period within 15%
-    (CentBr1/2, CentO 155/165, CEN180/AthCEN159). Without family info every pair counts as related."""
+    """Families that may share a centromere as layers: same superfamily or period within 15% of the shorter
+    (CentBr1/2, CentO 155/165, CEN180/AthCEN159), whichever family is asked about first: a test on one family's length
+    passed 155 vs 180 bp and failed 180 vs 155, so maize's CentC chromosomes counted for the knob repeat's dominance. Without
+    family info every pair counts as related."""
     if fam_info is None:
         return True
     a, b = fam_info[f], fam_info[g]
-    return a["superfamily"] == b["superfamily"] or abs(a["length"] / b["length"] - 1) <= RELATED_LEN_TOL
+    if a["superfamily"] == b["superfamily"]:
+        return True
+    short, long = sorted((a["length"], b["length"]))
+    return long / short - 1 <= RELATED_LEN_TOL
 
 
 def same_sequence(f: str, g: str, fam_info) -> bool:
@@ -205,6 +211,7 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
                          eligible=False, cls="other", strength=".", defines=".", dominant=False, reason=".",
                          subtelomeric=bool(subtelomeric), rdna_tag=rdna, role=".", in_ltr=float("nan"), ltr_clade=".",
                          tandem_frac=tf, whole_frac=wf, locus_fold=fold, acrocentric=False,
+                         dominant_satellite=False, te_rejected=False,
                          _fails=fails, _subtel=subtel_why, _ends=(end_chroms, both_chroms, most_ends), _near=near))
     strong = lambda r: r["prevalence"] >= p.strong_prevalence and r["median_main_bp"] >= p.strong_cluster_bp
     # an interior rival must be interior as a satellite kind (subfamilies pooled, as for dominance): a subfamily at the
@@ -345,16 +352,23 @@ def choose_centromeric(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_inf
     elig = set(fams.loc[fams.eligible.astype(bool), "family"])
     by_chrom = {c: sorted(((mains[(f, c)].bp, f) for f in elig
                            if (f, c) in mains and mains[(f, c)].bp >= p.chrom_min_bp), reverse=True) for c in chroms}
-    # genome-wide dominant family: strong AND its kind is the largest cluster on >= strong_prevalence of
-    # chromosomes; presence alone let a widespread pericentromeric satellite (B. napus A06, 228 bp) take precedence
-    if arrays is not None and fam_info is not None:
-        largest = largest_kinds(arrays, elig, chroms, p, fam_info)
-    else:
-        largest = [{cands[0][1]} for cands in by_chrom.values() if cands]
-    dominant = {r.family for r in fams.itertuples(index=False) if r.family in elig
+
+    def dominant_among(kept: set) -> set:
+        """Genome-wide dominant families among kept: strong AND its kind is the largest cluster on >= strong_prevalence
+        of chromosomes; presence alone let a widespread pericentromeric satellite (B. napus A06, 228 bp) take precedence."""
+        if arrays is not None and fam_info is not None:
+            largest = largest_kinds(arrays, kept, chroms, p, fam_info)
+        else:
+            largest = [{next(f for _, f in cands if f in kept)} for cands in by_chrom.values()
+                       if any(f in kept for _, f in cands)]
+        return {r.family for r in fams.itertuples(index=False) if r.family in kept
                 and r.prevalence >= p.strong_prevalence and r.median_main_bp >= p.strong_cluster_bp
                 and sum(any(related(w, r.family, fam_info) for w in k) for k in largest)
                 >= p.strong_prevalence * len(chroms)}
+
+    dominant = dominant_among(elig)
+    chains = chain_families(fams[fams.family.isin(elig)])
+    satellites = dominant_among(elig - chains) if chains else dominant    # for the honesty cap: a chain is no satellite
     per_chrom = {}
     for c, cands in by_chrom.items():
         if not cands:
@@ -372,6 +386,7 @@ def choose_centromeric(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_inf
             defines.setdefault(f, []).append(c)
     fams = fams.copy()
     fams["dominant"] = fams.family.isin(dominant)
+    fams["dominant_satellite"] = fams.family.isin(satellites)
     for i, r in fams.iterrows():
         if r.family in defines:
             strong = r.prevalence >= p.strong_prevalence and r.median_main_bp >= p.strong_cluster_bp
@@ -453,10 +468,24 @@ def assign_cen_associated(fams: pd.DataFrame, arrays: pd.DataFrame, regions: dic
     return fams
 
 
+def partial_chain(r) -> bool:
+    """A family that is a chain of partial hits, not a tandem satellite, on a families-table row: neither most of its
+    array bp in de novo tandem repeats nor most of its hit bp in whole units (NaN: not judged, False). One tandem copy of
+    an interspersed element can found such a family, and its hits are then fragments of that element, chained into
+    'arrays' (Glycine dolichocarpa: a 1,790-bp family, 44 whole hits of 25,732, 65% of its bp inside SIRE)."""
+    tf, wf = (getattr(r, k, float("nan")) for k in ("tandem_frac", "whole_frac"))
+    return bool(tf < TANDEM_FRAC and wf < TANDEM_FRAC)
+
+
+def chain_families(fams: pd.DataFrame) -> set:
+    """The families of a table that are chains (partial_chain). A table of an older version has no such columns: none."""
+    return {r.family for r in fams.itertuples(index=False) if partial_chain(r)}
+
+
 def dispersed_repeat(r) -> bool:
-    """classify's dispersed-repeat test on a families-table row (NaN: not judged, False)."""
-    tf, wf, fold = (getattr(r, k, float("nan")) for k in ("tandem_frac", "whole_frac", "locus_fold"))
-    return bool(tf < TANDEM_FRAC and wf < TANDEM_FRAC and fold < LOCUS_FOLD)
+    """classify's dispersed-repeat test on a families-table row: a chain spread along the chromosomes (NaN: not judged,
+    False)."""
+    return bool(partial_chain(r) and getattr(r, "locus_fold", float("nan")) < LOCUS_FOLD)
 
 
 def assign_roles(fams: pd.DataFrame, p, borrowed: bool = False) -> pd.DataFrame:
@@ -542,5 +571,6 @@ def choose_with_te(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info, t
         for i, r in fams.iterrows():
             if r.family in rej:
                 k, n = rej[r.family]
-                fams.loc[i, ["eligible", "reason"]] = [
-                    False, f"main clusters away from the {te[0]} retrotransposon centromere on {k}/{n} chromosomes"]
+                fams.loc[i, ["eligible", "reason", "te_rejected"]] = [
+                    False, f"main clusters away from the {te[0]} retrotransposon centromere on {k}/{n} chromosomes",
+                    True]

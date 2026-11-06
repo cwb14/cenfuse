@@ -22,6 +22,7 @@ THREADS_PER_BUILD = 4   # the fewest per build while families remain: MAFFT (Pan
                         # 4 threads and 5.6x at 16, same alignment at 1-16, so 4 builds of 4 beat 1 of 16 (model_workers)
 FAM_COLS = ["fam_id", "rep_seed", "base_seed", "consensus_len", "n_seeds", "max_genome_span",
             "genome_spans", "hmm_mode", "n_hmm_seqs", "superfamily", "rdna", "chain_group"]
+DROPPED_COLS = ["rep_seed", "max_genome_span", "period", "n_seeds", "n_chroms", "largest_seed", "consensus"]
 
 
 def internal_period(seq: str, pmax: int, ident: float = FAMILY_IDENT):
@@ -588,6 +589,18 @@ def build_models(jobs: list, fastas: dict, workdir: Path, threads: int, p, on_ac
     return out
 
 
+def dropped_table(seeds: pd.DataFrame, dropped: list) -> pd.DataFrame:
+    """The clusters >= min_fam_span left out by max_families, largest first: dropped = [(max span in a genome, rep)].
+    What they are was not recorded (Sonchus oleraceus: 60 clusters, the largest 107 kb). seeds: sorted by span, largest
+    first; the largest seed gives the period and a consensus to look the cluster up with."""
+    rows = []
+    for mx, rep in dropped:
+        mem = seeds[seeds.rep == rep]
+        b = mem.iloc[0]
+        rows.append((rep, mx, int(b.period), len(mem), mem.chrom.nunique(), f"{b.chrom}:{int(b.start) + 1}-{int(b.end)}", b.consensus))
+    return pd.DataFrame(rows, columns=DROPPED_COLS)
+
+
 def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) -> pd.DataFrame:
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -622,6 +635,7 @@ def build_families(tables: dict, genomes: list, workdir: Path, threads: int, p) 
         log.info(f"families: {len(seeds)} seeds -> {len(set(assign.values()))} clusters; "
                  f"{len(top)} carried forward" + (f"; {len(dropped)} more >= min_fam_span dropped by max_families "
                                                   f"(largest {dropped[0][0]} bp)" if dropped else ""))
+        dropped_table(seeds, dropped).to_csv(workdir / "dropped_clusters.tsv", sep="\t", index=False)
         jobs, members = [], []
         for i, (mx, rep) in enumerate(top, 1):
             mem = seeds[seeds.rep == rep]

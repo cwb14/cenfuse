@@ -2,10 +2,14 @@
 
 The genome's telomere unit is the primitive 5-12-bp unit that most often repeats in tandem in the terminal
 TERM_SCAN of the chromosome ends, counted on both strands as one canonical unit. Any telomerase RNA template variant
-(TTTAGGG in most plants, TTAGGG in vertebrates, TTAGG in insects) is found this way. Each end then gets its array:
-the array holding the most unit copies (either strand, short breaks tolerated) in the terminal TERM_SEARCH; its
-length, and the gap from the array to the sequence end. Units shorter than 30 bp are outside the satellite engine's search, so the two
-never report the same array."""
+(TTTAGGG in most plants, TTAGGG in vertebrates, TTAGG in insects) is found this way. Only where no such unit qualifies
+are units of 13-29 bp tried (budding-yeast relatives: C. tropicalis 23 bp), and then one must reach the sequence end at
+most chromosome ends, since a subtelomeric minisatellite is as enriched at the ends as a telomere. Each end then gets
+its array: the array holding the most unit copies (either strand, short breaks tolerated) in the terminal TERM_SEARCH;
+its length, and the gap from the array to the sequence end. An end left without one takes a looser stretch of the unit
+that reaches the sequence end (soybean chr3: 48 kb, 42% unit copies): only after the unit is chosen, so that such
+stretches never choose it. Units shorter than 30 bp are outside the satellite engine's search, so the two never report
+the same array."""
 from __future__ import annotations
 
 import random
@@ -19,6 +23,7 @@ from .util import log
 TERM_SCAN = 20_000         # bp at each end used to learn the unit (telomere arrays are kb-long at assembled ends)
 TERM_SEARCH = 100_000      # bp at each end searched for the array (assemblies can leave a short non-telomeric tail)
 K_RANGE = range(5, 13)     # telomerase templates make 5-12-bp units (TTAGG 5 ... TTTTAGGGG 9; some algae 8-12)
+K_LONG = range(13, 30)     # ... and in budding-yeast relatives longer ones, up to the satellite engine's shortest unit (30)
 MAX_BREAK = 30             # copies of the unit closer than this are one run (sequencing errors, variant copies)
 CHAIN_GAP = 1_000          # runs closer than this form one array (variant-repeat stretches split real arrays)
 MIN_ARRAY = 300            # bp of unit copies in an array: ~40 copies of a 7-bp unit, beyond chance tandem matches
@@ -29,6 +34,10 @@ TERMINAL = 1_000           # an array this close to the sequence end reaches it
 MIN_COPIES = 4             # runs shorter than this (chance matches every ~100 bp in random sequence) are not chained
 SCAN_CHUNK = 10_000_000    # bp read at once in the interstitial scan (memory)
 MIN_DENSITY = 0.5          # an array is mostly unit copies: covered bp >= half of its span
+MIN_DENSITY_END = 0.1      # ... or, once the unit is known, a tenth for a stretch that reaches the sequence end: its position
+                           # is the evidence (stretches this rich occur in 1.1% of 100-kb windows inside chromosomes, 61 of
+                           # 6,336 ends reach the end under half density, none below 0.19). The floor is a heuristic that
+                           # keeps out copies scattered every few kb, which CHAIN_GAP would chain
 MIN_ENDS = 2               # a telomere unit forms arrays at two or more chromosome ends ...
 END_ENRICH = 10            # ... and is >= 10-fold denser in tandem at the ends than inside the chromosomes
 INTERIOR = 5               # interior windows (TERM_SCAN bp each) sampled per chromosome for that comparison
@@ -47,10 +56,10 @@ def primitive(u: str) -> bool:
     return not any(k % p == 0 and u == u[:p] * (k // p) for p in range(1, k))
 
 
-def tandem_units(seq: str) -> Counter:
-    """Canonical primitive units counted at every place where a k-mer is followed by the same k-mer."""
+def tandem_units(seq: str, ks=K_RANGE) -> Counter:
+    """Canonical primitive units of lengths ks counted at every place where a k-mer is followed by the same k-mer."""
     c = Counter()
-    for k in K_RANGE:
+    for k in ks:
         for i in range(0, len(seq) - 2 * k + 1):
             u = seq[i:i + k]
             if u == seq[i + k:i + 2 * k] and "N" not in u and primitive(u):
@@ -123,6 +132,55 @@ def end_array(seq: str, unit: str, side: str):
     return tuple(best)
 
 
+def loose_end_array(seq: str, unit: str, side: str):
+    """For an end without an array (end_array): the stretch reaching the sequence end (within TERMINAL) that holds the
+    most unit bp, at least MIN_ARRAY at MIN_DENSITY_END or more. (start, end, unit bp) in seq coordinates, or None."""
+    to_end = (lambda a: a[0]) if side == "start" else (lambda a: len(seq) - a[1])
+    ok = [a for a in chained(seq, unit) if a[2] >= MIN_ARRAY and to_end(a) <= TERMINAL
+          and a[2] >= MIN_DENSITY_END * (a[1] - a[0])]
+    return tuple(max(ok, key=lambda a: a[2])) if ok else None
+
+
+def end_rows(fa, chroms: dict, unit: str, loose: bool = False) -> list:
+    """[(chrom, side, start, end, unit bp, gap to the sequence end)] of the ends holding an array of the unit; with loose,
+    also the ends only a loose stretch reaches (loose_end_array)."""
+    rows = []
+    for c, side, s, off in _ends(fa, chroms, TERM_SEARCH):
+        a = end_array(s, unit, side) or (loose_end_array(s, unit, side) if loose else None)
+        if a:
+            gap_end = off + a[0] if side == "start" else chroms[c] - (off + a[1])
+            rows.append((c, side, off + a[0], off + a[1], a[2], gap_end))
+    return rows
+
+
+def choose_unit(fa, chroms: dict, ks, reach_most: bool = False):
+    """(unit, enrichment) of the unit of lengths ks with the most bp in tandem at the ends that passes END_ENRICH and forms
+    arrays at MIN_ENDS ends; with reach_most, arrays that reach the sequence end at most ends. None without one."""
+    term = Counter()
+    for _, _, s, _ in _ends(fa, chroms, TERM_SCAN):
+        term.update(tandem_units(s, ks))
+    if not term:
+        return None
+    inner, n_inner = Counter(), 0
+    for s in _interior(fa, chroms):
+        inner.update(tandem_units(s, ks))
+        n_inner += 1
+    n_term = 2 * len(chroms)
+    ranked = sorted(term, key=lambda x: -term[x] * x[0])      # bp covered in tandem: long units not penalised
+    for key in ranked[:10]:
+        k, unit = key
+        if term[key] * k < MIN_ARRAY:                      # too little tandem sequence at the ends to judge
+            continue
+        enrich = (term[key] / n_term) / max(inner[key] / max(n_inner, 1), 1 / max(n_inner, 1))
+        if enrich < END_ENRICH:
+            continue
+        rows = end_rows(fa, chroms, unit)
+        if len(rows) < MIN_ENDS or (reach_most and 2 * sum(r[5] <= TERMINAL for r in rows) <= n_term):
+            continue
+        return unit, enrich
+    return None
+
+
 def interstitial(fasta, chroms: dict, unit: str) -> list:
     """[(chrom, start, end, unit bp)] of interstitial telomeric sequences (ITS): arrays of the genome's telomere unit
     inside the chromosomes (beyond the terminal TERM_SEARCH), by the end-array rules (>= MIN_ARRAY bp of unit copies at
@@ -166,34 +224,13 @@ def detect(fasta, chroms: dict) -> dict:
     """{'unit': canonical unit or None, 'enrichment': fold, 'ends': [(chrom, side, start, end, unit_bp,
     gap_to_end)], 'interstitial': [(chrom, start, end, unit_bp)]} (0-based)."""
     with pysam.FastaFile(str(fasta)) as fa:
-        term = Counter()
-        for _, _, s, _ in _ends(fa, chroms, TERM_SCAN):
-            term.update(tandem_units(s))
-        if not term:
-            return dict(unit=None, enrichment=float("nan"), ends=[], interstitial=[])
-        inner, n_inner = Counter(), 0
-        for s in _interior(fa, chroms):
-            inner.update(tandem_units(s))
-            n_inner += 1
-        n_term = 2 * len(chroms)
-        ranked = sorted(term, key=lambda x: -term[x] * x[0])      # bp covered in tandem: long units not penalised
-        for key in ranked[:10]:
-            k, unit = key
-            if term[key] * k < MIN_ARRAY:                      # too little tandem sequence at the ends to judge
-                continue
-            enrich = (term[key] / n_term) / max(inner[key] / max(n_inner, 1), 1 / max(n_inner, 1))
-            if enrich < END_ENRICH:
-                continue
-            rows = []
-            for c, side, s, off in _ends(fa, chroms, TERM_SEARCH):
-                a = end_array(s, unit, side)
-                if a:
-                    gap_end = off + a[0] if side == "start" else chroms[c] - (off + a[1])
-                    rows.append((c, side, off + a[0], off + a[1], a[2], gap_end))
-            if len(rows) >= MIN_ENDS:
-                its = interstitial(fasta, chroms, unit)
-                log.info(f"telomeres: unit {unit} ({enrich:.0f}-fold denser at the ends); arrays at {len(rows)}/"
-                         f"{n_term} chromosome ends; {len(its)} interstitial arrays")
-                return dict(unit=unit, enrichment=round(enrich, 1), ends=rows, interstitial=its)
-    log.info("telomeres: no 5-12-bp unit is enriched in tandem arrays at the chromosome ends")
+        found = choose_unit(fa, chroms, K_RANGE) or choose_unit(fa, chroms, K_LONG, reach_most=True)
+        if found:
+            unit, enrich = found
+            rows = end_rows(fa, chroms, unit, loose=True)
+            its = interstitial(fasta, chroms, unit)
+            log.info(f"telomeres: unit {unit} ({enrich:.0f}-fold denser at the ends); arrays at {len(rows)}/"
+                     f"{2 * len(chroms)} chromosome ends; {len(its)} interstitial arrays")
+            return dict(unit=unit, enrichment=round(enrich, 1), ends=rows, interstitial=its)
+    log.info("telomeres: no 5-29-bp unit is enriched in tandem arrays at the chromosome ends")
     return dict(unit=None, enrichment=float("nan"), ends=[], interstitial=[])

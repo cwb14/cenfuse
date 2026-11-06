@@ -13,8 +13,9 @@ from .params import LOCI_CLUSTER_GAP, LOCI_MIN_SAT_BP
 from .sat.classify import make_clusters
 from .util import CenfuseError, log
 
-CALL_COLS = ["chrom", "chrom_len", "start", "end", "evidence", "confidence", "flags", "main_family", "sat_bp",
-             "te_clade", "te_start", "te_end", "alt_start", "alt_end", "overruled_start", "overruled_end"]
+CALL_COLS = ["chrom", "chrom_len", "start", "end", "evidence", "confidence", "flags", "main_family", "sat_bp", "spacing",
+             "te_clade", "te_start", "te_end", "te_core_elements", "te_call_elements", "rejected_family", "rejected_start",
+             "rejected_end", "alt_start", "alt_end", "overruled_start", "overruled_end"]
 
 
 @dataclass
@@ -58,16 +59,22 @@ def read_calls(path: Path, chroms: dict) -> pd.DataFrame:
         r = by.get(c)
         if r is None:
             rows.append(dict(chrom=c, chrom_len=L, start=-1, end=-1, evidence="none", confidence="none", flags=".",
-                             main_family=".", sat_bp=0, te_clade=".", te_start=-1, te_end=-1, alt_start=-1,
-                             alt_end=-1, overruled_start=-1, overruled_end=-1))
+                             main_family=".", sat_bp=0, spacing=-1, te_clade=".", te_start=-1, te_end=-1,
+                             te_core_elements=-1, te_call_elements=-1, rejected_family=".", rejected_start=-1,
+                             rejected_end=-1, alt_start=-1, alt_end=-1, overruled_start=-1, overruled_end=-1))
             continue
         call = r["evidence"] != "none"
         rows.append(dict(chrom=c, chrom_len=L, start=_int(r["cen_start"], 1) if call else -1,
                          end=_int(r["cen_end"]) if call else -1, evidence=r["evidence"],
                          confidence=r["confidence"] if call else "none", flags=r.get("flags", ".") or ".",
                          main_family=r.get("main_family", "."), sat_bp=max(0, _int(r.get("cen_sat_bp"))),
-                         te_clade=r.get("te_clade", ".") or ".", te_start=_int(r.get("te_core_start"), 1),
-                         te_end=_int(r.get("te_core_end")), alt_start=_int(r.get("alt_start"), 1) if call else -1,
+                         spacing=_int(r.get("main_spacing")), te_clade=r.get("te_clade", ".") or ".",
+                         te_start=_int(r.get("te_core_start"), 1), te_end=_int(r.get("te_core_end")),
+                         te_core_elements=_int(r.get("te_core_elements")), te_call_elements=_int(r.get("te_call_elements")),
+                         rejected_family=(r.get("rejected_family", ".") or ".") if call else ".",
+                         rejected_start=_int(r.get("rejected_start"), 1) if call else -1,
+                         rejected_end=_int(r.get("rejected_end")) if call else -1,
+                         alt_start=_int(r.get("alt_start"), 1) if call else -1,
                          alt_end=_int(r.get("alt_end")) if call else -1,
                          overruled_start=_int(r.get("overruled_start"), 1) if call else -1,
                          overruled_end=_int(r.get("overruled_end")) if call else -1))

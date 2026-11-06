@@ -37,8 +37,8 @@ LOCUS_COLS = ["locus", "chrom", "start", "end", "length", "kind", "lines", "n_li
               "meth_pooled_extreme", "meth_raw_chg", "meth_samples_centromere_like", "meth_samples_specific",
               "gene_ratio", "gap_bp", "dist_to_call"]
 KIND_ORDER = ["centromere", "sequence_centromere", "telomere", "interstitial_telomeric", "rDNA", "subtelomeric_block",
-              "interstitial_block", "alt_centromere_candidate", "hic_hub", "hic_peak", "te_core", "satellite_block",
-              "meth_candidate", "other"]
+              "interstitial_block", "long_unit_array", "alt_centromere_candidate", "hic_hub", "hic_peak", "te_core",
+              "satellite_block", "meth_candidate", "other"]
 
 
 def _runs(mask: np.ndarray):
@@ -66,7 +66,8 @@ def members(chrom: str, L: int, fused: dict, clusters: pd.DataFrame, tel: dict, 
     if fused.get("call"):
         out.append((*fused["call"], "integrated_call", "call", fused["relation"], {}))
     if fused.get("seq"):
-        out.append((*fused["seq"], "sequence_call", "satellite", fused["seq_evidence"], {}))
+        typ = "long_unit_array" if fused.get("long_unit_dropped") else "sequence_call"     # a feature, no call moved from it
+        out.append((*fused["seq"], typ, "satellite", fused["seq_evidence"], {}))
     for r in clusters[clusters.chrom == chrom].itertuples(index=False):
         if r.role in FEATURE_ROLES or r.rdna not in (".", ""):
             out.append((r.start, r.end, "satellite_cluster", "satellite", r.family,
@@ -136,6 +137,8 @@ def kind(group: list) -> str:
         return "subtelomeric_block"
     if "interstitial" in roles:
         return "interstitial_block"
+    if "long_unit_array" in types:
+        return "long_unit_array"
     alt = any(m[2] == "hic_anchored_core" and m[5].get("strong") and m[5].get("gate") for m in group) or \
         any(m[2] == "te_core" and m[5].get("marker") for m in group) or \
         any(m[2] == "meth_candidate" and m[5].get("label") == "centromere_like" for m in group)

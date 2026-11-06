@@ -18,6 +18,7 @@ import pandas as pd
 from . import __version__
 from .morphology import levan
 from .params import AXIS_LEAN_P
+from .sat.params import LEN_TOL
 from .seqcalls import bp_by_role
 
 CEN_ROLES = ("centromeric", "cen_associated")
@@ -71,10 +72,16 @@ def basis(r, ctx: dict) -> str:
     out = []
     if r.call_source == "sequence":
         ev = r.seq_evidence
-        if ev in ("satellite", "weak_satellite"):
+        if ev in ("satellite", "weak_satellite") and "partial_chain" in sflags:
             unit = ctx["unit"].get(r.main_family)
+            out.append(f"repeat family {r.main_family}" + (f" ({unit}-bp model)" if unit else "") + ", chains of partial "
+                       f"copies, {size(ctx['sat_bp'](r.chrom, s, e))} in the call")
+        elif ev in ("satellite", "weak_satellite"):
+            unit = ctx["unit"].get(r.main_family)
+            sp = _int(getattr(r, "seq_spacing", None))               # the arrays' own spacing, where a profile fits
+            spaced = (f", copies spaced {sp} bp here" if sp and unit and abs(sp - unit) > LEN_TOL * unit else "")  # others
             out.append(f"{'weak ' if ev == 'weak_satellite' else ''}satellite {r.main_family}"
-                       + (f" ({unit}-bp unit)" if unit else "") + f", {size(ctx['sat_bp'](r.chrom, s, e))} of "
+                       + (f" ({unit}-bp unit{spaced})" if unit else "") + f", {size(ctx['sat_bp'](r.chrom, s, e))} of "
                        f"centromeric satellite in the call")
         elif ev == "long_unit_tandem":
             out.append(f"long-unit tandem array, {size(ctx['sat_bp'](r.chrom, s, e))} of satellite in the call")
@@ -155,14 +162,19 @@ def caveat(r, ctx: dict) -> str:
     failed = "; Hi-C failed its test here" if ctx["hic"] and str(getattr(r, "hic_gate", ".")) == "fail" else ""
     if r.relation == "none" or _int(r.start) is None:
         need = _could(r, ctx)
-        return ("no line found a centromere (satellite-free?)" + failed +
-                (f" -> {' or '.join(need)} can place one" if need else ""))
+        head = (f"no line supports the only candidate, a long-unit tandem array ({interval(r.seq_start, r.seq_end)})"
+                if "long_unit_unsupported" in _toks(r.flags) else "no line found a centromere (satellite-free?)")
+        return head + failed + (f" -> {' or '.join(need)} can place one" if need else "")
     flags, sflags, against = set(_toks(r.flags)), set(_toks(r.seq_flags)), _toks(r.against)
     out, hint = [], None
     over = _int(getattr(r, "seq_overruled_start", None)), _int(getattr(r, "seq_overruled_end", None))
     if None not in over:      # the call a TE core replaced: a satellite or a long-unit array (older tables: absent)
         out.append(f"the tandem array at {interval(*over)} was overruled by the "
                    f"{r.te_clade if _toks(r.te_clade) else 'TE'} core")
+    rej = _int(getattr(r, "seq_rejected_start", None)), _int(getattr(r, "seq_rejected_end", None))
+    if None not in rej:       # a family the CRM line rejected at classification, its array elsewhere (older tables: absent)
+        out.append(f"the CRM line rejected {r.seq_rejected_family}, whose array at {interval(*rej)} lies away from the "
+                   f"CRM cores on most chromosomes")
     te_iv = (_int(r.te_start), _int(r.te_end))
     alt_iv = (_int(r.seq_alt_start), _int(r.seq_alt_end))
     te_in_alt = None not in te_iv + alt_iv and te_iv[0] <= alt_iv[1] and te_iv[1] >= alt_iv[0]
@@ -173,6 +185,11 @@ def caveat(r, ctx: dict) -> str:
         hint = "CENP-A/CENH3 data would decide" + ("" if ctx["tes"] else ", or a CRM core (tes/; plants)") + \
             ("" if ctx["hic"] else ", or Hi-C when mappable DNA separates them")
     if r.call_source == "sequence":
+        if "partial_chain" in sflags:
+            out.append("not a tandem satellite: chains of partial copies of a longer repeat, which mark where that repeat "
+                       "concentrates, possibly beside the centromere")
+            hint = hint or ("CENP-A/CENH3 data would decide" if ctx["tes"] else
+                            "a CRM core (tes/; plants) or CENP-A/CENH3 data would decide")
         if "no_dominant_satellite" in sflags:
             out.append("no satellite family dominates the genome")
             need = _could(r, ctx)
@@ -192,7 +209,12 @@ def caveat(r, ctx: dict) -> str:
         if "te_discordant" in sflags and _int(r.te_start) is not None and not te_in_alt:
             out.append(f"the {r.te_clade} core lies elsewhere ({interval(r.te_start, r.te_end)})")
     elif r.confidence != "high":
-        out.append("rests on the 3D lines alone: no sequence or LTR evidence at this place")
+        sup = _toks(r.support)                                 # the evidence basis reports, so the two sentences agree
+        here = [x for x, on in ((f"{size(ctx['sat_bp'](r.chrom, int(r.start) - 1, int(r.end)))} of centromeric satellite",
+                                 "satellite" in sup), (f"the {r.te_clade} core", "te" in sup),
+                                ("CHG methylation", "meth" in sup)) if on]
+        out.append(f"rests on the 3D lines; the other evidence at this place is {' and '.join(here)}" if here else
+                   "rests on the 3D lines alone: no sequence or LTR evidence at this place")
         if "hic_denovo_only" in flags:
             hint = "CENP-A/CENH3 data would confirm"
     peak = (f" ({interval(r.hic_anch_peak_start, r.hic_anch_peak_end)})"
@@ -295,6 +317,7 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              low=int(conf.get("low", 0)), none=len(t) - len(called),
              satellite_calls=len(sat), families=[(fam, int(n), ctx["unit"].get(fam)) for fam, n in fams.items()],
              te_calls=int((seq.seq_evidence == "retrotransposon").sum()),
+             chain_calls=int(seq.seq_flags.astype(str).str.contains("partial_chain").sum()),
              tandem_calls=int((seq.seq_evidence == "long_unit_tandem").sum()),
              hic_moved=int((called.relation == "offset").sum()),
              hic_placed=int(((called.relation == "functional_only")
@@ -349,6 +372,8 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         fam = ", ".join(f"{x} ({u} bp) on {n}" if u else f"{x} on {n}" for x, n, u in f["families"][:6])
         made.append(f"satellite arrays on {f['satellite_calls']}: {fam}" +
                     (f" and {len(f['families']) - 6} more families" if len(f["families"]) > 6 else ""))
+    if f["chain_calls"]:
+        made.append(f"chains of partial copies of a longer repeat, not tandem satellites, on {f['chain_calls']} of those")
     if f["te_calls"]:
         made.append(f"retrotransposon cores on {f['te_calls']}")
     if f["tandem_calls"]:

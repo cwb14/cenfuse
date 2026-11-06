@@ -8,13 +8,15 @@ import pysam
 from . import longunit
 from .classify import end_zone, make_clusters, terminal_bp
 from .genomes import count_in
-from .te import agrees, contradicts, gap
+from .params import TE_DERIVED_FRAC
+from .te import agrees, contradicts, elements_in, gap
 from .util import log, union_bp
 
 REG_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "evidence", "confidence", "flags", "main_family",
             "main_family_bp", "sat_bp", "second_cluster_bp", "cen_families", "n_gaps", "gap_bp", "n_genes",
             "gene_ratio", "te_clade", "te_core_start", "te_core_end", "alt_start", "alt_end", "overruled_start",
-            "overruled_end", "overruled_family"]
+            "overruled_end", "overruled_family", "te_core_elements", "te_call_elements", "rejected_family",
+            "rejected_start", "rejected_end"]
 LOWER = {"high": "medium", "medium": "low", "low": "low"}
 RANK = {"low": 0, "medium": 1, "high": 2}
 EMPTY = np.zeros(0, np.int64)
@@ -170,6 +172,56 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
     return row
 
 
+def derived_families(fams: pd.DataFrame) -> dict:
+    """{family: clade} of the families mostly inside LTR retrotransposons (TE_DERIVED_FRAC; only known with tes/)."""
+    if not {"in_ltr", "ltr_clade"} <= set(fams.columns):
+        return {}
+    share = pd.to_numeric(fams.in_ltr, errors="coerce")
+    return {f: c for f, c, s in zip(fams.family, fams.ltr_clade, share) if s >= TE_DERIVED_FRAC}
+
+
+def cap_chain_calls(rows: dict, arrays: pd.DataFrame, primary: set, chains: set, derived: dict, decisive: bool, p) -> int:
+    """Calls that stand on a chain of partial hits (classify.partial_chain) are not satellite calls: flag partial_chain,
+    and at most `medium` where a retrotransposon core overlaps the call, `low` otherwise. Only CRM may decide among
+    retrotransposons, so a core of another clade counts only as a second line, not if the family is made of that clade
+    (derived: one piece of evidence twice). Overlap, not te.agrees: its gap may be as wide as the call, and a call
+    spanning 23% of a chromosome agrees with about 70% of random places. A call holding chrom_min_bp of real satellite is
+    a layered satellite call and stays as it is. Applied after finalize, so that the call a core replaces, and every
+    position, stay what they were: this lowers confidence and nothing else. Returns the calls flagged."""
+    real = arrays[arrays.family.isin(set(primary) - set(chains))]
+    n = 0
+    for c, r in rows.items():
+        if r["evidence"] not in ("satellite", "weak_satellite") or r["main_family"] not in chains:
+            continue
+        s, e = r["cen_start"], r["cen_end"]
+        x = real[(real.chrom == c) & (real.start >= s) & (real.end <= e)]
+        if union_bp(zip(x.start, x.end)) >= p.chrom_min_bp:
+            continue
+        clade = str(r.get("te_clade", "."))
+        on_core = r.get("te_core_start", ".") != "." and gap(s, e, int(r["te_core_start"]), int(r["te_core_end"])) == 0
+        independent = decisive or derived.get(r["main_family"], "").lower() != clade.lower()
+        most = "medium" if on_core and independent else "low"
+        if RANK[r["confidence"]] > RANK[most]:
+            r["confidence"] = most
+        r["flags"] = "partial_chain" if r["flags"] in (".", "") else r["flags"] + ",partial_chain"
+        n += 1
+    return n
+
+
+def rejected_cluster(arrays_c: pd.DataFrame, rejected: set, start: int, end: int, p):
+    """(family, start, end) of the largest cluster, on one chromosome, of the families the CRM line rejected, when it is
+    centromere-sized and lies outside the call [start, end): the array the call would otherwise have stood on. Else None."""
+    a = arrays_c[arrays_c.family.isin(rejected)]
+    if a.empty:
+        return None
+    m = make_clusters(list(zip(a.start, a.end)), p.cluster_gap)[0]
+    if m.bp < p.chrom_min_bp or gap(m.start, m.end, start, end) == 0:
+        return None
+    inside = a[(a.start >= m.start) & (a.end <= m.end)]
+    fam_bp = {f: union_bp(zip(g.start, g.end)) for f, g in inside.groupby("family")}
+    return max(fam_bp, key=lambda f: (fam_bp[f], f)), int(m.start), int(m.end)
+
+
 def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads: int, p, borrowed: bool = False,
                  te=None, capped: bool = False, acro: frozenset = frozenset(), per_chrom: dict = None,
                  rivals: frozenset = frozenset()):
@@ -270,6 +322,11 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
             if core:
                 rows[c].update(te_clade=core.get("clade", clade), te_core_start=int(core["start"]),
                                te_core_end=int(core["end"]))
+                if rows[c]["evidence"] != "none" and core.get("mids") is not None:
+                    # the two counts of the head-to-head test (te.contradicts): the core, and the call or what it replaced
+                    over = rows[c].get("overruled_start", ".")
+                    iv = (over, rows[c]["overruled_end"]) if over != "." else (rows[c]["cen_start"], rows[c]["cen_end"])
+                    rows[c].update(te_core_elements=int(core["k"]), te_call_elements=elements_in(*iv, core))
     log.debug(f"centromeres: {genome.name}: {len(lu)} long-unit arrays")
     return rows, lu
 

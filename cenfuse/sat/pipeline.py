@@ -1,5 +1,6 @@
 """Stage orchestration. Checkpoints: <complex>/centromere/work/<stage>.done; a rerun resumes by default."""
 import json
+import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -43,8 +44,12 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # classify 0.12.0: TE floor counts independent insertion sites (te.core); a decisive core replaces a confident
 # satellite call only if the clade marks it significantly more (te.contradicts). centromeres 0.12.1: the same test for
 # a call beside the core (satellite_beside_core). (0.10.5-0.11.0: v8 test variants.)
-STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.12.0", "classify": "0.12.0",
-                 "centromeres": "0.12.1", "hor": "0.3.0", "output": "0.4.1", "plot": "0.4.1"}
+# annotate 0.13.0: long models search with their low-complexity tracts neutral (annotate.neutralize).
+# classify 0.13.1: the period test of `related` is symmetric; dominant_satellite; te_rejected; ltr_clade counts every
+# overlapping element. centromeres 0.13.1: calls on chains of partial hits (cap_chain_calls); rejected_family, element
+# counts. output 0.13.1: copy spacing; new columns.
+STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.13.1",
+                 "centromeres": "0.13.1", "hor": "0.3.0", "output": "0.13.1", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
@@ -63,7 +68,7 @@ STAGE_PARAMS = {
     "output": ["tandem_min_len"],
     "plot": [],
 }
-TOOLS = ["makeblastdb", "blastn", "mafft", "cd-hit-est", "minimap2", "cmsearch"]        # + the seed engine's
+TOOLS = ["makeblastdb", "blastn", "dustmasker", "mafft", "cd-hit-est", "minimap2", "cmsearch"]        # + the seed engine's
 
 
 class Pipeline:
@@ -318,7 +323,8 @@ class Pipeline:
             primary = set(fams.family[fams.cls == "centromeric"])
             borrowed = g.name in self.borrow
             tev = None if borrowed else self.te_evidence(g)
-            dominant = fams["dominant"].astype(str).eq("True").any() if "dominant" in fams else True
+            dom = "dominant_satellite" if "dominant_satellite" in fams else "dominant"    # a chain is no satellite
+            dominant = fams[dom].astype(str).eq("True").any() if dom in fams else True
             capped = centromere.honesty_cap(tev, borrowed, bool(primary), dominant)
 
             acro = frozenset(fams.family[fams["acrocentric"].astype(str).eq("True")]) if "acrocentric" in fams \
@@ -341,6 +347,20 @@ class Pipeline:
             for r in rows.values():                          # main family mostly inside LTR retrotransposons
                 if r.get("main_family") in te_fams:
                     r["flags"] = "te_derived" if r["flags"] in (".", "") else r["flags"] + ",te_derived"
+            if not borrowed:                                 # (a contig's own family metrics mean nothing)
+                n = centromere.cap_chain_calls(rows, arrays, primary, classify.chain_families(fams[fams.family.isin(primary)]),
+                                               centromere.derived_families(fams), bool(tev and tev[2]), self.p)
+                if n:
+                    log.info(f"centromeres: {g.name}: {n} calls stand on chains of partial hits, not tandem satellites: "
+                             f"at most medium")
+            if "te_rejected" in fams:                        # the array each call would otherwise have stood on
+                rejected = set(fams.family[fams.te_rejected.astype(str).eq("True")])
+                for c, r in rows.items():
+                    x = None
+                    if rejected and r["evidence"] != "none":
+                        x = centromere.rejected_cluster(arrays[arrays.chrom == c], rejected, r["cen_start"], r["cen_end"], self.p)
+                    if x:
+                        r.update(rejected_family=x[0], rejected_start=x[1], rejected_end=x[2])
             if capped:
                 log.info(f"centromeres: {g.name}: no dominant satellite and no decisive retrotransposon evidence; "
                          f"calls capped at low confidence" + (f" unless the {tev[0]} cores support them" if tev else ""))
@@ -387,6 +407,9 @@ class Pipeline:
             output.write_genome(data[g.name], names, self.out, self.p)
         output.write_families(fam, data, names, self._p("families", "families.hmm"),
                               self._p("families", "families.fa"), self.out)
+        dropped = self._p("families", "dropped_clusters.tsv")       # absent in a folder of an earlier version
+        if dropped.exists():
+            shutil.copyfile(dropped, self.out / "dropped_clusters.tsv")
         for g in self.genomes:
             self._log_costliest(g, data[g.name]["fams"], names)
 

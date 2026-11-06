@@ -25,7 +25,8 @@ def main(argv=None) -> int:
     r.add_argument("genome_dir", type=Path, metavar="GENOME_DIR",
                    help="one FASTA per genome (+ .fai; bgzip also .gzi) [+ <g>.chromosomes.txt: the chromosomes to "
                         "analyze, one name per line; default: a length rule]; optional genes/<g>.gff3|.gff|.gtf, "
-                        "tes/<g>.gff3|.gff (LTR_retrotransposon with clade=, or DANTE_LTR), "
+                        "tes/<g>.gff3|.gff (LTR_retrotransposon with clade=, or DANTE_LTR; make it with the LTRquest "
+                        "command in the README), "
                         "hic/<g>.pairs[.gz]|.cool|.mcool (or HiC-Pro .allValidPairs[.gz], Juicer "
                         ".merged_nodups.txt[.gz]) or hic/<g>.tsv (one "
                         "library per plant: sample, file), meth/<g>.tsv (samples table: sample, CHG and/or CG, "

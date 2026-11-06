@@ -44,6 +44,11 @@ NHMMER_REPORT_E = 10.0         # hits kept up to HMMER's default reporting E 10 
                                # too); significance is then decided per hit or per run of copies (annotate.run_significant)
 RDNA_TAG_EVALUE = 1e-5         # cmsearch E for an rRNA gene inside a family consensus dimer
 RDNA_FLANK_EVALUE = 1e-10      # cmsearch --hmmonly E for 45S genes in array flanks (stricter: long flank queries)
+# Long models search with low-complexity tracts neutral (annotate.neutralize): cost, not results
+TRACT_MIN_MODEL = 500          # a model's other half (TRACT_MAX_FRAC) must make a whole copy significant alone: 250 scoring
+                               # positions at about 1 bit each clear E 1e-5 on a 500-Mb chromosome (~47 bits) by far
+TRACT_MIN_BP = 64              # low-complexity bp in the consensus (one DUST window) to match such stretches of the genome
+TRACT_MAX_FRAC = 0.5           # a model mostly of low complexity stays as it is: little of it would be left to score
 
 # ---- retrotransposon evidence (docs/design.md, 'Satellites and TEs')
 TE_BINS = 500                  # density profile resolution: 1/500 of the chromosome

@@ -11,10 +11,11 @@ import pandas as pd
 import pyhmmer
 import pysam
 from pyhmmer.easel import Alphabet, DigitalSequenceBlock, TextSequence
-from pyhmmer.plan7 import LongTargetsPipeline
+from pyhmmer.plan7 import Background, LongTargetsPipeline
 
-from .params import ANNOT_CHUNK, FULL_MONOMER_COV, MULTIMER_MIN_COV, MULTIMER_RATIO, NHMMER_REPORT_E, OVERLAP_MAX_COV
-from .util import Progress, log
+from .params import (ANNOT_CHUNK, FULL_MONOMER_COV, MULTIMER_MIN_COV, MULTIMER_RATIO, NHMMER_REPORT_E, OVERHANG_MIN_BP,
+                     OVERLAP_MAX_COV, TRACT_MAX_FRAC, TRACT_MIN_BP, TRACT_MIN_MODEL)
+from .util import Progress, log, run
 
 ABC = Alphabet.dna()
 MON_COLS = ["chrom", "start", "end", "strand", "family", "bitscore", "evalue",
@@ -134,6 +135,118 @@ def _chunks(chroms: dict, size: int, overlap: int):
             s = e - overlap
 
 
+def low_complexity(seqs: dict) -> dict:
+    """{name: (n, 2) array of the [start, end) low-complexity stretches of the sequence} by dustmasker at BLAST's
+    defaults (level 20, window 64). Names hold no whitespace."""
+    out, name = {k: [] for k in seqs}, None
+    text = "".join(f">{k}\n{v}\n" for k, v in seqs.items())
+    for line in run(["dustmasker", "-outfmt", "interval"], input=text).stdout.splitlines():
+        if line.startswith(">"):
+            name = line[1:].split()[0]
+        elif line:
+            a, _, b = line.partition(" - ")
+            out[name].append((int(a), int(b) + 1))
+    return {k: np.array(v, dtype=np.int64).reshape(-1, 2) for k, v in out.items()}
+
+
+def neutralize(hmms) -> tuple:
+    """(models, {name: its low-complexity tracts}) with those tracts made neutral in long models. A tract makes a model match
+    every low-complexity stretch of the genome, so its filters pass nearly everything and each window costs model x window
+    DP: 25-50 s per 2-Mb chunk with no hit at all (Lespedeza). At a neutral position the model emits the background, so it
+    scores 0 for any base: the tract triggers nothing. Hits of the tract alone go, which mark no copy. A copy usually aligns
+    through the tract on the evidence of the rest of the model; where it does not, repair_hits puts it together again.
+    Applies to long models with a tract (TRACT_MIN_MODEL, TRACT_MIN_BP) that is not most of the model (TRACT_MAX_FRAC); any
+    other model is returned as it is, and the given models are not changed. E-value parameters stay those of the whole
+    model."""
+    long = {h.name: h.consensus.upper() for h in hmms if h.M >= TRACT_MIN_MODEL}
+    if not long:
+        return hmms, {}
+    found = low_complexity(long)
+    background = list(Background(ABC).residue_frequencies)
+    out, tracts = [], {}
+    for h in hmms:
+        iv = found.get(h.name)
+        if iv is None or not TRACT_MIN_BP <= int((iv[:, 1] - iv[:, 0]).sum()) < TRACT_MAX_FRAC * h.M:
+            out.append(h)
+            continue
+        neutral = h.copy()
+        for a, b in iv.tolist():
+            for k in range(a + 1, b + 1):                 # match states count from 1
+                for x, freq in enumerate(background):
+                    neutral.match_emissions[k, x] = freq
+        out.append(neutral)
+        tracts[h.name] = iv
+    return out, tracts
+
+
+def _tract_bp(tracts: np.ndarray, lo: int, hi: int) -> int:
+    """bp of the tracts ([start, end) from 0) inside model positions lo..hi (from 1, inclusive)."""
+    return int(np.maximum(0, np.minimum(tracts[:, 1], hi) - np.maximum(tracts[:, 0], lo - 1)).sum())
+
+
+def _same_copy(a, b, tracts: np.ndarray, scoring: int) -> bool:
+    """Whether hits a and then b along the target (one strand) are pieces of one copy: colinear with the model, a tract between
+    them, as far apart on the target as on the model except for the tract (simple sequence varies in length between copies),
+    and missing no more scoring positions than a whole copy may."""
+    lo, hi = (a[8], b[7]) if a[3] == "+" else (b[8], a[7])              # the model positions either side of the gap
+    gap_model, gap_target = hi - lo - 1, b[1] - a[2]
+    if gap_model < -OVERHANG_MIN_BP or gap_target < -OVERHANG_MIN_BP:
+        return False
+    tract = _tract_bp(tracts, lo - OVERHANG_MIN_BP, hi + OVERHANG_MIN_BP)
+    return (tract > 0 and abs(gap_target - gap_model) <= tract + OVERHANG_MIN_BP
+            and gap_model - tract <= (1 - FULL_MONOMER_COV) * scoring)
+
+
+def join_split_copies(rows: list, tracts: np.ndarray) -> list:
+    """MON_COLS rows of one neutral model on one chunk, with the pieces of one copy (_same_copy) made one row. Where a model holds
+    an internal duplicate, a jump to it outscores a walk over a tract that earns nothing, so a copy can come out in pieces
+    (potato's 1,362-bp family at 99% identity: 9-514 and 608-1360). Pieces chain by their summed score; scores add up, the best
+    E-value stands, identity is weighted by length. Rows not joined keep their order, ahead of the joined."""
+    joined, used = [], set()
+    M = rows[0][9] if rows else 0
+    scoring = M - int((tracts[:, 1] - tracts[:, 0]).sum())
+    for strand in ("+", "-"):
+        idx = sorted((i for i, r in enumerate(rows) if r[3] == strand), key=lambda i: rows[i][1:3])
+        best, prev = [rows[i][5] for i in idx], [-1] * len(idx)
+        for j, i in enumerate(idx):
+            for k in range(j - 1, -1, -1):
+                if rows[idx[k]][1] < rows[i][1] - 2 * M:                 # no piece of this copy starts further back
+                    break
+                if best[k] + rows[i][5] > best[j] and _same_copy(rows[idx[k]], rows[i], tracts, scoring):
+                    best[j], prev[j] = best[k] + rows[i][5], k
+        done = set()
+        for j in sorted(range(len(idx)), key=lambda x: (-best[x], x)):
+            if j in done or prev[j] == -1 or prev[j] in done:
+                continue
+            chain, k = [], j
+            while k != -1 and k not in done:
+                chain.append(k)
+                k = prev[k]
+            done.update(chain)
+            ps = [rows[idx[k]] for k in chain]
+            used.update(idx[k] for k in chain)
+            bp = [r[2] - r[1] for r in ps]
+            joined.append((ps[0][0], min(r[1] for r in ps), max(r[2] for r in ps), strand, ps[0][4], sum(r[5] for r in ps),
+                           min(r[6] for r in ps), min(r[7] for r in ps), max(r[8] for r in ps), M,
+                           sum(r[10] * n for r, n in zip(ps, bp)) / sum(bp)))
+    return [r for i, r in enumerate(rows) if i not in used] + joined
+
+
+def whole_by_scoring_positions(rows: list, tracts: np.ndarray) -> list:
+    """MON_COLS rows with a hit over FULL_MONOMER_COV of the positions that can score reported as covering its model, so that it
+    counts as a whole copy. A neutral position earns nothing, so a local alignment stops at a tract near a model end; nhmmer's
+    correction for biased composition also charges a hit for the biased residues it holds, which can stop it at a tract with
+    little beyond (Chlamydomonas' 924-bp family: 59 bp, a 279-bp tract, 586 bp; turning that correction off is no answer: 45%
+    more hits in potato, none of them seen by the plain model). The coordinates on the genome stay those of the alignment."""
+    out = []
+    for r in rows:
+        M = r[9]
+        scoring = M - int((tracts[:, 1] - tracts[:, 0]).sum())
+        covered = r[8] - r[7] + 1 - _tract_bp(tracts, r[7], r[8])
+        out.append((*r[:7], 1, M, *r[9:]) if covered >= FULL_MONOMER_COV * scoring else r)
+    return out
+
+
 def _search_work(job) -> int:
     """Progress unit of one (chunk x model) search: chunk bp x model length, what the cost of nhmmer's filters grows
     with (the cost still varies with how satellite-dense the chunk is, so the time left is only an estimate)."""
@@ -159,11 +272,16 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
     {family: dict(model_len, searches, cpu_s, wall_s, hits)}) every finished search adds to its family's totals the
     thread CPU time and the wall time its nhmmer call took on its worker thread (not the time it queued, nor the
     conversion of its hits to rows) and the hits `_rows` kept. wall_s is the sum of the searches' own wall times: the
-    time the threads were busy with the family, not the elapsed time of the run."""
+    time the threads were busy with the family, not the elapsed time of the run. Long models with a low-complexity tract are searched with
+    that tract neutral (neutralize)."""
     out = {c: [] for c in genome.chroms}
     if hmms:
         mlen = {h.name: h.M for h in hmms}
         local = threading.local()
+        hmms, tracts = neutralize(hmms)
+        if tracts:
+            log.info(f"annotate: {genome.name}: {len(tracts)} of {len(hmms)} models searched with their low-complexity "
+                     f"positions neutral")
 
         def work(job):
             c, s, e, h = job
@@ -177,7 +295,10 @@ def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_
             wall0, cpu0 = time.perf_counter(), time.thread_time()       # CPU read inside the wall interval: CPU <= wall
             tophits = search_one(h, local.blk)
             cpu, wall = time.thread_time() - cpu0, time.perf_counter() - wall0
-            return c, _rows([tophits], mlen, c, s, scale), (cpu, wall)
+            rows = _rows([tophits], mlen, c, s, scale)
+            if h.name in tracts:
+                rows = whole_by_scoring_positions(join_split_copies(rows, tracts[h.name]), tracts[h.name])
+            return c, rows, (cpu, wall)
 
         overlap = max(overlap, 2 * max(mlen.values()))
         jobs = [(c, s, e, h) for c, s, e in _chunks(genome.chroms, chunk, overlap) for h in hmms]

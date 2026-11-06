@@ -156,8 +156,8 @@ def ltr_overlap(arrays, intervals: dict, longest: int) -> dict:
                     if b > a:
                         cov[a:b] = True
                 inside += int(cov.sum())
-                k = lo + int(np.argmax(os_))
-                clade_bp[cl[k]] = clade_bp.get(cl[k], 0) + int(os_.max())
+                for k in np.flatnonzero(os_):                           # every element's clade: nested elements too
+                    clade_bp[cl[lo + k]] = clade_bp.get(cl[lo + k], 0) + int(os_[k])
         out[fam] = (inside / bp if bp else 0.0, max(clade_bp, key=clade_bp.get) if clade_bp else ".")
     return out
 
@@ -262,6 +262,16 @@ def gap(a0: int, a1: int, b0: int, b1: int) -> int:
     return max(0, max(a0, b0) - min(a1, b1))
 
 
+def elements_in(start: int, end: int, c: dict):
+    """Elements of a core's clade with midpoints in [start, end), as the head-to-head test counts them; None without the
+    clade's positions."""
+    m = c.get("mids")
+    if m is None:
+        return None
+    m = np.asarray(m)
+    return int(np.searchsorted(m, end) - np.searchsorted(m, start))
+
+
 def contradicts(call_start: int, call_end: int, c: dict) -> bool:
     """A core contradicts a call (one elsewhere, or one beside it) only if the clade marks the core significantly more
     than the call region: P(X >= k_core), X ~ Binomial(k_core + k_call, 1/2) <= TE_CONTRA_ALPHA, k = the clade's
@@ -269,11 +279,9 @@ def contradicts(call_start: int, call_end: int, c: dict) -> bool:
     question; where its density happens to peak is not (P. annua Pa1A: the satellite array sits on a second, smaller
     CRM cluster, 19 elements vs the core's 62: contradicted; B. rapa CC1 A09: a CRM plateau over 22-42 Mb, the CentBr
     call on CENH3 holds 16, the core window 18: not contradicted)."""
-    m = c.get("mids")
-    if m is None:
+    k_call = elements_in(call_start, call_end, c)
+    if k_call is None:
         return True
-    m = np.asarray(m)
-    k_call = int(np.searchsorted(m, call_end) - np.searchsorted(m, call_start))
     return binom_sf(c["k"], c["k"] + k_call, 0.5) <= TE_CONTRA_ALPHA
 
 

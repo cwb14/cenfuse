@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyhmmer
 
@@ -12,12 +13,14 @@ from .util import clipped_bp, overlap, parse_fasta_text, union_bp, write_fasta
 
 SUMMARY_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "cen_len", "evidence", "confidence", "flags",
                 "main_family", "main_family_bp", "cen_sat_bp", "sat_fraction", "n_arrays", "largest_array_bp",
-                "n_monomers", "mean_identity", "hor_monomers", "hor_fraction", "top_tandem_hor", "n_gaps",
+                "n_monomers", "mean_identity", "main_spacing", "hor_monomers", "hor_fraction", "top_tandem_hor", "n_gaps",
                 "gap_bp", "n_genes", "gene_ratio", "other_tandem_bp", "te_clade", "te_core_start", "te_core_end",
+                "te_core_elements", "te_call_elements", "rejected_family", "rejected_start", "rejected_end",
                 "alt_start", "alt_end", "overruled_start", "overruled_end", "overruled_family"]
 FAMTAB_COLS = ["family", "fam_id", "superfamily", "consensus_len", "hmm_mode", "rdna", "genome", "class", "role", "strength",
                "defines", "bp", "n_arrays", "prevalence", "concentration", "subtel_frac", "gene_ratio",
-               "median_main_bp", "eligible", "dominant", "in_ltr", "ltr_clade", "reason"]
+               "median_main_bp", "eligible", "dominant", "in_ltr", "ltr_clade", "tandem_frac", "whole_frac", "locus_fold",
+               "dominant_satellite", "te_rejected", "reason"]
 LEVEL = {"centromere": 0, "satellite_DNA": 1, "tandem_repeat": 1, "higher_order_repeat": 2, "satellite_monomer": 3}
 _ESC = {"%": "%25", ";": "%3B", "=": "%3D", "&": "%26", "\t": "%09", "\n": "%0A", "\r": "%0D"}
 
@@ -29,6 +32,16 @@ def _esc(v) -> str:
 def attrs(d: dict) -> str:
     """GFF3 column 9; commas are kept (multi-value lists), reserved characters percent-encoded."""
     return ";".join(f"{k}={_esc(v)}" for k, v in d.items() if v is not None)
+
+
+def copy_spacing(mon: pd.DataFrame, family: str):
+    """Median distance between neighboring copies of a family in their arrays (bp), or None without two such distances.
+    A family's unit is its model's length, and a profile can fit shorter copies with a gap (rice: the 165-bp CentO
+    profile on arrays spaced 155 bp)."""
+    d = mon[mon.family == family]
+    gaps = [np.diff(np.sort(x.start.to_numpy())) for _, x in d.groupby("array_id")]
+    gaps = np.concatenate(gaps) if gaps else np.zeros(0)
+    return int(np.median(gaps)) if len(gaps) >= 2 else None
 
 
 def tandem_loci(rows: pd.DataFrame) -> list:
@@ -106,7 +119,8 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
                         largest_array_bp=int((a.end - a.start).max()) if len(a) else 0, n_monomers=len(m),
                         mean_identity=round(float(m.identity.mean()), 3) if len(m) else ".",
                         hor_monomers=inhor, hor_fraction=round(inhor / classed, 3) if classed else ".",
-                        top_tandem_hor=top)
+                        top_tandem_hor=top, main_spacing="." if "partial_chain" in str(rg["flags"]) else
+                        (copy_spacing(m, rg["main_family"]) or "."))
         sat_iv = list(zip(ic.start, ic.end))
         cand = []
         t = tr_by.get(c, d["seeds"].iloc[:0])
@@ -212,7 +226,14 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
                          if rg.get("overruled_start", ".") not in (".", "") else ".",   # regions of 0.8: absent
                          overruled_end=rg.get("overruled_end", ".") or ".",
                          overruled_family=nm(rg["overruled_family"])
-                         if rg.get("overruled_family", ".") not in (".", "") else "."))
+                         if rg.get("overruled_family", ".") not in (".", "") else ".",
+                         te_core_elements=rg.get("te_core_elements", ".") or ".",
+                         te_call_elements=rg.get("te_call_elements", ".") or ".",
+                         rejected_family=nm(rg["rejected_family"])
+                         if rg.get("rejected_family", ".") not in (".", "") else ".",
+                         rejected_start=int(rg["rejected_start"]) + 1
+                         if rg.get("rejected_start", ".") not in (".", "") else ".",
+                         rejected_end=rg.get("rejected_end", ".") or ".", main_spacing=st["main_spacing"]))
     pd.DataFrame(rows, columns=SUMMARY_COLS).to_csv(outdir / f"{g.name}_centromere_summary.tsv", sep="\t", index=False)
     hu = d["hor_units"].copy()
     hu["family"] = hu.family.map(nm)
@@ -260,7 +281,11 @@ def write_families(fam: pd.DataFrame, data: dict, names: dict, hmm_path, fa_path
                             "subtel_frac": x.subtel_frac, "gene_ratio": x.gene_ratio,
                             "median_main_bp": x.median_main_bp, "eligible": x.eligible,
                             "dominant": getattr(x, "dominant", False), "in_ltr": getattr(x, "in_ltr", float("nan")),
-                            "ltr_clade": getattr(x, "ltr_clade", "."), "reason": x.reason})
+                            "ltr_clade": getattr(x, "ltr_clade", "."), "tandem_frac": getattr(x, "tandem_frac", float("nan")),
+                            "whole_frac": getattr(x, "whole_frac", float("nan")),
+                            "locus_fold": getattr(x, "locus_fold", float("nan")),
+                            "dominant_satellite": getattr(x, "dominant_satellite", False),
+                            "te_rejected": getattr(x, "te_rejected", False), "reason": x.reason})
             else:
                 row.update({"class": "absent", "role": "absent", "bp": 0, "n_arrays": 0,
                             "reason": "no arrays in this genome"})

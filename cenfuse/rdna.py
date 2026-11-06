@@ -3,10 +3,15 @@
 
 Every 45S unit holds one 18S gene, and the 18S "universal" region (GTACACACCGCCCGTC, E. coli 16S positions
 1390-1405) is identical across eukaryotes. A NOR is a tandem run of 45S units, so it shows as a run of motif hits at
-the unit spacing (CHM13 chr15: 44.3 kb; rice chr9: 8.4 kb). Single hits are pseudogenes or organelle insertions
-(mitochondrial 12S holds the motif too) and are ignored. An exact scan costs seconds per Gb, where an HMM search of
-the 18S model costs ~40 min per 3 Gb and stalls on low-complexity sequence; the satellite engine's own rDNA tags
-see only spacer repeats next to satellite arrays.
+the unit spacing (CHM13 chr15: 44.3 kb; rice chr9: 8.4 kb). Single hits are pseudogenes and are ignored. Organelle
+SSU rRNA (plastid and bacterial 16S, mitochondrial 12S and 18S) holds the motif too, followed by A where nuclear 18S has
+G, and its next 19 bases differ from nuclear 18S at 11-17 positions, so such a hit is not counted: insertions of
+organelle DNA otherwise form arrays (rice chr4 9.23-9.37 Mb: 4 hits, 99.8% identical to the plastid genome; 145 'arrays'
+on one Salicornia chromosome). The A alone would not do: nuclear copies with that one base mutated keep the next 19
+bases (at most 5 differ; barley 7H, with 10 5.8S genes in 120 kb). Strand tells nothing: large real NORs hold both
+orientations (Coffea arabica: 658 units, 336 and 322). An exact scan costs seconds per Gb, where an HMM search of the
+18S model costs ~40 min per 3 Gb and stalls on low-complexity sequence; the satellite engine's own rDNA tags see only
+spacer repeats next to satellite arrays.
 
 5S genes (120 bp, in their own tandem arrays) are less conserved than the 18S core, so they are found with the profile
 HMM that Rfam embeds in its 5S covariance model (RF00001, in sat/data/rfam_rrna.cm), searched like the satellite
@@ -28,6 +33,8 @@ import pysam
 from .util import log
 
 MOTIF = "GTACACACCGCCCGTC"       # 18S universal region (one per 45S unit), both strands searched
+ORGANELLE_NEXT = "A"             # the base after the motif in organelle SSU rRNA (nuclear 18S: G; other bases say nothing)
+NUCLEAR_AFTER = "CTCCTACCGATTGGATGGT"   # the 19 bases after that one in nuclear 18S (human, plants, yeast differ at 1-2)
 UNIT_MAX = 100_000              # prior: 45S units are ~8-45 kb (plants, fungi ~8-11; mammals 43-45); hits farther apart
                                 # than twice the longest unit are separate loci
 MIN_UNITS = 3                   # a tandem array has >= 3 copies (the satellite engine's min_array_monomers)
@@ -36,18 +43,37 @@ FIVE_S_E = 1e-5                 # per-gene E-value scaled to the chromosome (the
 FIVE_S_UNIT_MAX = 20_000        # prior: 5S units are 0.2-2.5 kb (plants 0.3-1 kb; mammals and birds 2.2 kb), and a 5S gene
                                 # sits in each 9.1-kb rDNA unit of budding yeast; genes farther apart than twice that are
                                 # separate loci
-_RC = MOTIF.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+_COMPLEMENT = str.maketrans("ACGT", "TGCA")
+_RC = MOTIF.translate(_COMPLEMENT)[::-1]
 _PAT = re.compile(f"{MOTIF}|{_RC}")
 
 
+def organelle_type(seq: str, i: int, forward: bool) -> bool:
+    """Whether the motif at seq[i:], read along its gene, is an organelle SSU rRNA copy: followed by ORGANELLE_NEXT, and
+    the bases after that differ from NUCLEAR_AFTER at most positions (majority rule; 1,100 organelle hits differ at 11-17
+    of 19, 110 nuclear hits with the first base mutated at 1-5, 4 hits between, over 143 genomes). On the reverse strand
+    those bases lie before the hit, reverse complemented. Less than half the context on the sequence: not judged."""
+    k, n = len(MOTIF), 1 + len(NUCLEAR_AFTER)
+    ctx = seq[i + k:i + k + n] if forward else seq[max(0, i - n):i].translate(_COMPLEMENT)[::-1]
+    rest = ctx[1:]
+    if ctx[:1] != ORGANELLE_NEXT or 2 * len(rest) < len(NUCLEAR_AFTER):
+        return False
+    return 2 * sum(a != b for a, b in zip(rest, NUCLEAR_AFTER)) > len(rest)
+
+
 def hits(fasta, chrom: str, length: int) -> np.ndarray:
-    """Start positions of the motif (either strand) on one chromosome."""
-    out, k = [], len(MOTIF)
+    """Start positions of the motif (either strand) on one chromosome, organelle copies left out. Each chunk is read with
+    the length of the context on each side, so the bases after a hit are seen across a chunk edge."""
+    out, k, n = [], len(MOTIF), 1 + len(NUCLEAR_AFTER)
     with pysam.FastaFile(str(fasta)) as fa:
         for s in range(0, length, CHUNK):
-            seq = fa.fetch(chrom, s, min(length, s + CHUNK + k - 1)).upper()
-            out.extend(s + m.start() for m in _PAT.finditer(seq))
-    return np.unique(np.array(out, dtype=np.int64))
+            lo = max(0, s - n)
+            seq = fa.fetch(chrom, lo, min(length, s + CHUNK + k + n)).upper()
+            for m in _PAT.finditer(seq):
+                pos = lo + m.start()
+                if s <= pos < s + CHUNK and not organelle_type(seq, m.start(), m.group() == MOTIF):
+                    out.append(pos)
+    return np.array(sorted(out), dtype=np.int64)
 
 
 def arrays(pos: np.ndarray, length: int, unit_max: int = UNIT_MAX) -> list:

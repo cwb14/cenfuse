@@ -19,13 +19,15 @@ RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
 # type are kept as the kind= and member= attributes, and a member names its locus with locus= (GFF3's Parent= means
 # "part of" in SO, and a satellite block is no part of a centromere). The CpG kinetochore is SO's
 # regional_centromere_central_core, "the region of a modular centromere where the kinetochore is formed".
-SO_KIND = {"centromere": "centromere", "sequence_centromere": "biological_region", "telomere": "telomere",
+SO_KIND = {"centromere": "centromere", "sequence_centromere": "biological_region", "long_unit_array": "tandem_repeat",
+           "telomere": "telomere",
            "interstitial_telomeric": "telomeric_repeat", "rDNA": "tandem_repeat", "subtelomeric_block": "satellite_DNA",
            "interstitial_block": "satellite_DNA", "alt_centromere_candidate": "biological_region",
            "hic_hub": "biological_region", "hic_peak": "biological_region", "te_core": "repeat_region",
            "satellite_block": "satellite_DNA", "meth_candidate": "epigenetically_modified_region",
            "other": "biological_region"}
-SO_MEMBER = {"rdna_array": "tandem_repeat", "rdna5s_array": "tandem_repeat", "telomere_array": "telomeric_repeat",
+SO_MEMBER = {"rdna_array": "tandem_repeat", "rdna5s_array": "tandem_repeat", "long_unit_array": "tandem_repeat",
+             "telomere_array": "telomeric_repeat",
              "telomere_interstitial": "telomeric_repeat", "integrated_call": "centromere",
              "sequence_call": "biological_region", "satellite_cluster": "satellite_DNA", "te_core": "repeat_region",
              "hic_anchored_core": "biological_region", "hic_denovo_core": "biological_region",
@@ -147,7 +149,9 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              high=conf.get("high", 0), medium=conf.get("medium", 0), low=conf.get("low", 0),
              concordant=rel.get("concordant", 0), offset=rel.get("offset", 0), contested=rel.get("contested", 0),
              functional_only=rel.get("functional_only", 0), sequence_only=rel.get("sequence_only", 0),
-             none=rel.get("none", 0), seq_called=int((t.seq_start != ".").sum()),
+             none=rel.get("none", 0),
+             seq_called=int(((t.seq_start != ".") & ~t["flags"].astype(str).str.contains("long_unit_unsupported")).sum()),
+             partial_chain_calls=int(t.seq_flags.astype(str).str.contains("partial_chain").sum()),
              te_marker=tel["marker"][0] if tel.get("marker") else ".",
              te_decisive=bool(tel["marker"][2]) if tel.get("marker") else ".",
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),

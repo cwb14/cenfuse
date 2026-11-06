@@ -64,7 +64,7 @@ Confidence uses the satellite engine's levels, changed one step at a time (its t
 - A moved or functional-only call is medium, and high with a second line."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import numpy as np
@@ -77,8 +77,10 @@ from .util import gap, level_shift
 
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
               "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
-              "seq_alt_start", "seq_alt_end", "seq_overruled_start", "seq_overruled_end", "main_family", "te_clade",
-              "te_start", "te_end", "hic_gate", "hic_gate_k", "hic_gate_n", "hic_gate_p", "hic_gate_refs",
+              "seq_alt_start", "seq_alt_end", "seq_overruled_start", "seq_overruled_end", "seq_rejected_family",
+              "seq_rejected_start", "seq_rejected_end", "seq_spacing", "main_family", "te_clade",
+              "te_start", "te_end", "te_core_elements", "te_call_elements", "hic_gate", "hic_gate_k", "hic_gate_n",
+              "hic_gate_p", "hic_gate_refs",
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "fold_gate", "fold_point", "fold_core_start",
@@ -227,7 +229,21 @@ def axis_line(ev: Evidence) -> tuple:
 
 
 def decide(ev: Evidence) -> dict:
-    """One chromosome's integrated call (see module doc). With ev.meth None it is the provisional call."""
+    """One chromosome's integrated call (see module doc). With ev.meth None it is the provisional call. A long-unit
+    tandem array that stays the call with no support from Hi-C, a retrotransposon core or methylation is reported as a
+    feature, not a call (flag long_unit_unsupported): 24 such calls from the FASTA alone were 2 right, 16 wrong, 6 without
+    truth. Satellite bp is no support (it says what else lies there), nor is an arm axis, which spans 5-10% of a
+    chromosome. The chromosome is then decided as one without a sequence call, so Hi-C can still place one."""
+    d = _decide(ev)
+    if d["source"] == "sequence" and ev.seq["evidence"] == "long_unit_tandem" and \
+            not {"hic", "te", "meth"} & set(d["support"]):
+        d = _decide(replace(ev, seq=dict(ev.seq, start=-1, end=-1, evidence="none", confidence="none", alt_start=-1,
+                                         alt_end=-1)))
+        d["flags"] = d["flags"] + ["long_unit_unsupported"]
+    return d
+
+
+def _decide(ev: Evidence) -> dict:
     seq_iv = _iv(ev.seq)
     sconf = ev.seq["confidence"] if seq_iv else "none"
     alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
@@ -386,8 +402,11 @@ def row(ev: Evidence, d: dict) -> dict:
         seq_evidence=ev.seq["evidence"], seq_confidence=ev.seq["confidence"], seq_flags=ev.seq["flags"],
         seq_alt_start=one(alt_iv[0]) if alt_iv else na, seq_alt_end=end(alt_iv[1]) if alt_iv else na,
         seq_overruled_start=one(over_iv[0]) if over_iv else na, seq_overruled_end=end(over_iv[1]) if over_iv else na,
+        seq_rejected_family=ev.seq.get("rejected_family", na), seq_rejected_start=one(ev.seq.get("rejected_start")),
+        seq_rejected_end=end(ev.seq.get("rejected_end")), seq_spacing=end(ev.seq.get("spacing")),
         main_family=ev.seq["main_family"], te_clade=ev.te["clade"] if ev.te else na,
         te_start=one(ev.te["start"]) if ev.te else na, te_end=end(ev.te["end"]) if ev.te else na,
+        te_core_elements=end(ev.seq.get("te_core_elements")), te_call_elements=end(ev.seq.get("te_call_elements")),
         hic_gate=gate_status(h) if h else na,
         hic_gate_k=h.get("gate_k", na) if h else na, hic_gate_n=h.get("gate_n", na) if h else na,
         hic_gate_p=h.get("gate_p", na) if h else na,
