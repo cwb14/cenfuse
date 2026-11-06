@@ -266,3 +266,8 @@ bp, because the 165-bp profile fits 155-bp copies with a 10-bp gap and scores hi
 is found at 12 of 14 ends, with no spurious unit elsewhere. Once the unit is chosen, a stretch that reaches a sequence end counts down
 to a density of 0.1 (61 of 6,336 ends lie under half density, none under 0.19). Ends 1,539 -> 1,557 over the benchmark and 3,154 -> 3,214 in
 the polyploids, none lost, interstitial arrays unchanged.
+
+## 25. Better recognition and use of non-CRM centromeric-localized LTR-RT
+
+**Evidence.** Some species (Arabidopsis thaliana, moss, etc) have centromeric localized LTR-RT clades that are not CRM.
+It might be possible for confuse to recognize and leverage these better. 
