@@ -39,12 +39,16 @@ and `plants` handle inputs from several plants ([plants.md](plants.md)).
 1. *Seeds.* FasTAN (or TRF) finds tandem repeats in 5-Mb chunks that overlap by 10 kb, so no array is lost at a cut.
 2. *Families.* Seeds are clustered by sequence (BLAST) into families, and each family gets a consensus and a profile
    HMM (MAFFT alignment).
-3. *Genome-wide search.* nhmmer finds every copy of every family.
+3. *Genome-wide search.* nhmmer finds every copy of every family. In a model of 500 bp or more, the positions of a
+   low-complexity tract in the consensus are neutral: they emit the background, so they score nothing for any base. Such
+   a tract otherwise matches every low-complexity stretch of the genome, so the model's filters pass nearly everything,
+   and that was the runaway cost of the search (engineering notes). A copy usually aligns through a neutral tract; where
+   it comes out in pieces they are joined, and a copy is whole when it covers 90% of the positions that can score.
 4. *Roles.* Each family gets a role from where and how it occurs across the chromosomes: `centromeric`,
    `cen_associated`, `subtelomeric`, `interstitial` (knobs and other blocks), `dispersed`, `minor` or `rDNA` (rRNA
    genes, found with Rfam models).
 5. *The call.* On each chromosome, the array cluster of the chosen centromeric family; where no satellite call is
-   possible, a long-unit tandem array or a retrotransposon core.
+   possible, a retrotransposon core, or a long-unit tandem array if another line agrees with it.
 6. *Higher-order repeats* are reported for each call.
 
 | rule | test | why |
@@ -54,12 +58,15 @@ and `plants` handle inputs from several plants ([plants.md](plants.md)).
 | satellite kind | dominance is judged per kind: subfamilies related by sequence are pooled | splitting alpha satellite into 6 subfamilies let a pericentric satellite outcount it |
 | acrocentric | a strong family at one end of most chromosomes, and at both ends of too few for independent ends (binomial, P ≤ 0.01), with no strong interior rival → centromeric, flag `acrocentric`, at most `medium` | subtelomeric repeats occupy ends independently; a centromere occurs once per chromosome. Needs about 16 or more chromosomes |
 | competing cluster | a second cluster at least half the size of the main one, or a second, unrelated satellite that also marks the acrocentric end → `low`, reported in `seq_alt_*` | such calls were right only 2/10 times. Which of two satellites at one end holds the kinetochore is not in the sequence (mouse: the major satellite is larger than the CENP-A minor satellite) |
-| honesty cap | centromeric families exist but none is the largest cluster on most chromosomes, and no CRM core decides → every call `low` (`no_dominant_satellite`) | satellite evidence alone cannot tell a centromeric array from an interstitial one |
+| chain of partial hits | less than half in tandem and less than half whole-unit hits, but concentrated at a locus (fold ≥ 2): the family is no tandem satellite, and a call standing on it (under 20 kb of real satellite inside) is flagged `partial_chain`: `low`, or at most `medium` where a CRM core overlaps it, or a core of another lineage that the family is not made of | one tandem copy of a retrotransposon can found a family whose hits are then fragments of that element (*Glycine dolichocarpa*: 44 whole hits of 25,732, 65% inside SIRE, calls 10 Mb wide). Only CRM may decide among retrotransposons, so a chain of Tekay or SIRE fragments must not be `high`. It never moves a call |
+| honesty cap | centromeric families exist but no real satellite (chains left out) is the largest cluster on most chromosomes, and no CRM core decides → every call `low` (`no_dominant_satellite`) | satellite evidence alone cannot tell a centromeric array from an interstitial one |
 | genes (`genes/`) | gene-rich families are vetoed; subtelomeric = beyond the outermost genes | potato: 2 → 4/11 right; barley: the 3 confident wrong satellite calls become `low` |
 
 ## LTR retrotransposons (`tes/`)
 
 cenfuse finds, for each lineage of LTR retrotransposon, the chromosomes where its elements concentrate at one locus.
+The input is an LTRquest annotation, made with the [README's command](../README.md#inputs) (`--max-rounds 1
+--run-sdust --reboundary --detect-args "ltr-timeout=300"`): the tests below were benchmarked on those annotations only.
 
 - **Cores.** A lineage's core on a chromosome is its densest region (the full width at half maximum of its density),
   and it needs at least 3 independent insertion sites (overlapping elements count once). *Chlorella* centromeres
@@ -86,12 +93,16 @@ cenfuse finds, for each lineage of LTR retrotransposon, the chromosomes where it
 ## rDNA and telomeres
 
 - **45S rDNA (NORs):** tandem runs of ≥ 3 copies of the universal 18S motif, ≤ 100 kb apart (CHM13's 5 NORs in 32 s).
-  Hi-C peaks beside a NOR never oppose a call: NORs meet in the nucleolus.
+  Organelle SSU rRNA holds the motif too, so a hit followed by A, whose next 19 bases also differ from nuclear 18S at
+  most positions, is not counted: insertions of plastid DNA otherwise form arrays (rice chr4). Hi-C peaks beside a NOR
+  never oppose a call: NORs meet in the nucleolus.
 - **5S rDNA:** tandem runs of ≥ 3 whole 5S genes (the Rfam 5S profile HMM, ≥ 90% of the gene, E ≤ 1e-5), ≤ 20 kb
   apart. Whole genes, because pseudogenes and fragments are mostly partial; dispersed 5S genes form no array.
-- **Telomeres:** the repeat unit is found from scratch; an end holds a telomere array with ≥ 300 bp of unit copies in
-  the terminal 100 kb, or ≥ 100 bp that reach the sequence end (assemblers trim short telomeres: *Neurospora* has
-  157-207 bp).
+- **Telomeres:** the repeat unit is found from scratch (5-12 bp; where none qualifies, 13-29 bp, reaching the sequence
+  end at most chromosome ends: *C. tropicalis* has 23 bp); an end holds a telomere array with ≥ 300 bp of unit copies in
+  the terminal 100 kb at half density or more, or ≥ 100 bp that reach the sequence end (assemblers trim short telomeres:
+  *Neurospora* has 157-207 bp). Once the unit is chosen, an end still without an array takes a looser stretch that reaches
+  the end, ≥ 300 bp at a tenth density or more (soybean chr3: 48 kb, 42% unit copies).
 - **Interstitial telomeric arrays:** ≥ 300 bp of the unit inside a chromosome. They mark old fusions (human 2q13) and
   the cores of some centromeres (chicken).
 
@@ -189,6 +200,7 @@ locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 | competing cluster: a strong peak agrees with the second cluster, mappable DNA between them | the second cluster is chosen (`hic_chose_alt`) |
 | competing cluster with no mappable bin between it and the call | no Hi-C support (`hic_alt_ambiguous`): Hi-C cannot tell the two apart |
 | no sequence call, strong peak | the Hi-C core, `functional_only`, `medium` (a clean medium peak: `low`, `hic_medium_peak`) |
+| a long-unit array that stays the call with no support from Hi-C, `tes/` or methylation | no call (`long_unit_unsupported`); the array stays in `seq_start`/`seq_end` and in the loci, and the chromosome is decided as one without a sequence call |
 | gate failed, a Rabl-axis test passed, its core and the prior-free peak agree away from the call | moves to the prior-free core, `offset`, `medium` (`fold_pair`/`align_pair`) |
 | same, but the axis or the prior-free peak opposes the kept call | `contested`, one level lower per opposing line |
 | support tier only, the call's own significant peak agrees | `concordant`, +1 (`hic_support`) |
@@ -235,6 +247,9 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | sat: TANDEM_FRAC, ACRO_ALPHA, LOCUS_FOLD | 0.5, 0.01, 2 | majority rule; conventional level; heuristic |
 | sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | three independent insertions make a locus; conventional levels |
 | sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array; unit-length tolerance |
+| sat: TRACT_MIN_MODEL, TRACT_MIN_BP, TRACT_MAX_FRAC | 500 bp, 64 bp, 50% | what is left of a model must make a whole copy significant alone (250 positions clear the ~47 bits of E 1e-5 on a 500-Mb chromosome by far); one DUST window of low complexity in the consensus; a model mostly of low complexity stays as it is, with too little left to score |
+| 45S: ORGANELLE_NEXT, NUCLEAR_AFTER | A; 19 bases, most differing | prokaryote-type SSU has A after the motif; 1,100 organelle hits differ at 11-17 of the next 19 bases, 110 nuclear hits with that base mutated at 1-5, 4 between |
+| telomeres: K_LONG, MIN_DENSITY_END | 13-29 bp; 0.1 | up to the satellite engine's shortest unit; a heuristic floor that keeps out copies scattered every few kb (61 of 6,336 ends reach the end under half density, none below 0.19) |
 | chromosome set: GAP_FOLD | 10 | a tenfold step in length ends the chromosomes (heuristic) |
 | CpG: BIN, MIN_SITES, MIN_BINS; N_PERM, N_ROT, DIP_P | 5 kb, 10 CpGs, 10 bins; 200, 200, 0.05 | CDR-Finder's window; a dip needs shoulders; P resolution 10× finer than the level |
 | 5S: E, unit max, copies | 1e-5, 20 kb, 3 | the satellite search's E; twice the longest 5S-bearing unit (yeast rDNA); a tandem array |
@@ -262,6 +277,11 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | the centromeric region (call + nearby satellite clusters) | not reported | held out: precision 0.07 in apes (an interspersed family chains whole chromosomes) |
 | chromosome set | tenfold drop, tapering tail cut, optional list | the drop alone kept 5,614 extra scaffolds over 121 polyploid assemblies; other cuts dropped dot chromosomes or microchromosomes |
 | a sample screen to skip dispersed families | not used | no family was skipped on real genomes |
+| long models with low-complexity tracts in the search | neutral positions in the model (background emissions at dustmasker's tracts of the consensus); pieces of a copy joined afterwards | masking the target and searching again around hits near a masked stretch: a copy split by the mask had to be searched twice, so hit-dense models cost more (0.45-1.42x overall, measured side by side). Turning off HMMER's composition correction for these models: it repairs some copies, but with 45% more significant hits in potato, none seen by the plain model. Tracts that keep 10-30% of their signal: they repair copies, but on sheep cost more than the plain model (26-31 vs 21 s). A BLASTN prefilter: lost 12% of the hit bp in chicken and sheep. Filtering harder in nhmmer (F1-F3): under 2x, and hits changed. Other block lengths: no gain |
+| 45S arrays made of organelle DNA | the base after the motif and the next 19 | one strand only: large real NORs hold both (*Coffea*: 658 units, 336 and 322). The next base alone: 9% of the hits followed by A are nuclear copies with that base mutated (barley 7H, 10 5.8S genes in 120 kb) |
+| which families count as one for dominance | same sequence, or period within 15% of the shorter | sequence alone (`same_sequence`): changes the main family on 90 of 3,459 chromosomes and removes dominance in 6 genomes, with no truth behind it |
+| dominance within subgenomes (chromosome groups) | not used | real A/B groups lift 27 of 292 capped calls in 20 polyploids, random splits of the same chromosomes 9, and only 1 species beats its random splits; random splits of diploids lift up to 8 calls per genome |
+| telomere stretches under half density in choosing the unit | only after the unit is chosen | decoy units in loose stretches could block the real unit |
 | a faster, inexact seed clustering | not used | 10× faster, but BLAST's hit lists differ for 0.2-0.5% of pairs, so it is not exact by construction ([future.md](future.md)) |
 | GFF3 feature types | Sequence Ontology terms, cenfuse's kind as `kind=` | cenfuse's own kinds as types: no validator or pipeline accepts them |
 
@@ -290,6 +310,21 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   (`setarch -R`); MAFFT's refinement runs single-threaded (`--threadit 0`). Fresh runs are then identical.
 - **Memory.** One pyhmmer search pipeline per thread, reused: a new pipeline per search held its workspace until
   Python's garbage collection (chicken: 277 → 58 GB).
+- **Search cost.** On the slowest genomes (*Panax*, *Lespedeza*) models of 1 kb or more took 87-96% of the CPU. A long
+  model with a low-complexity tract spent 25-50 s per 2-Mb chunk with no hit: simple sequence passes its filters, and each
+  window then costs model x window DP. A neutral position cannot trigger that. What neutral tracts cannot remove is the
+  DP on real hits: long chain families hit nearly everywhere. A neutral position also earns nothing for a copy, which
+  costs some alignments three ways, each seen on real families at 97-100% identity. A local alignment stops at the inner
+  side of a tract at a model end (Col-CC's 502-bp rDNA family: a 98-bp tract at its start). nhmmer's correction for biased
+  composition (null2) still charges a hit for the biased residues it holds, so a hit can stop at a tract with little
+  beyond it (*Chlamydomonas*' 924-bp family: 59 bp, a 279-bp tract, 586 bp). Where a model holds an internal duplicate, a
+  jump to it can outscore a walk over the tract (potato's 1,362-bp family: 9-514 and 608-1360). So a hit over 90% of the
+  positions that can score counts as whole, and colinear pieces with a tract between them are joined if they lie as far
+  apart on the target as on the model except for the tract (whose length varies between copies, so it may differ by its
+  own length plus 20 bp) and miss no more scoring positions than a whole copy may. Such a hit reports the whole model in
+  `hmm_from`, `hmm_to` and the GFF's `model_cov`, while its coordinates stay those of the alignment. E-value parameters stay
+  those of the whole model. A known side effect: a neutral model scores less, so a close family without a tract can win their
+  overlaps and take its copies (cotton's 512-bp family, to a 481-bp relative); no call has moved for it.
 - **Parallel family models.** A family's model is built in the frame of the most similar earlier family, so models
   are built concurrently but accepted in family order, each rebuilt if an earlier family it did not see could have
   changed it: the result is the serial one (*Panax*: families stage 3.4× faster at 16 threads).
@@ -299,7 +334,7 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 
 ## Tests
 
-`pytest -q -n 8`: 774 tests on small synthetic fixtures (about 3 min). They cover every rule above with unit tests; a
+`pytest -q -n 8`: 885 tests on small synthetic fixtures (about 4 min). They cover every rule above with unit tests; a
 synthetic genome with planted cases (a Hi-C move with a CRM core, the same without a second line, a hub decoy, a
 satellite-free chromosome, randomized Hi-C, three plants); a full satellite-engine run on its synthetic genome;
 planted CpG dips and every methylation format; every Hi-C pairs layout; a yeast-like Rabl genome called at 10-kb

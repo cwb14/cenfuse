@@ -1,6 +1,6 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.10.1
+Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.11.0
 with the genome's richest benchmarked inputs. Counts: right / chromosomes with truth (for mammals without
 CENP-A data: agreement with an independent satellite caller). Every number: [benchmark.md](benchmark.md).
 
@@ -33,7 +33,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [siamang](#siamang) | FASTA, genes, Hi-C | 20/26 agree (3 confident disagreements) |  |
 | [rhesus macaque](#rhesus-macaque) | FASTA, genes, Hi-C | 22/22 agree |  |
-| [sheep](#sheep) | FASTA, genes, Hi-C | 27/28 agree (1 confident disagreements) |  |
+| [sheep](#sheep) | FASTA, genes, Hi-C | 26/28 agree (1 confident disagreements) |  |
 | [goat](#goat) | FASTA, genes, Hi-C | 30/30 agree | all acrocentric |
 | [giraffe](#giraffe) | FASTA, genes, Hi-C | 15/15 agree |  |
 
@@ -44,7 +44,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | [HG002 (diploid human)](#hg002-diploid-human) | FASTA, ONT CpG methylation | 46/46 | both haplotypes; CpG kinetochores on 40, all inside the active array |
 | [horse (EquCab3)](#horse-equcab3) | FASTA, Hi-C | 3/5 | older assembly; right calls are `low`; chr11 has no call |
 | [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 1/20 | all acrocentric: every call `low` on the major satellite, the CENP-A minor satellite reported beside it |
-| [chicken](#chicken) | FASTA, Hi-C | 28/33 | CENP-A windows on 33 of 40 chromosomes; every call `low` (no satellite family dominates) |
+| [chicken](#chicken) | FASTA, Hi-C | 27/33 | CENP-A windows on 33 of 40 chromosomes; every call `low` (no satellite family dominates) |
 
 ## Plants with satellite centromeres
 
@@ -83,7 +83,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | held out; 8 accessory chromosomes |
 | [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 10/14 | held out; Hi-C in anaphase (centromeres clustered) |
 | [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 0/14 | held out; Hi-C in G1 (centromeres unclustered): no test passes, no call |
-| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 6/8 | held out; truth is a kinetochore protein (Mtw1) |
+| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 7/8 | held out; truth is a kinetochore protein (Mtw1) |
 | [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 0/7 | held out; 3C-seq: no test passes |
 
 ## Holocentric controls (any confident call is wrong)

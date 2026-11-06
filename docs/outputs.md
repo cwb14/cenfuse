@@ -18,7 +18,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `asm.hic_anchored.bedgraph` | the anchored Hi-C centromere score per bin, for a genome browser |
 | `asm.provenance.tsv` | which plant each input comes from, and whether it decides ([plants.md](plants.md)) |
 | `asm.plants.tsv`, `asm.plant_sites.tsv`, `asm.plants.png` | with several plants: each plant's verdict per chromosome and per site ([plants.md](plants.md)) |
-| `satellite/` | the satellite engine: families (`satellite_families.tsv`, `.fa`, `.hmm`), arrays (`asm_satellite_arrays.gff`), its own calls (`asm_centromere_summary.tsv`), higher-order repeats, its overview |
+| `satellite/` | the satellite engine: families (`satellite_families.tsv`, `.fa`, `.hmm`), arrays (`asm_satellite_arrays.gff`), its own calls (`asm_centromere_summary.tsv`), higher-order repeats, its overview, and `dropped_clusters.tsv`: the seed clusters of ≥ 20 kb left out by the cap of 40 families (largest first; span, period, seeds, chromosomes, the largest seed and its consensus) |
 | `hic/`, `methylation/` | the Hi-C and methylation engines' tables and plots |
 | `work/` | checkpoints (a rerun resumes from them) |
 
@@ -44,11 +44,14 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | column | meaning |
 |---|---|
 | `seq_start`, `seq_end`, `seq_confidence`, `seq_flags` | the satellite engine's own call, confidence and flags |
-| `seq_evidence` | what the sequence call stands on: `satellite`, `weak_satellite`, `long_unit_tandem` or `retrotransposon` |
+| `seq_evidence` | what the sequence call stands on: `satellite`, `weak_satellite`, `long_unit_tandem` or `retrotransposon`. With the flag `long_unit_unsupported` the array is a feature, not the call |
 | `main_family` | the satellite family of the call |
+| `seq_spacing` | the median distance between neighboring copies of the main family in the call's arrays (bp); `basis` names it where it differs from the family's unit, since a profile can fit shorter copies with a gap |
 | `seq_alt_start`, `seq_alt_end` | a competing cluster: the place tested Hi-C may move the call to |
 | `seq_overruled_start`, `seq_overruled_end` | the satellite array a CRM core replaced (reported only; Hi-C never moves a call there). `.` also when the satellite outputs were made before cenfuse 0.9 and read with `--satellite-dir` |
+| `seq_rejected_family`, `seq_rejected_start`, `seq_rejected_end` | a family the CRM line rejected at classification (its arrays lie away from the CRM cores on most chromosomes), and its largest cluster on this chromosome, outside the call: the array the call would otherwise have stood on |
 | `te_clade`, `te_start`, `te_end` | the LTR retrotransposon marker lineage and its core on this chromosome |
+| `te_core_elements`, `te_call_elements` | the two counts of the head-to-head test: elements of that lineage in the core, and in the call or the array it replaced |
 
 **Hi-C**
 
@@ -114,6 +117,7 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence: the call is near a chromosome end; it holds little satellite; it is a broad satellite-sparse block; no family is the largest centromeric cluster on most chromosomes (every call `low`) |
 | `te_concordant`, `te_discordant` | the LTR marker's core agrees with the call / lies elsewhere; with a CRM core the call is raised to at least `medium` / lowered one level (other lineages only flag) |
 | `satellite_away_from_core`, `satellite_beside_core`, `weak_satellite_beside_core` | a CRM core replaced the satellite call (kept in `seq_overruled_*`): a call elsewhere that was `low` or held significantly fewer CRM elements; a call beside the core that held significantly fewer; a weak call beside it |
+| `partial_chain` | the main family is no tandem satellite: less than half of its bp in tandem repeats and less than half in whole-unit hits. The call is `low`, or at most `medium` where a retrotransposon core overlaps it (for a lineage other than CRM, only if the family is not made of it); the position is unchanged |
 | `te_derived`, `gene_rich`, `gaps:N`, `contig_end` | the main family lies mostly inside LTR retrotransposons; the call is more gene-dense than its chromosome; N assembly gaps in the call; the call reaches a contig end (`--classify-from`) |
 | `hic_offset` | strong tested Hi-C points elsewhere but cannot move a `high` call without a second line (`contested`) |
 | `hic_disagrees_weak`, `hic_near` | a tested peak elsewhere too weak to oppose; a peak beside the call but within Hi-C's resolution (no effect) |
@@ -124,13 +128,14 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 | `hic_medium_peak` | no sequence call; a clean medium-strength Hi-C peak placed a `low` call |
 | `hic_denovo_only` | too few sequence calls to test Hi-C: Hi-C's own clean peak placed this `low` call (untested) |
 | `hic_denovo_elsewhere` | in such a genome, Hi-C's clean peak lies away from the kept sequence call (the caveat says where) |
+| `long_unit_unsupported` | the only sequence candidate is a long-unit tandem array that neither Hi-C, a retrotransposon core nor methylation supports: it is reported (`seq_start`, `seq_end`, the loci) and is not a call |
 
 ## `cenfuse_summary.tsv` (one row per genome)
 
 | columns | meaning |
 |---|---|
 | `chromosomes`, `lines`, `called`, `high`, `medium`, `low` | chromosomes analyzed, the lines given, calls by confidence |
-| `concordant` ... `none`, `seq_called` | calls by relation; chromosomes with a sequence call |
+| `concordant` ... `none`, `seq_called`, `partial_chain_calls` | calls by relation; chromosomes with a sequence call; of those, calls on chains of partial hits |
 | `te_marker`, `te_decisive` | the LTR marker lineage and whether it is decisive (CRM concentrated on most chromosomes) |
 | `telomere_unit`, `telomere_ends`, `telomere_interstitial` | the telomere repeat found, ends with a telomere array, arrays inside chromosomes |
 | `rdna_arrays`, `rdna_chromosomes`, `rdna5s_arrays`, `rdna5s_chromosomes` | 45S (NOR) and 5S rDNA arrays |
@@ -150,8 +155,9 @@ Every candidate interval of every line (satellite clusters ≥ 20 kb, TE cores, 
 candidates, 45S and 5S rDNA arrays, telomere arrays at the ends and inside chromosomes, the sequence and final calls)
 becomes a member; overlapping members merge into a locus, which gets every line's value there and the first kind that
 fits: `centromere` > `sequence_centromere` (where a call moved from) > `telomere` > `interstitial_telomeric` > `rDNA`
-> `subtelomeric_block` > `interstitial_block` (knobs) > `alt_centromere_candidate` > `hic_hub` > `hic_peak` >
-`te_core` > `satellite_block` > `meth_candidate` > `other`. GFF3 types are Sequence Ontology terms (`gt gff3validator
+> `subtelomeric_block` > `interstitial_block` (knobs) > `long_unit_array` (an array that no line supports, so no call) >
+`alt_centromere_candidate` > `hic_hub` > `hic_peak` > `te_core` > `satellite_block` > `meth_candidate` > `other`. GFF3
+types are Sequence Ontology terms (`gt gff3validator
 -typecheck so` passes); cenfuse's kind is the `kind=` attribute, and each member names its locus (`locus=`) and type
 (`member=`).
 
@@ -199,7 +205,8 @@ edited `chromosomes.txt`) stops, names the genomes, and says to rerun with `--fo
 **The log.** Without `-v` the log reports the start, milestones, warnings and the end. The genome-wide satellite
 search logs the share of its work done and a rough estimate of the time left at every 10%, and after an hour without
 a line; when it ends, it names the three families that cost the most CPU (all families:
-`satellite/work/annotate/<genome>.search_cost.tsv`).
+`satellite/work/annotate/<genome>.search_cost.tsv`) and, before it starts, how many models are searched with their
+low-complexity positions neutral.
 
 **Reproducibility.** On Linux, fresh runs give identical results apart from the dates and commands in file headers
 (FasTAN runs with address-space randomization off, `setarch -R`). Three kinds of work files can differ: the search

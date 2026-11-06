@@ -40,7 +40,7 @@ Details: [docs/design.md](docs/design.md).
 Calls were scored against centromeres mapped by CENP-A/CENH3 ChIP (or CUT&Tag, DiMeLo-seq) on the same assembly.
 A call is right when it overlaps the CENP-A domain (mammals), lies within 4 Hi-C bins of the CENH3 domain (plants:
 about 1 Mb; moss and algae: 100 kb), or within 1 Hi-C bin (fungi, *Plasmodium*); *confident* = `high` or `medium`.
-Every number is from cenfuse 0.10.1. Per genome, the controls and every failure are in
+Every number is from cenfuse 0.11.0. Per genome, the controls and every failure are in
 [docs/benchmark.md](docs/benchmark.md); every genome's overview page is in the [gallery](docs/gallery.md).
 
 | genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |
@@ -48,11 +48,11 @@ Every number is from cenfuse 0.10.1. Per genome, the controls and every failure 
 | 9 T2T mammals (human, great apes, crab-eating macaque, pig, horse) | satellites | 143/157, 1 | + genes + Hi-C: 148/157, 4 |
 | HG002, diploid human T2T | alpha satellite | 46/46, 0 | + CpG: a kinetochore on 40, all in the active array |
 | rice | CentO satellite | 12/12, 0 | + Hi-C, `tes/`, genes: 12/12, 0 |
-| *Brassica rapa*, 11 accessions | satellite | 109/110, 0 | + `tes/` (4 accessions): 40/40, 0 |
+| *Brassica rapa*, 11 accessions | satellite | 110/110, 0 | + `tes/` (4 accessions): 40/40, 0 |
 | soybean | satellite | 20/20, 0 | + Hi-C: 20/20, 0; + `tes/`: 19/20, 1 |
 | sorghum, *Brachypodium*, *Arabidopsis* | satellite | 18/18, 0 | + `tes/`, Hi-C, methylation: 18/18, 0 |
 | maize (Mo17), with knobs | CentC satellite | 9/10, 1 | + `tes/`, genes: 9/10, 1 |
-| chicken | chromosome-specific satellites | 28/33 (all `low`), 0 | + Hi-C: unchanged |
+| chicken | chromosome-specific satellites | 27/33 (all `low`), 0 | + Hi-C: unchanged |
 | mouse, all acrocentric | minor satellite beside the major satellite | 1/20 (all 20 at the right end, `low`), 0 | + Hi-C: unchanged |
 | barley | CRM retrotransposons | 0/7, 3 | + Hi-C: 6/7, 0; + `tes/`: 4/7, 1 |
 | potato | satellite on half, none on half | 2/11, 2 | + `tes/`: 6/11, 2 |
@@ -62,27 +62,29 @@ Every number is from cenfuse 0.10.1. Per genome, the controls and every failure 
 | *Chlamydomonas* | LINE clusters | 6/17 (all `low`), 0 | + `tes/`: unchanged |
 | tomato | no repeat, beside a dominant satellite | 1/12, 7 | + `tes/`, Hi-C: unchanged (a failure) |
 | horse EquCab3 (older assembly) | satellites; chr11 none | 3/5 (`low`), 0 | + Hi-C: unchanged |
-| budding and fission yeast, *Plasmodium*, *Neurospora* | point, regional, AT-rich | 1/40, 0 | + Hi-C: 39/40, 0 |
-| 5 more fungi, held out (6 Hi-C libraries) | regional | 0/72, 0 | + Hi-C: 43/72, 0 |
+| budding and fission yeast, *Plasmodium*, *Neurospora* | point, regional, AT-rich | 0/40, 0 | + Hi-C: 39/40, 0 |
+| 5 more fungi, held out (6 Hi-C libraries) | regional | 0/72, 0 | + Hi-C: 44/72, 0 |
 | 4 holocentric genomes (any confident call is wrong) | no single centromere | 0 confident in 46 | + Hi-C: 0 confident |
 
 - **Confidence means something.** Over the 47 genomes with truth, each with all its inputs, `high` calls were right
-  329 of 343 times, `medium` 102/105, `low` 101/155. Half of the wrong `high` calls are tomato's.
+  331 of 345 times, `medium` 102/105, `low` 100/149. Half of the wrong `high` calls are tomato's.
 - **Controls.** On randomized Hi-C (47 runs) and misplaced methylation (8 primates), no test ever passed and no call
-  changed. Five more mammals without CENP-A data agree with an independent satellite caller on 114/121 chromosomes.
+  changed. Five more mammals without CENP-A data agree with an independent satellite caller on 113/121 chromosomes.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): 39 kinetochores, a median of 45 kb
   wide inside calls of 3.9 Mb; 35 within 50 kb of CENP-A. With human, 62 of 63 lie on curated CENP-A domains.
 
 **Where it is strong:** satellite centromeres from the FASTA alone; satellite-free centromeres from centromeric
 retrotransposons (CRM in potato and *Ae. tauschii*, Copia lineages in moss and *Chlorella*); point, regional and
 AT-rich centromeres from Hi-C (yeasts, *Plasmodium*, fungi); no confident call on holocentric chromosomes; knobs and
-other large satellites were not mistaken for centromeres, though in maize
-[only a size floor](docs/future.md#17-knobs-kept-out-only-by-a-size-floor) keeps the knob out.
+other large satellites were not mistaken for centromeres ([maize's knob](docs/future.md#17-knobs-and-the-size-floor) stays out at
+any size floor tried, though that rests on one genome).
 
 **Where it is weak:** satellite-free centromeres beside a dominant satellite (tomato); a small active array beside a
 large inactive one of the same satellite is called confidently on the large one (one orangutan chromosome, whose
-truth is under revision); right calls are often left `low` (chicken 28/33, *Z. tritici* 19/21); Hi-C helps only
-where nuclei cluster their centromeres and with enough reads.
+truth is under revision); right calls are often left `low` (chicken 27/33, *Z. tritici* 19/21); Hi-C helps only
+where nuclei cluster their centromeres and with enough reads. In allopolyploids, a family called centromeric can be a
+chain of partial retrotransposon copies instead of a tandem satellite (409 of 2,355 calls in 106 allotetraploids): such
+calls are flagged and held to `medium` at most, a [choice no genome with truth has tested](docs/future.md#1-calls-on-chains-of-partial-copies).
 
 ## Install
 
@@ -90,7 +92,7 @@ where nuclei cluster their centromeres and with enough reads.
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 774 tests, ~3 min
+pytest -q -n 8          # optional: 885 tests, ~4 min
 ```
 
 ## Quick start
@@ -105,8 +107,9 @@ chromosome) and `cenfuse_overview.pdf`.
 
 **Runtime and memory.** The satellite search takes most of the time and grows with satellite content: T2T mammals
 (2.6-3.6 Gb) 1-10 h at 12 threads, mouse 9 h at 16, maize 50 min at 16, *Arabidopsis* 15 min at 8. Hi-C and the
-integration take minutes. Peak memory: 8-74 GB for T2T mammals at 12 threads, 5 GB for *Arabidopsis*. A rerun
-resumes where it stopped, and fresh runs give identical results (Linux).
+integration take minutes (times from before 0.11, whose search is up to 4.9x faster on genomes where long repeat models hold
+low-complexity tracts, and about the same elsewhere). Peak memory: 8-74 GB for T2T mammals at 12 threads, 5 GB for *Arabidopsis*. A
+rerun resumes where it stopped, and fresh runs give identical results (Linux).
 
 ## Inputs
 
@@ -116,7 +119,7 @@ One folder per genome. Every file is named after the FASTA (`asm`):
 mygenome/
 ├── asm.fa + asm.fa.fai    required: a chromosome-level assembly
 ├── asm.chromosomes.txt    optional: the chromosomes to analyze, one name per line
-├── tes/asm.gff3           LTR retrotransposons    strongly recommended for plants
+├── tes/asm.gff3           LTR retrotransposons    strongly recommended for plants (LTRquest recipe below)
 ├── hic/asm.pairs.gz       Hi-C contacts           (or .cool/.mcool, HiC-Pro .allValidPairs, Juicer merged_nodups)
 ├── meth/asm.tsv           methylation samples     (ONT or PacBio HiFi)
 └── genes/asm.gff3         gene annotation         (or .gff/.gtf)
@@ -139,19 +142,29 @@ Several FASTAs in one folder are analyzed together and share satellite family na
 <summary><b>Recipes: making each input</b> (click)</summary>
 
 **LTR retrotransposons** with [LTRquest](https://github.com/cwb14/LTRquest), the annotator cenfuse is developed and
-benchmarked with:
+benchmarked with. Generate the `tes/` file with exactly this command:
 
 ```bash
-ltrquest --genome asm.fa --proteins related.pep.fa --threads 32 --detect-args ltr-timeout=300   # --proteins optional
+ltrquest --genome asm.fa --proteins related.pep.fa --max-rounds 1 --threads 32 \
+  --detect-args "ltr-timeout=300" --run-sdust --no-plots --reboundary
 mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm.gff3
 ```
 
-`ltr-timeout=300` caps the slowest detectors at 5 min per 500-kb chunk, which stall on centromeric satellites; set
-`--mutation-rate` for your organism (default 3e-8, plants). The CRM line needs a sensitive annotation: with less
-sensitive ones (DANTE_LTR, EDTA's intact set, half of LTRquest's elements) CRM concentrated on too few rice
-chromosomes to decide, and potato lost its gain from `tes/`. Other GFF3 files are read too: each element's type must
-contain `LTR_retrotransposon` and carry `clade=` (e.g. EDTA + TEsorter), or be a DANTE_LTR GFF3 as it is. A file
-without lineages, or on other sequence names, is reported and the LTR line is left out.
+| flag | why |
+|---|---|
+| `--proteins` | a protein FASTA of this or any related species: masks genes during detection |
+| `--max-rounds 1` | one detection pass, as in every benchmark run; LTRquest's default keeps searching for nested elements for up to 10 rounds, which cenfuse's tests were not benchmarked on |
+| `--detect-args "ltr-timeout=300"` | caps the slowest detectors at 5 min per chunk: they stall on centromeric satellites |
+| `--run-sdust` | drops candidates made mostly of low-complexity sequence |
+| `--reboundary` | repairs element ends that lack a target-site duplication, and merges duplicate calls of one element |
+| `--no-plots` | skips LTRquest's plots: cenfuse reads only the GFF3 |
+
+All 17 `tes/` annotations in the benchmark come from this command, except that they were made without `--proteins` and
+with plots. The CRM line needs a sensitive annotation: with less sensitive ones (DANTE_LTR, EDTA's intact set, half of
+LTRquest's elements) CRM concentrated on too few rice chromosomes to decide, and potato lost its gain from `tes/`.
+Other GFF3 files are read too: each element's type must contain `LTR_retrotransposon` and carry `clade=` (e.g. EDTA +
+TEsorter), or be a DANTE_LTR GFF3 as it is. A file without lineages, or on other sequence names, is reported and the
+LTR line is left out.
 
 **Hi-C** to uniquely mapped, deduplicated pairs (about 100 M read pairs; map to this exact assembly):
 
