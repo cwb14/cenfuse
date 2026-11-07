@@ -1,13 +1,12 @@
 # Future development
 
-Open problems in cenfuse 0.11. Each gives the evidence, a proposed approach and the check it needs (a rerun, or new truth
-data). Entries closed in 0.11 keep their numbers and say what was done; the rest is not implemented. The evidence comes from
-the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allotetraploid plant genomes (2,355 calls: 44% `high`, 30%
-`medium`, 24% `low`).
+Open problems in cenfuse 0.12. Each gives the evidence, a proposed approach and the check it needs (a rerun, or new truth
+data). Entries closed in 0.11 or 0.12 keep their numbers and say what was done; the rest is not implemented. The evidence comes
+from the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allotetraploid plant genomes (2,355 calls).
 
 | # | problem | needs |
 |---|---|---|
-| 1 | [calls on chains of partial copies](#1-calls-on-chains-of-partial-copies) | CENH3 truth where a chain dominates; a test of replacing the call by its core |
+| 1 | [calls on chains of partial copies](#1-calls-on-chains-of-partial-copies) | narrowing to the core done in 0.12; CENH3 truth where a chain dominates |
 | 2 | [the 40-family cap](#2-the-40-family-cap) | a genome where it costs a call |
 | 3 | [satellites specific to subgenomes vs the honesty cap](#3-satellites-specific-to-subgenomes-vs-the-honesty-cap) | tested in 0.11: no gain over random splits |
 | 4 | [the decisive CRM test with subgenome-specific lineages](#4-the-decisive-crm-test-with-subgenome-specific-lineages) | CENH3 truth, a null |
@@ -16,12 +15,12 @@ the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allotetrap
 | 7 | [the FasTAN crash, reported upstream](#7-the-fastan-crash-reported-upstream) | the user's decision, then a fixed release |
 | 8 | [large unplaced scaffolds and dot chromosomes](#8-large-unplaced-scaffolds-and-dot-chromosomes) | known chromosome lists and karyotypes |
 | 9 | [CENH3 truths for allopolyploids](#9-cenh3-truths-for-allopolyploids) | new data |
-| 10 | [the LTR retrotransposon line](#10-the-ltr-retrotransposon-line) | held-out `tes/` truth (first bullet done in 0.11) |
-| 11 | [Hi-C anchors where the sequence line is wrong genome-wide](#11-hi-c-anchors-where-the-sequence-line-is-wrong-genome-wide) | CENH3 genomes with Hi-C and `tes/` |
-| 12 | [cis signals of satellite-free centromeres](#12-cis-signals-of-satellite-free-centromeres) | more satellite-free CENH3 genomes with Hi-C |
+| 10 | [the LTR retrotransposon line](#10-the-ltr-retrotransposon-line) | measured in 0.12; `te_concordant` against random placements is reported, and the rules stay |
+| 11 | [Hi-C anchors where the sequence line is wrong genome-wide](#11-hi-c-anchors-where-the-sequence-line-is-wrong-genome-wide) | done in 0.12 |
+| 12 | [cis signals of satellite-free centromeres](#12-cis-signals-of-satellite-free-centromeres) | done in 0.12, with `tes/`; entry 26 for without |
 | 13 | [bird microchromosomes in Hi-C](#13-bird-microchromosomes-in-hi-c) | a sparse fold scan; deep bird Hi-C |
-| 14 | [the Rabl axis where the fold has no power](#14-the-rabl-axis-where-the-fold-has-no-power) | more small genomes with truth and Hi-C |
-| 15 | [centromeres at the edge of a terminal unmappable array](#15-centromeres-at-the-edge-of-a-terminal-unmappable-array) | acrocentric genomes with truth |
+| 14 | [the Rabl axis where the fold has no power](#14-the-rabl-axis-where-the-fold-has-no-power) | AT troughs help in 0.12; more small genomes with truth and Hi-C |
+| 15 | [centromeres at the edge of a terminal unmappable array](#15-centromeres-at-the-edge-of-a-terminal-unmappable-array) | which-end test done in 0.12; chicken still `low` |
 | 16 | [the CHG line has changed no call](#16-the-chg-line-has-changed-no-call) | CHG from the assembled plant, with CENH3 truth |
 | 17 | [knobs and the size floor](#17-knobs-and-the-size-floor) | done in 0.11 for maize; other knob-rich lines with CENH3 truth |
 | 18 | [organelle insertions called 45S arrays](#18-organelle-insertions-called-45s-arrays) | done in 0.11 |
@@ -31,6 +30,13 @@ the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allotetrap
 | 22 | [Pa1A in other *P. annua* plants](#22-pa1a-in-other-p-annua-plants) | CENH3 or deeper reads from those plants |
 | 23 | [a family's unit length can overstate its copies](#23-a-familys-unit-length-can-overstate-its-copies) | done in 0.11 |
 | 24 | [telomeres outside the rules](#24-telomeres-outside-the-rules) | done in 0.11 |
+| 25 | [non-CRM centromeric LTR retrotransposons](#25-better-recognition-and-use-of-non-crm-centromeric-localized-ltr-rt) | done in 0.12 |
+| 26 | [the cis signal without `tes/`](#26-the-cis-signal-without-tes) | a test with more power |
+| 27 | [wrong LTR cores that look right](#27-wrong-ltr-cores-that-look-right) | more genomes with a non-CRM signature and truth |
+| 28 | [where AT troughs do not work](#28-where-at-troughs-do-not-work) | a line for point centromeres and AT-rich genomes |
+| 29 | [what the contact crossing a centromere is](#29-what-the-contact-crossing-a-centromere-is) | Hi-C of mutants or of other stages |
+| 30 | [a Hi-C test with too few confident references](#30-a-hi-c-test-with-too-few-confident-references) | a genome where the low calls would decide it |
+| 31 | [a centromere that left its satellite and its LTR families](#31-a-centromere-that-left-its-satellite-and-its-ltr-families) | CENH3 data for *P. annua* |
 
 ## 1. Calls on chains of partial copies
 
@@ -42,12 +48,13 @@ another name: those models are nearly all at least 1 kb, and a better profile wo
 is at most `medium`, and `low` without an overlapping CRM core; no call moved. The new search changes these counts little: over its
 14 reruns, 75 chain calls become 74 (entry 5).
 That rule rests on principle (only CRM decides among retrotransposons), not on truth. No benchmark genome has a chain as its
-dominant family; chain calls in the benchmark, all `low` or `medium`, are 15 right and 3 wrong. Proxies, which cannot settle it:
+dominant family; in 0.12 the benchmark's 35 chain calls (chicken, potato, moss, tomato) are 29 right and 4 wrong of the 33 with truth,
+all `low` or `medium` from the sequence line; 3 in moss rise to `high` with Hi-C and `tes/`, all right. Proxies, which cannot settle it:
 calls on CRM chains lie between TE cores and real satellites in gene density (0.135, 0.054, 0.009), and match their homoeolog's
 place within 5% of the chromosome about as often (0.60, 0.70, 0.66).
-**Approach.** Where a CRM core overlaps a chain call, make the core the call: such cores are tighter and more gene-poor than the
-calls they overlap (gene density 0.021 vs 0.053), with about the same homoeolog agreement.
-**Check.** CENH3 for a genome where a chain dominates (6 cotton species have one on 23-26 of 26 chromosomes); entry 9.
+**Done in 0.12.** Where a decisive core lies inside a chain call and is narrower, it becomes the call (`chain_to_core`): such cores are
+tighter and more gene-poor than the calls they overlap (gene density 0.021 vs 0.053), with about the same homoeolog agreement.
+**Check still open.** CENH3 for a genome where a chain dominates (6 cotton species have one on 23-26 of 26 chromosomes); entry 9.
 
 ## 2. The 40-family cap
 
@@ -121,7 +128,7 @@ as a no-change control.
 
 ## 9. CENH3 truths for allopolyploids
 
-**Evidence.** The benchmark's only allotetraploid with CENH3 truth is *Ae. geniculata* (14 chromosomes). Where a CRM
+**Evidence.** No allotetraploid in the benchmark has CENH3 truth. Where a CRM
 core replaced a satellite array (143 of 2,212 audited allotetraploid calls), homoeolog agreement favors the core (26
 vs 14 pairs, P = 0.08) and gene density the array (a biased proxy).
 **Approach.** CENH3 ChIP-seq or CUT&Tag for a few allotetraploids chosen to settle entries 1, 3, 4, 5 and 10
@@ -130,40 +137,34 @@ vs 14 pairs, P = 0.08) and gene density the array (a biased proxy).
 
 ## 10. The LTR retrotransposon line
 
-A check on 17 genomes with `tes/` and truth (190 chromosomes) points to the first three changes, and the polyploid runs of 0.11 to the
-fourth. These genomes are a development set: each change needs a `tes/` truth set made after the rules are fixed.
+A check on 17 genomes with `tes/` and truth (190 chromosomes) pointed to these changes. Status in 0.12, on the same genomes:
 
 - **Show which families the CRM line rejected. Done in 0.11:** columns `seq_rejected_family`, `seq_rejected_start` and
   `seq_rejected_end`, and a caveat naming it. 19 of 30 calls that moved with `tes/` had such a family.
-- **One standard for replacing a `low` call.** A CRM core replaces a disagreeing `low` call without the head-to-head
-  test a confident call must pass; in 3 truth cases that gave +1, -1 and 0. *Approach:* the same test for `low` calls.
-  *Check:* at least 10 such cases with truth.
-- **An inconclusive head-to-head test.** When a CRM core disagrees with a confident call and the test is not
-  significant, the call drops one level; in the truth set all 6 such calls were right (*B. rapa* A09, soybean chr1 and
-  chr6). *Approach:* keep the level when the test is inconclusive. *Check:* new genomes with a broad CRM plateau and truth
-  (since 0.11 the element counts are stored per call: `te_core_elements`, `te_call_elements`).
-- **`te_concordant` is a weak flag.** Two estimates agree if the gap between them is at most the wider of the two (`te.agrees`), so a wide
-  core or call agrees with much of its chromosome: a call spanning 23% of a chromosome agrees with about 70% of random cores, and a 340-kb
-  call on *Panax*'s sequence 6 agrees with a core 4.3 Mb away. The chain cap asks for overlap instead. *Approach:* score agreement against
-  random placements of the same widths on that chromosome. *Check:* whether the calls that keep the flag are right more often, on these
-  genomes and then a held-out set.
+- **One standard for replacing a `low` call. Measured, left as it is.** A core replaces a disagreeing `low` call without the head-to-head
+  test a confident call must pass. Among such moves the test would have blocked, 2 are right and 1 wrong: no case for a stricter rule, and
+  still too few to settle it.
+- **An inconclusive head-to-head test. Left as it is.** When a core disagrees with a call and cannot overrule it, the call drops one level
+  (`te_discordant`). The `tes/` arms now hold 3 such calls with truth, all in tomato, all `low` and all wrong: no case for keeping the level.
+- **`te_concordant` is a weak flag. Measured, left as it is.** Two estimates agree if the gap between them is at most the wider of the two,
+  so a wide core or call agrees with much of its chromosome. But the calls that keep the flag are right 125 of 130 times, and the widest
+  are no worse (35 of 35 above a tenth of the chromosome), so a stricter rule has nothing to gain. What the agreement is worth against chance is
+  now reported per genome (`asm.line_tests.tsv`).
 
 ## 11. Hi-C anchors where the sequence line is wrong genome-wide
 
-**Evidence.** Potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of them, but anchored at the
-(wrong) sequence calls none, so the test fails; prior-free clustering does not help in potato. Anchored at potato's calls from CRM
-cores the test fails too (0/3-0/4), so those cores alone do not rescue it there.
-**Approach.** Anchor and test Hi-C against another independent line's calls (decisive CRM cores, methylation
-candidates).
-**Check.** Potato and barley with `tes/` and Hi-C; no change where the satellite line is right.
+**Done in 0.12**, in two ways. Better calls make better anchors: with the LTR signature, barley's ordinary Hi-C test passes on 7 of 7
+chromosomes and moss's on 26 of 26, with no new rule. And where the test still fails on most chromosomes, Hi-C is tested against the LTR
+cores directly ([design.md](design.md#hi-c-and-the-ltr-line-test-each-other-hicfusepy)). Potato anchored on its cores finds 3 of 12
+(P 0.02), which does not pass; its centromeres come from the cis signal instead (entry 12). Moving the windows to the best score near each
+core found 6 of 12, but randomized Hi-C then passed too, so that was removed ([the benchmark, section 12](benchmark.md#12-how-the-benchmark-was-run)).
 
 ## 12. Cis signals of satellite-free centromeres
 
-**Evidence.** In tomato, the contact insulation within 1 Mb peaks on CENH3 on 9/12 chromosomes (chance 0.4), where
-every sequence line fails; potato shows the opposite sign (6/11), mammals nothing, and no per-genome test is specific.
-**Approach.** Test a cis profile like the anchored Hi-C, against an independent line, with its sign chosen
-leave-one-out.
-**Check.** More satellite-free CENH3 genomes with Hi-C (Solanaceae, legumes).
+**Done in 0.12.** The contact crossing a bin, as observed over expected at each distance, has its extreme at CENH3 on all 12 tomato
+chromosomes and 8 of 11 in potato. The LTR cores of the other chromosomes choose its sign, and test it, with chance from simulated contact
+maps. It moves `low` calls, and raises or lowers others by one level. See
+[benchmark.md](benchmark.md#the-contact-crossing-the-centromere). Soybean, sorghum and the mammals have no such signal.
 
 ## 13. Bird microchromosomes in Hi-C
 
@@ -176,13 +177,15 @@ needs 4,001 at 50 kb, so its 2.5-7-Mb microchromosomes stay out of the Hi-C line
 
 **Evidence.** The trans arm alignment passes in *C. neoformans* (anaphase, 12/14) and *M. sympodialis* (6/8), and
 Hi-C's prior-free calls there are right on 10/10 and 7/7, but the arm fold, which must lean the same way before the
-alignment may act (the holocentric guard), has no power in these small nuclei (1/14; 0/8), so the calls stay `low`.
+alignment may act (the holocentric guard), has no power in these small nuclei (1/14; 0/8), so the alignment alone raises nothing. In 0.12, AT troughs that agree with Hi-C raise
+*M. sympodialis*' 8 calls and 4 of *C. neoformans*' to `medium` (`at_pair`); the rest stay `low`.
 In holocentric *C. elegans* the alignment reached 2/5 (P 0.095), and a position-matched null that rejects it also
 rejects barley. In G1 *C. neoformans* the prior-free peaks sit at the chromosome ends, so the alignment's partners
 cannot be placed (0/14), although anchored on CENP-A 8/14 chromosomes still align.
+**In 0.12.** AT troughs give a second line where they pass (*N. crassa*, *P. falciparum*, *M. sympodialis*). The cis profile lies on
+CENP-A on 13 of 14 chromosomes in G1 *C. neoformans*, where Hi-C's other readouts fail, but nothing tests it there (entry 26).
 **Approach.** A compartment-adjusted alignment (trans contact explained by compartment identity removed) that can
-stand alone; or a cis readout with power in small chromosomes; or partners placed on the sequence line's confident
-calls, as a corroboration test.
+stand alone; or partners placed on the sequence line's confident calls, as a corroboration test.
 **Check.** *Candida*, *Cryptococcus* relatives, *Toxoplasma*, *T. brucei* with truth and Hi-C; small-chromosome
 holocentrics (nematodes, Lepidoptera) and randomized Hi-C must never pass.
 
@@ -191,15 +194,16 @@ holocentrics (nematodes, Lepidoptera) and randomized Hi-C must never pass.
 **Evidence.** Chicken's acrocentric microchromosomes carry their centromeric array at the very end, unmappable for
 1-1.25 Mb: their Hi-C peaks lie at its inner edge, which in mappable bins is the end, so they stay `telomeric`, and
 chicken's calls stay `low`.
-**Approach.** Where the sequence line finds an acrocentric karyotype, compare the two ends of each chromosome:
-telomere clustering lifts both, a centromere one. It needs a per-genome test before it may count.
-**Check.** Chicken with CENP-A truth (25/33 centromeres within 8 bins of an end), goat, sheep, horse; randomized Hi-C.
+**Done in 0.12** (`hic_end`). Telomere clustering lifts both ends of a chromosome, a centromere one. The anchored score is about twice as high
+at the end holding the call in goat (28 of 30), sheep (22/23), horse (18/19) and mouse (19/19), so a call at the higher end rises a level
+where that holds on most of the other chromosomes (binomial, P ≤ 0.01). No randomized library passes.
+**Still open.** Chicken does not pass (12 of 19), so its calls stay `low`.
 
 ## 16. The CHG line has changed no call
 
-**Evidence.** Only *P. annua* and *Arabidopsis* have CHG data here, and across all 3,595 chromosomes of the release
+**Evidence.** Only *P. annua* and *Arabidopsis* have CHG data here, and across all 3,773 chromosomes of the release
 runs the line supported no call and backed no move. *P. annua*'s five samples come from other plants, so they do not
-decide; *Arabidopsis* learned a signature on 1 of 5 chromosomes. The signal is real in *P. annua*: the dip is the
+decide; *Arabidopsis* finds no signature (the expected domain, from genome size, is 315 kb; its CEN180 arrays span 2.2-3.5 Mb). The signal is real in *P. annua*: the dip is the
 chromosome's lowest point on 12 of 14.
 **Approach.** None until the line has been seen to act.
 **Check.** CHG from the assembled plant of a genome with CENH3 truth.
@@ -247,10 +251,11 @@ names the other evidence at that place, and no longer says "no sequence or LTR e
 
 ## 22. Pa1A in other P. annua plants
 
-**Evidence.** Young CRM insertions of four of the five other plants cluster 9-15 Mb from the assembled plant's Pa1A
-call (163.0-169.4 Mb), which suggests other centromeres; J10's lie inside it. C11 and J10 show a plant-only methylation
-dip at their clusters. No verdict confirms it: on Pa1A 4 `shared` and 1 `unclear`; over all chromosomes 0 `shifted` and
-2 `possible_shift` (J10 Pa4B, Pa5A) of 70, at 4-8× reads.
+**Evidence.** Young CRM insertions of four of the five other plants cluster 9-15 Mb from the functional centromere that earlier
+analyses found on Pa1A (163.0-169.4 Mb), which suggests other centromeres; J10's lie inside it. C11 and J10 show a plant-only
+methylation dip at their clusters. 0.12 calls Pa1A at its satellite instead (entry 31), and the plant verdicts there are 2 `shared`,
+2 `unclear` and 1 `possible_shift` (R1, toward the Hi-C site 20 Mb away); over all chromosomes 1 `shifted` (J10 Pa4B) and 2
+`possible_shift` (R1 Pa1A, J10 Pa5A) of 70, at 4-8× reads. No verdict settles it.
 **Approach.** None in the code until the data can settle it.
 **Check.** CENH3 ChIP or deeper long reads from those plants.
 
@@ -269,5 +274,79 @@ the polyploids, none lost, interstitial arrays unchanged.
 
 ## 25. Better recognition and use of non-CRM centromeric-localized LTR-RT
 
-**Evidence.** Some species (Arabidopsis thaliana, moss, etc) have centromeric localized LTR-RT clades that are not CRM.
-It might be possible for confuse to recognize and leverage these better. 
+**Done in 0.12.** cenfuse learns each genome's signature at family level, leave one chromosome out, and a lineage other than CRM decides at
+10-fold enrichment or more, unless a dominant satellite passes the one-per-chromosome test
+([design.md](design.md#ltr-retrotransposons-tes-satsignaturepy)). Moss's Bryco, *Chlorella*'s Osser and tomato's Tekay family now decide;
+*Arabidopsis*' Athila only flags, as CEN180 passes the test.
+
+## 26. The cis signal without `tes/`
+
+**Evidence.** Tomato's cis peaks alone are right on 12 of 12 chromosomes, and potato's dips on 8 of 11, but today the LTR cores must choose the
+sign and test it. Two ways to do without them were tried. One locus per chromosome: tomato passes (11 of 12 covered, P 0.003), potato and
+*Verticillium* miss after correcting for two signs (P 0.044, 0.047), and chicken's dips pass (P 0.0008) while 2 of 26 lie on CENP-A. Hi-C's own
+prior-free peaks: no agreement in tomato, potato or rice, and in *Ae. tauschii* 6 of 7 agree with 0 of 7 right.
+**Approach.** A sharper statistic than a count of chromosomes covered: how far the extreme stands above the chromosome's other extremes, or the shape of
+the signal (a peak flanked by dips).
+**Check.** Tomato and potato without `tes/` pass, chicken and randomized Hi-C do not.
+
+## 27. Wrong LTR cores that look right
+
+**Evidence.** Tomato's signature has significant cores on all 12 chromosomes, and 5 of them miss CENH3. Without Hi-C two of those misses stay `medium`
+(CM175074.1, CM175078.1), and with Hi-C they fall to `low` because the cis peak lies elsewhere; on both, the cis peak is the right one. Soybean chr13 is
+similar: a CRM core 1.8 Mb from CENH3 at `medium`. *Arabidopsis*' Athila (13.3-fold, above the level at which a non-CRM lineage may decide) has
+its cores beside CENH3 on all 5 chromosomes, 0.46-1.38 Mb from the domain; it only flags because CEN180 passes the one-per-chromosome test. In 6 of 27
+polyploids above 10-fold (three *Sphagnum*, *Lotus subbiflorus*, *Malus toringoides*, *Solanum stoloniferum*) the cores and the FASTA-only calls mostly
+disagree, with no truth to say which is wrong.
+**Approach.** Nothing in the LTR line tells these apart so far: their fold and share look like the right cores'. Two leads: a core that sits beside
+the dominant satellite array rather than over it (*Arabidopsis*), and the Hi-C test anchored on the cores wherever Hi-C exists.
+**Check.** More genomes with a non-CRM signature and truth; *Arabidopsis* with CEN180 masked must not move its calls onto the Athila cores.
+
+## 28. Where AT troughs do not work
+
+**Evidence.** The test passes in *P. falciparum*, *M. sympodialis* and *N. crassa*. It fails in *Z. tritici*, *C. tropicalis*, *C. neoformans* and *V. dahliae*,
+whose deepest troughs do not fall one per chromosome, and it can say nothing about point centromeres (yeast: 125 bp) or genomes with few chromosomes (*S. pombe*:
+`untested`). It passes on about 4% of genomes with shuffled GC blocks, as its level of 5% allows, and then gives `low` calls.
+**Approach.** A second feature with the trough (a gene desert, without `genes/` a run of low k-mer complexity).
+**Check.** *Z. tritici* and *C. tropicalis* pass; holocentric genomes and shuffled genomes do not.
+
+## 29. What the contact crossing a centromere is
+
+**Evidence.** Piled up on CENH3, tomato's two flanks contact each other 2.4-fold within 0.25 Mb and back to background by 1 Mb; potato shows a smaller central peak between deep
+dips; both lose contact with the arms out to at least 6 Mb. *S. pombe* has inter-arm contacts close to its centromeres that depend on heterochromatin
+([Mizuguchi et al. 2014](https://doi.org/10.1038/nature13833)). A fold of the two flanks, or a domain insulated from the arms, could give all of these, with the sign
+depending on the domain's width against the 1 Mb the profile reads. That is a hypothesis: nothing here perturbs it.
+The chance the test uses comes from contact maps simulated with each bin's coverage and the chromosome's mean contact at each distance.
+On moss's re-paired control map the dip lies at the LTR cores on 11 of 26 chromosomes where the simulation expects about 5 (P 0.011,
+just short of passing). One such value among 20 control tests is expected by chance, but if the simulation is short in some genomes,
+balancing each simulated map again (instead of reusing the real map's balancing) would be the first thing to try.
+**Approach.** Rerun the profile at several box sizes; look for genomes where the sign changes with the box.
+**Check.** Hi-C of heterochromatin or condensin mutants, or of other cell-cycle stages, in a genome with this signal.
+
+## 30. A Hi-C test with too few confident references
+
+**Evidence.** The Hi-C test takes the `high` calls as references (with `medium` ones if too few), and falls back to the `low` calls at clean peaks
+only when the genome has no `high` or `medium` call at all. Cucumber 9930 (held out) without `tes/` has 7 `low` calls, and Hi-C is tested on them;
+with `tes/`, the Tekay signature raises 2 calls to `high`, so 2 references remain, too few, and the test is `untested` on all 7 chromosomes. No call
+differs: on the low references Hi-C changed no level either.
+**Approach.** When the confident references are fewer than the test needs, add the `low` calls at clean peaks, as the fallback already does.
+**Check.** A genome where this lets Hi-C act, with truth; the randomized Hi-C controls stay silent.
+
+## 31. A centromere that left its satellite and its LTR families
+
+**Evidence.** *P. annua* Pa1A: earlier analyses (no ChIP) place its functional centromere at 163.0-169.4 Mb, where Hi-C peaks (168.0 Mb),
+21 Mb from its largest satellite, and 0.11 called it there. In 0.12 the CRM families learned from the other 13 chromosomes concentrate
+around the satellite (145.1-148.3 Mb, 30 of their 146 elements on Pa1A), so the satellite and the LTR line agree on the old site and
+the call stays there (`medium`, `contested`, `hic_offset`), although the Hi-C test passes on 14 of 14 chromosomes. With randomized Hi-C
+the same call is `high`. A family that marks centromeres on the other chromosomes marks where centromeric families accumulated, which a
+centromere that has moved leaves behind; only Hi-C sees the new site. Insertion age, an independent line, agrees: CRM copies at the Hi-C site are young (median age about 0, 89% under 100,000 years; 62 copies)
+and those at the satellite site old (median 325,000 years, 39% young; 28 copies); within one family, 0 vs 157,000 years (P 2e-7); 61 of
+Pa1A's CRM copies under 50,000 years old lie at 163-172 Mb and 2 at the satellite (`bench/pa1a_age.py`). CRM inserts into active
+centromeric chromatin, so young copies mark where the centromere is now, as in maize, where recently active CRM subgroups colonize
+the present centromeres and older ones their flanks ([Wolfgruber et al. 2009](https://pmc.ncbi.nlm.nih.gov/articles/PMC2776974/)).
+No CENH3 data place Pa1A's centromere. In the scored benchmark, Hi-C contests a sequence call
+(`hic_offset`) on one chromosome only, CHM13 CP068258.2 in two runs, and there the sequence call is right: one case each way.
+**Approach.** Where Hi-C passes genome-wide and its anchored peak on one chromosome lies far from a call that only the sequence lines share,
+compare the insertion ages of the signature families at the two sites. As a locator on its own, the core of the young copies does worse
+than the density core (on CENH3 for 128 vs 155 of 172 chromosomes with truth; `bench/young_core.py`), so age can only break a tie between
+sites that another line raised.
+**Check.** CENH3 ChIP or CUT&Tag of *P. annua*; genomes with known evolutionarily new centromeres and Hi-C; the randomized Hi-C controls stay silent.

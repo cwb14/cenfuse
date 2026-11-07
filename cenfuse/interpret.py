@@ -57,8 +57,9 @@ def context(seq, tel: dict, hic_given: bool, tes_given: bool, telo: dict | None 
     def sat_bp(chrom, s, e):
         return sum(v for k, v in bp_by_role(seq.arrays, chrom, s, e).items() if k in CEN_ROLES)
     m = tel.get("marker")
+    sig = tel.get("signature")
     return dict(unit=unit, sat_bp=sat_bp, marker=m[0] if m else None, decisive=bool(m and m[2]), hic=hic_given,
-                tes=tes_given, its=list((telo or {}).get("interstitial", [])))
+                tes=tes_given, its=list((telo or {}).get("interstitial", [])), te_why=sig.why if sig is not None else "")
 
 
 def basis(r, ctx: dict) -> str:
@@ -87,20 +88,33 @@ def basis(r, ctx: dict) -> str:
             out.append(f"long-unit tandem array, {size(ctx['sat_bp'](r.chrom, s, e))} of satellite in the call")
         elif ev == "retrotransposon":
             replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"}
-            out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)"))
+            seed = getattr(r, "te_seed", ".")
+            k, n = _int(getattr(r, "te_core_elements", None)), _int(getattr(r, "te_chrom_elements", None))
+            out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)") +
+                       (f", signature seeded by {seed}" if seed not in (".", r.te_clade, None) else "") +
+                       (f", {k} of its {n} elements here" if k is not None and n else ""))
         if "weak_satellite_beside_core" in sflags:
-            out.append("the CRM core replaced a weak satellite array beside it" + where)
+            out.append(f"the {r.te_clade} core replaced a weak satellite array beside it" + where)
         if "satellite_away_from_core" in sflags:
-            out.append("the CRM core replaced a satellite array elsewhere" + where)
+            out.append(f"the {r.te_clade} core replaced a satellite array elsewhere" + where)
         if "satellite_beside_core" in sflags:
-            out.append("the CRM core replaced a satellite array beside it that holds significantly fewer CRM elements"
-                       + where)
+            out.append(f"the {r.te_clade} core replaced a satellite array beside it that holds significantly fewer "
+                       f"{r.te_clade} elements" + where)
         if "hic_chose_alt" in flags:
             out.append("the second satellite cluster, chosen by validated Hi-C")
         if "acrocentric" in sflags:
             out.append("the family sits at one end of most chromosomes (acrocentric karyotype)")
+    elif r.call_source == "composition":
+        out.append(f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose deepest troughs "
+                   f"fall one per chromosome" if str(r.at_gate) == "pass" else
+                   f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose troughs agree "
+                   f"with Hi-C's prior-free peaks")
     else:
-        if "fold_pair" in flags:
+        if "te_hic_pair" in flags:
+            how = f"the {r.te_clade} core and Hi-C's peak, which agree here and beyond chance genome-wide"
+        elif "cis_only" in flags:
+            how = "the extreme of the contact crossing each bin, a cis signal that agrees with the LTR cores beyond chance genome-wide"
+        elif "fold_pair" in flags:
             how = "the arm fold and Hi-C's prior-free peak, which agree here"
         elif "align_pair" in flags:
             how = "the trans arm alignment and Hi-C's prior-free peak, which agree here"
@@ -127,13 +141,21 @@ def basis(r, ctx: dict) -> str:
                 out += [f"second line: {second[x]}" for x in f[len("moved_with_"):].split("+") if x in second]
         if "te" in sup and "te" not in named:            # a call below high moved with the CRM core at the peak
             out.append(f"the {r.te_clade} core at the peak agrees")
+        if "at_pair" in flags:
+            out.append(f"an AT trough at the peak agrees (GC {float(r.at_gc):.0%}) and gives the interval")
         if "satellite" in sup:
             out.append(f"{size(ctx['sat_bp'](r.chrom, s, e))} of centromeric satellite inside")
     for line in sup:
         if line == "te" and r.call_source == "sequence" and r.seq_evidence != "retrotransposon":
             out.append(f"the {r.te_clade} core agrees")
         elif line == "hic" and r.call_source == "sequence":
-            out.append("Hi-C agrees (support only: its peaks find the other chromosomes' centromeres beyond chance, "
+            out.append("Hi-C contact is higher at this chromosome end than at the other, as on most chromosomes of this genome"
+                       if "hic_end" in flags else
+                       "the contact crossing each bin has its extreme here, a cis signal that agrees with the LTR cores beyond chance"
+                       if "cis_agrees" in flags else
+                       f"Hi-C's peak lies at the {r.te_clade} core (the two agree beyond chance genome-wide)"
+                       if "te_hic_pair" in flags else
+                       "Hi-C agrees (support only: its peaks find the other chromosomes' centromeres beyond chance, "
                        "but not on most)" if "hic_support" in flags else "validated Hi-C agrees")
         elif line == "meth":
             out.append("CHG methylation is centromere-like")
@@ -148,12 +170,12 @@ def basis(r, ctx: dict) -> str:
 
 
 def _could(r, ctx: dict) -> list:
-    """Inputs not given that could confirm or move a call: Hi-C, a CRM core (tes/)."""
+    """Inputs not given that could confirm or move a call: Hi-C, an LTR core (tes/)."""
     out = []
     if not ctx["hic"]:
         out.append("Hi-C")
     if not ctx["tes"]:
-        out.append("a CRM core (tes/; plants)")
+        out.append("an LTR core (tes/; plants)")
     return out
 
 
@@ -172,9 +194,10 @@ def caveat(r, ctx: dict) -> str:
         out.append(f"the tandem array at {interval(*over)} was overruled by the "
                    f"{r.te_clade if _toks(r.te_clade) else 'TE'} core")
     rej = _int(getattr(r, "seq_rejected_start", None)), _int(getattr(r, "seq_rejected_end", None))
-    if None not in rej:       # a family the CRM line rejected at classification, its array elsewhere (older tables: absent)
-        out.append(f"the CRM line rejected {r.seq_rejected_family}, whose array at {interval(*rej)} lies away from the "
-                   f"CRM cores on most chromosomes")
+    if None not in rej:       # a family the LTR line rejected at classification, its array elsewhere (older tables: absent)
+        cl = r.te_clade if _toks(r.te_clade) else "LTR"
+        out.append(f"the {cl} line rejected {r.seq_rejected_family}, whose array at {interval(*rej)} lies away from the "
+                   f"{cl} cores on most chromosomes")
     te_iv = (_int(r.te_start), _int(r.te_end))
     alt_iv = (_int(r.seq_alt_start), _int(r.seq_alt_end))
     te_in_alt = None not in te_iv + alt_iv and te_iv[0] <= alt_iv[1] and te_iv[1] >= alt_iv[0]
@@ -182,20 +205,30 @@ def caveat(r, ctx: dict) -> str:
         alt = f" ({interval(*alt_iv)})" if alt_iv[0] is not None else ""
         where = f", where the {r.te_clade} core lies" if te_in_alt else ""
         out.append(f"another satellite cluster{alt} competes{where}: the sequence cannot tell which is active")
-        hint = "CENP-A/CENH3 data would decide" + ("" if ctx["tes"] else ", or a CRM core (tes/; plants)") + \
+        hint = "CENP-A/CENH3 data would decide" + ("" if ctx["tes"] else ", or an LTR core (tes/; plants)") + \
             ("" if ctx["hic"] else ", or Hi-C when mappable DNA separates them")
     if r.call_source == "sequence":
         if "partial_chain" in sflags:
             out.append("not a tandem satellite: chains of partial copies of a longer repeat, which mark where that repeat "
                        "concentrates, possibly beside the centromere")
             hint = hint or ("CENP-A/CENH3 data would decide" if ctx["tes"] else
-                            "a CRM core (tes/; plants) or CENP-A/CENH3 data would decide")
+                            "an LTR core (tes/; plants) or CENP-A/CENH3 data would decide")
         if "no_dominant_satellite" in sflags:
             out.append("no satellite family dominates the genome")
             need = _could(r, ctx)
             hint = hint or (f"{' or '.join(need)} would confirm" if need else None)
+        if "not_one_per_chromosome" in sflags:
+            out.append("the largest arrays of the centromeric satellites do not fall one per chromosome in this genome, so "
+                       "they may not be its centromeres")
+            need = _could(r, ctx)
+            hint = hint or (f"{' or '.join(need)} would decide" if need else "CENP-A/CENH3 data would decide")
         if r.seq_evidence == "retrotransposon" and not ctx["decisive"]:
-            out.append(f"placed by a {r.te_clade} core: only CRM cores may decide, other clades flag")
+            out.append(f"placed by a {r.te_clade} core, in a genome where this lineage does not decide"
+                       + (f" ({ctx['te_why'].rpartition('; ')[2]})" if ctx.get("te_why") else ""))
+        elif r.seq_evidence == "retrotransposon" and "weak_core" in sflags:
+            out.append(f"a {r.te_clade} core of too few elements to be significant alone: the best candidate, not a finding")
+        elif r.seq_evidence == "retrotransposon" and r.confidence == "low":
+            out.append(f"the {r.te_clade} core holds under half of the signature's elements on this chromosome")
         if "low_satellite" in sflags:
             out.append("little centromeric satellite")
         if "diffuse" in sflags:
@@ -208,11 +241,14 @@ def caveat(r, ctx: dict) -> str:
             out.append("gene-rich for a centromere")
         if "te_discordant" in sflags and _int(r.te_start) is not None and not te_in_alt:
             out.append(f"the {r.te_clade} core lies elsewhere ({interval(r.te_start, r.te_end)})")
+    elif r.call_source == "composition":
+        out.append("a GC trough says where the sequence is AT-rich, not where the kinetochore sits")
+        hint = hint or ("CENP-A/CENH3 data would confirm" if ctx["hic"] else "Hi-C would test it")
     elif r.confidence != "high":
         sup = _toks(r.support)                                 # the evidence basis reports, so the two sentences agree
         here = [x for x, on in ((f"{size(ctx['sat_bp'](r.chrom, int(r.start) - 1, int(r.end)))} of centromeric satellite",
                                  "satellite" in sup), (f"the {r.te_clade} core", "te" in sup),
-                                ("CHG methylation", "meth" in sup)) if on]
+                                ("CHG methylation", "meth" in sup), ("an AT trough", "at" in sup)) if on]
         out.append(f"rests on the 3D lines; the other evidence at this place is {' and '.join(here)}" if here else
                    "rests on the 3D lines alone: no sequence or LTR evidence at this place")
         if "hic_denovo_only" in flags:
@@ -226,7 +262,7 @@ def caveat(r, ctx: dict) -> str:
         hint = hint or "CENP-A/CENH3 data would decide"
     if "hic_offset" in flags:
         out.append(f"validated Hi-C points elsewhere{peak}, with no second line there")
-        hint = hint or "a CRM core or CHG methylation at either place (plants), or CENP-A/CENH3 data, would decide"
+        hint = hint or "an LTR core or CHG methylation at either place (plants), or CENP-A/CENH3 data, would decide"
     if "fold_offset" in flags:
         out.append(f"the arm fold points elsewhere ({interval(r.fold_core_start, r.fold_core_end)})")
     if "align_offset" in flags:
@@ -245,6 +281,13 @@ def caveat(r, ctx: dict) -> str:
                                                               if _int(r.te_start) is not None else ""))
     if "hic" in against and "hic_offset" not in flags and "hic_denovo_offset" not in flags:
         out.append(f"validated Hi-C points elsewhere{peak}")
+    if "at_elsewhere" in flags:
+        out.append(f"the AT trough lies elsewhere ({interval(r.at_start, r.at_end)})")
+    if "cis_elsewhere" in flags:
+        out.append("the cis Hi-C signal has its extreme elsewhere")
+    if "cis_only" in flags:
+        out.append("a cis Hi-C signal alone")
+        hint = hint or "CENP-A/CENH3 data would decide"
     n = _int(getattr(r, "call_gaps", None))
     if n:
         out.append(f"{n} assembly gap{'s' if n > 1 else ''} inside the call")
@@ -317,6 +360,7 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              low=int(conf.get("low", 0)), none=len(t) - len(called),
              satellite_calls=len(sat), families=[(fam, int(n), ctx["unit"].get(fam)) for fam, n in fams.items()],
              te_calls=int((seq.seq_evidence == "retrotransposon").sum()),
+             at_calls=int((called.call_source == "composition").sum()),
              chain_calls=int(seq.seq_flags.astype(str).str.contains("partial_chain").sum()),
              tandem_calls=int((seq.seq_evidence == "long_unit_tandem").sum()),
              hic_moved=int((called.relation == "offset").sum()),
@@ -353,7 +397,7 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
     return f
 
 
-def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc, ctx: dict) -> str:
+def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc, ctx: dict, lines: pd.DataFrame | None = None) -> str:
     """One genome's part of the report (Markdown)."""
     f = facts(t, summ, lt, fc, ctx)
     given = ["FASTA"] + [LINE[x] for x, ok in (("te", g.tes), ("hic", g.hic), ("meth", g.meth), ("genes", g.genes))
@@ -376,6 +420,8 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         made.append(f"chains of partial copies of a longer repeat, not tandem satellites, on {f['chain_calls']} of those")
     if f["te_calls"]:
         made.append(f"retrotransposon cores on {f['te_calls']}")
+    if f["at_calls"]:
+        made.append(f"AT troughs on {f['at_calls']}")
     if f["tandem_calls"]:
         made.append(f"long-unit tandem arrays on {f['tandem_calls']}")
     if f["hic_moved"] or f["hic_placed"]:
@@ -447,14 +493,32 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                      f"passed its test ({summ.get('align_on_denovo')})" +
                      (", the arm fold having failed: it acts in the fold's place" if summ.get("fold_gate") != "pass"
                       else "; the arm fold, which passed too, decides") + ".")
+    if summ.get("sat_one_per_chromosome", ".") not in (".", None):
+        L.append(f"- **Do the centromeric satellites fall one per chromosome?** {summ.get('sat_one_per_chromosome')}."
+                 + (" Their calls are capped at `low` unless an LTR core agrees." if
+                    str(summ.get("sat_one_per_chromosome")).endswith("fail") else ""))
     if g.tes:
         m = summ.get("te_marker", ".")
         if m not in (".", None):
-            L.append(f"- **LTR retrotransposons**: {m} marks centromeres "
-                     f"({'decisive' if str(summ.get('te_decisive')) == 'True' else 'flags only: only CRM may decide'}"
-                     f"); its core agrees with {f['te_agree']} calls.")
+            seed, sp = summ.get("te_seed", "."), summ.get("te_specificity", ".")
+            why = str(summ.get("te_verdict", ".")).rpartition("; ")[2]        # 'flags only (...)'
+            L.append(f"- **LTR retrotransposons**: {m} marks centromeres ("
+                     + ("decisive" if str(summ.get("te_decisive")) == "True" else why if "flags only" in why else f"flags only: {why}") + ")"
+                     + (f": signature seeded by {seed}, {sp}-fold in its cores" if seed not in (".", None) else "")
+                     + f"; its core agrees with {f['te_agree']} calls, and {f['te_calls']} calls stand on it.")
         else:
-            L.append("- **LTR retrotransposons**: no clade concentrates at one locus per chromosome.")
+            L.append("- **LTR retrotransposons**: no lineage or family concentrates at one locus per chromosome.")
+    if summ.get("te_hic", ".") not in (".", None):
+        L.append(f"- **Hi-C on the LTR cores**: anchored on them (the sequence calls having failed as anchors), Hi-C's peak lies at "
+                 f"the core on {summ.get('te_hic')}. The contact crossing each bin (cis): {summ.get('cis_line', '.')}.")
+    if summ.get("at_gate", ".") not in (".", None):
+        hic_at = str(summ.get("at_hic", "."))
+        L.append(f"- **AT troughs** (most chromosomes have no sequence call): the genome's deepest GC troughs "
+                 + ("fall one per chromosome" if summ.get("at_gate") == "pass" else
+                    "do not fall one per chromosome" if summ.get("at_gate") == "fail" else
+                    "cannot be tested from the FASTA (too few chromosomes)")
+                 + f" (P {summ.get('at_p')}, windows of {summ.get('at_window')} bp)"
+                 + (f"; against Hi-C's prior-free peaks: {hic_at}" if hic_at != "." else "") + ".")
     if g.meth:
         if "meth_signature" in summ:
             sig = str(summ.get("meth_signature"))
@@ -468,6 +532,13 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                                                    f"calls." if gate else
                                                    "failed its test (dips do not mark the other chromosomes' "
                                                    "centromeres beyond chance): no kinetochore placed."))
+    tested = lines[lines.chromosomes >= 3] if lines is not None and len(lines) else None
+    if tested is not None and len(tested) and len(tested) <= 28:
+        L.append("- **Do the lines agree with each other?** (`line_tests.tsv`) " + "; ".join(
+            f"{r.line_a.replace('_', ' ')} and {r.line_b.replace('_', ' ')} {r.agree}/{r.chromosomes} (expected {r.expected:g})"
+            for r in tested[tested.verdict.str.startswith("agree")].itertuples()) + "." if
+                 tested.verdict.str.startswith("agree").any() else
+                 "- **Do the lines agree with each other?** (`line_tests.tsv`) no two lines agree beyond chance.")
     other = [x for x in str(summ.get("inputs_other", ".")).split(",") if x not in (".", "")]
     if other:
         L.append(f"- **Inputs from other plants** (they score their plant and do not decide the calls): "

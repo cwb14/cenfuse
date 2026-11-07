@@ -1,11 +1,12 @@
-"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> genotype -> hic -> fold -> karyotype ->
-provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> genotype -> hic -> fold -> karyotype
+-> provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot.
 
 The satellite engine keeps its own checkpoints (OUT/satellite/work), and next to them the chromosome set they were
 made on (chromosome_set.json): a resume on another set stops (Run._check_chromosome_set). The telomere, rdna, rdna5s,
-gaps, genotype, hic, fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl +
-.done), keyed by cenfuse's version and fingerprints of every input they read (including the calls they are anchored
-on), so a changed input recomputes them and an unchanged rerun resumes. The later stages are cheap and always rerun.
+gaps, attrough, genotype, hic, fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl +
+.done), keyed by the code they run and fingerprints of every input they read (including the calls they are anchored on; most also
+by cenfuse's version), so a changed input recomputes them and an unchanged rerun resumes. The later stages are cheap and
+always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -21,8 +22,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, cdr, fold, fuse, hicfuse, inputs, interpret, loci, methfuse, morphology, output, plants, \
-    provenance, rdna, seqcalls, telomere, teline
+from . import __version__, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, methfuse, morphology, \
+    output, plants, provenance, rdna, seqcalls, telomere, teline
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
@@ -31,12 +32,14 @@ from .meth import io as mio
 from .meth import params as mp
 from .meth import track as mtrack
 from .params import ANCHOR_LEVELS, GATE_MIN_REF, HIC_FAR_BINS, HIC_MAX_THREADS, HIC_TOL_BINS, KARYO_WINDOW
+from .sat import signature
+from .sat.karyotype import MAX_SEQUENCES
 from .sat.genomes import load_gene_gff
 from .sat.params import Params, parse_borrow
 from .sat.util import SatelliteError
 from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
 
-STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
+STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "attrough", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 CHROM_RECORD = "chromosome_set.json"      # in satellite/work: {genome: sorted names} the checkpoints stand on
 _PKG = Path(__file__).parent
@@ -299,7 +302,7 @@ class Run:
     def stage_telomere(self, g) -> dict:
         """Telomere unit, end arrays and interstitial arrays (telomere.py), checkpointed by the assembly index and the
         code (the interstitial scan reads the whole genome: about a minute per 3 Gb)."""
-        fp = dict(version=__version__, code=code_key("telomere.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("telomere.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("telomere", g.name, fp)
         if hit is None:
@@ -309,7 +312,7 @@ class Run:
 
     def stage_rdna(self, g) -> list:
         """45S arrays (NORs) from the universal 18S motif (rdna.py), checkpointed by the assembly index and the code."""
-        fp = dict(version=__version__, code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("rdna", g.name, fp)
         if hit is None:
@@ -321,7 +324,7 @@ class Run:
     def stage_rdna5s(self, g) -> list:
         """5S rDNA arrays from the Rfam 5S model (rdna.detect_5s), checkpointed by the assembly index and the code. They
         are features only: unlike NORs, 5S arrays do not gather in the nucleolus, so Hi-C does not use them."""
-        fp = dict(version=__version__, code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("rdna5s", g.name, fp)
         if hit is None:
@@ -332,7 +335,7 @@ class Run:
     def stage_gaps(self, g) -> dict:
         """Assembly gaps (runs of >= GAP_MIN_N N) per chromosome (morphology.scan_gaps), checkpointed by the assembly
         index and the code: one pass over the chromosomes, seconds per Gb."""
-        fp = dict(version=__version__, code=code_key("morphology.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("morphology.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("gaps", g.name, fp)
         if hit is None:
@@ -340,6 +343,23 @@ class Run:
             self._store("gaps", g.name, fp, hit)
             n = sum(len(v) for v in hit.values())
             log.info(f"gaps: {g.name}: {n} assembly gaps on {sum(1 for v in hit.values() if v)} chromosomes")
+        return hit
+
+    def stage_attrough(self, g, seq: seqcalls.SeqLine) -> dict | None:
+        """The AT-trough line (atline.py), only in a genome where most chromosomes have no sequence call (a long-unit
+        array alone is none: fuse.decide): elsewhere the line would never act, and it reads the whole genome. Checkpointed
+        by the assembly index and the code."""
+        missing = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem")
+        if 2 * int(missing.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
+            return None
+        fp = dict(version=__version__, code=code_key("atline.py", "sat/karyotype.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+                  chroms=obj_fingerprint(g.chroms))
+        hit = self._cached("attrough", g.name, fp)
+        if hit is None:
+            t0 = time.time()
+            hit = atline.scan(atline.gc_bins(g.fasta, g.chroms), g.chroms)
+            self._store("attrough", g.name, fp, hit)
+            log.info(f"attrough: {g.name} done ({time.time() - t0:.0f} s)")
         return hit
 
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
@@ -363,7 +383,7 @@ class Run:
                  f"{', '.join(f'{x.sample} {len(x.tested):,}' for x in gts)} ({time.time() - t0:.0f} s)")
         return res
 
-    def stage_hic(self, g, lib, seq: seqcalls.SeqLine, sat_dir: Path, classes: dict | None):
+    def stage_hic(self, g, lib, seq: seqcalls.SeqLine, sat_dir: Path, classes: dict | None, te_cores: dict | None = None):
         name = g.name if lib.name == "hic" else f"{g.name}.{lib.name}"
         calls = {r.chrom: (int(r.start), int(r.end), r.confidence) for r in seq.calls.itertuples(index=False)}
         gff = self.work / "hic" / f"{g.name}.sequence_calls.gff3"
@@ -383,7 +403,7 @@ class Run:
                   pairs=file_fingerprint(lib.path) if not lib.more else obj_fingerprint(
                       [file_fingerprint(f) for f in lib.files]), chroms=obj_fingerprint(g.chroms),
                   calls=obj_fingerprint(calls), arrays=file_fingerprint(arrays), classes=obj_fingerprint(classes),
-                  nors=obj_fingerprint(self._nors.get(g.name, [])))
+                  nors=obj_fingerprint(self._nors.get(g.name, [])), te=obj_fingerprint(te_cores))
         hit = self._cached("hic", name, fp)
         if hit is not None:
             log.info(f"hic: {name} checkpoint found")
@@ -391,7 +411,7 @@ class Run:
         t0 = time.time()
         (self.out / "hic").mkdir(parents=True, exist_ok=True)
         res = hicfuse.run(lib.path if not lib.more else lib.files, fai, self.out / "hic" / name, [gff, arrays], calls,
-                          min(self.threads, HIC_MAX_THREADS), classes, nors=self._nors.get(g.name, []))
+                          min(self.threads, HIC_MAX_THREADS), classes, nors=self._nors.get(g.name, []), te_cores=te_cores)
         self._store("hic", name, fp, res)
         log.info(f"hic: {name} done ({time.time() - t0:.0f} s)")
         return res
@@ -504,8 +524,9 @@ class Run:
 
     # ------------------------------------------------------------------ assembly
     @staticmethod
-    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None) -> list:
+    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None, at=None) -> list:
         marker = tel.get("marker")
+        sig = tel.get("signature")
         hrows = {} if hic is None else hic_rows(hic["table"], nors)
         fo = (hic or {}).get("fold")
         cen = seq.arrays[seq.arrays.role.isin(CEN_ROLES)]
@@ -520,17 +541,31 @@ class Run:
                 return int((np.minimum(d.end, e) - np.maximum(d.start, s)).clip(lower=0).sum())
             return f
         out = []
+        pairs = (hic or {}).get("te_anchored") or {}             # hicfuse.anchored_on_cores: the LTR cores tested by Hi-C
         for r in seq.calls.itertuples(index=False):
             te = None
             if marker and r.chrom in marker[1]:
                 core = marker[1][r.chrom]
-                te = dict(clade=marker[0], start=int(core["start"]), end=int(core["end"]), decisive=bool(marker[2]))
+                te = dict(clade=core.get("clade", marker[0]), start=int(core["start"]), end=int(core["end"]),
+                          decisive=bool(marker[2]), strong=core.get("strong", True), share=core.get("share"),
+                          n=core.get("n"), seed=sig.seed if sig is not None else None)
+            elif r.te_start >= 0 and sig is not None:          # a core too thin to count, where the signature is known (weak_core)
+                te = dict(clade=r.te_clade, start=int(r.te_start), end=int(r.te_end), decisive=False, strong=False)
             elif r.te_start >= 0:                              # imported satellite calls made with tes/
                 te = dict(clade=r.te_clade, start=int(r.te_start), end=int(r.te_end),
                           decisive=r.te_clade.lower() == "crm")
             h = hrows.get(r.chrom)
             if h is not None and not h["callable"]:
                 h = None
+            if h is not None and pairs.get("status") in ("pass", "support") and r.chrom in pairs["peaks"]:
+                x = sig.cores[r.chrom]
+                h = dict(h, te_pair=dict(core=(int(x["start"]), int(x["end"])), status=pairs["status"], clade=marker[0]))
+                if te is None:                                 # a core that acts only through Hi-C: the tables report it
+                    te = dict(clade=x.get("clade", marker[0]), start=int(x["start"]), end=int(x["end"]), decisive=False, strong=False,
+                              share=x.get("share"), n=x.get("n"), seed=sig.seed)
+            cis = (hic or {}).get("cis") or {}                   # hicfuse.cis_line: tested against the LTR cores
+            if h is not None and cis.get("status") in ("pass", "support") and r.chrom in cis["peaks"]:
+                h = dict(h, cis=dict(peak=cis["peaks"][r.chrom], status=cis["status"]))
             meth = None if meth_items is None else meth_items.get(r.chrom, {})
             f = fo["calls"].get(r.chrom) if fo else None
             f = dict(f, status=fo["status"], agrees=fo["agrees"].get(r.chrom)) if f else None
@@ -551,7 +586,7 @@ class Run:
                                                                     rejected_family=r.rejected_family,
                                                                     rejected_start=int(r.rejected_start),
                                                                     rejected_end=int(r.rejected_end)),
-                                     te, h, meth, sat_bp(r.chrom), f, a))
+                                     te, h, meth, sat_bp(r.chrom), f, a, atline.on_chromosome(at, r.chrom)))
         return out
 
     def provenance_of(self, g, seq, sat_dir: Path, tel: dict, telo: dict):
@@ -599,11 +634,13 @@ class Run:
                 log.warning(f"{g.name}: {x}")
         known = {n: v["verdict"] for n, v in geno.get("verdicts", {}).items()}
         classes = feature_classes(seq, tel, telo, self._nors.get(g.name, []))
+        sig = tel.get("signature")
+        te_cores = {c: (int(x["start"]), int(x["end"])) for c, x in sig.cores.items()} if sig is not None else None
         hics = {}
         for lib in g.hic:
             try:
                 hics[lib.name] = self.stage_hic(g, lib, seq, sat_dir, None if known.get(lib.name) == "other"
-                                                else classes)
+                                                else classes, te_cores)
             except CenfuseError as e:
                 log.warning(f"{g.name}: Hi-C library {lib.name} skipped: {e}")
                 g.notes.append(f"Hi-C {lib.name} skipped: {e}")
@@ -639,11 +676,12 @@ class Run:
         summary, figs, sections = [], [], []
         for g in self.genomes:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
-            tel = teline.te_line(g.tes, g.chroms)
+            tel = teline.te_line(g.tes, g.chroms, sat_dir, g.name)
             telo = self.stage_telomere(g)
             nors = self.stage_rdna(g)
             five_s = self.stage_rdna5s(g)
             gaps = self.stage_gaps(g)
+            at = self.stage_attrough(g, seq)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]
             dec_lib = deciding_library(hics, verdicts)
@@ -667,9 +705,10 @@ class Run:
                                 (f"The {'arm fold (cis Hi-C)' if hic['axis'] == 'fold' else 'trans arm alignment'}"
                                  " sides with the prior-free calls: sequence calls both contradict are moved or "
                                  "lowered" if folded else
-                                 "The sequence calls are kept; give tes/ (CRM cores) or methylation to decide") +
+                                 "The sequence calls are kept; give tes/ (LTR cores) or methylation to decide") +
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
-            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []))
+            at = atline.with_hic(at, hic, g.chroms)
+            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at)
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}
             if self._chg_ok.get(g.name):
@@ -696,7 +735,7 @@ class Run:
                 pooled = meth["support"][meth["support"]["sample"] == "pooled"]
                 mi = {c: {r.item: dict(label=r.label, score=r.score) for r in d.itertuples(index=False)}
                       for c, d in pooled.groupby("chrom")}
-                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []))
+                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at)
             final = [fuse.decide(e) for e in evs]
             t = fuse.table(evs, final)
             calls = {e.chrom: d["call"] for e, d in zip(evs, final)}
@@ -728,6 +767,11 @@ class Run:
             ictx = interpret.context(seq, tel, bool(g.hic), bool(g.tes), telo)
             t = interpret.columns(t, ictx)
             output.write_calls(t, g.name, g.chroms, self.out)
+            lines = linetests.table(t, int(hic["bin_size"]) if hic is not None else None)
+            output.write_tsv(lines, self.out / f"{g.name}.line_tests.tsv")
+            sig = tel.get("signature")
+            if sig is not None:
+                signature.write_table(sig, self.out / f"{g.name}.te_signature.tsv")
             ends = {n: int(np.sum(h["coverage"])) for n, h in hics.items()}
             ptable = provenance.table(verdicts, geno, segments, deciders if meth is not None else [], dec_lib, ends)
             output.write_tsv(ptable, self.out / f"{g.name}.provenance.tsv")
@@ -756,9 +800,9 @@ class Run:
             if fc is not None:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
-            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s))
+            summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s, at, seq.test))
             try:
-                sections.append(interpret.genome_section(g.name, g, t, summary[-1], lt, fc, ictx))
+                sections.append(interpret.genome_section(g.name, g, t, summary[-1], lt, fc, ictx, lines))
             except Exception as e:                   # the report never costs the results
                 log.warning(f"{g.name}: report section failed ({type(e).__name__}: {e}); results are complete")
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,

@@ -52,6 +52,27 @@ The integrated call is the sequence call unless a validated functional line move
   chromosomes. Hi-C alone then gives medium calls where the two agree, and keeps its low call where they do not
   (0.10: no call where the fold had passed). Otherwise the alignment is reported only (axis_line).
 
+- LTR cores and Hi-C (0.12, hicfuse.anchored_on_cores): where the gate fails on most chromosomes because the sequence calls are
+  wrong anchors, Hi-C is scored against the LTR signature's cores, weak ones too. If its peaks lie at the cores beyond chance
+  (status support) or on most chromosomes as well (pass), a chromosome whose peak lies at its core holds two lines at one locus
+  (flag te_hic_pair): a call there is supported, a low call elsewhere moves there (medium), with status pass any call does (a
+  high one stays high, the core being its second line), and a chromosome without a call takes the core (medium).
+- The cis signal (0.12, hicfuse.cis_line): where the gate fails on most chromosomes, the extreme of the contact crossing each bin,
+  its sign and its level tested against the LTR cores of the other chromosomes (status support or pass). At a call it adds a level
+  (cis_agrees); within Hi-C's resolution (HIC_FAR_BINS) it neither supports nor opposes (cis_near); beyond, a low call moves to it
+  and stays low (cis_only), as does a chromosome without a call; a medium or high call stays, flagged (cis_elsewhere), one level
+  down at status pass: one tested line against another, neither more sure.
+- Which end (0.12, hicfuse.end_test): a call in the terminal eighth of a chromosome, where Hi-C's peaks cannot count because ends
+  cluster in 3D anyway, goes up one level when the anchored score is higher at its end than at the other, in a genome where that
+  holds on most of the other chromosomes with such a call (flag hic_end). Only where neither the gate, its support tier nor a
+  Rabl-axis line speaks; never with a competing cluster at the same end (hic_alt_ambiguous).
+- AT troughs (0.12, atline.py): only on a chromosome without a sequence call. Where the genome's troughs passed the
+  one-per-chromosome test, a chromosome nothing else places takes its trough, low (flag at_only). Where they also agree with
+  Hi-C's prior-free peaks genome-wide (validated), a Hi-C call in agreement takes the trough's interval and rises a level
+  (at_pair: low -> medium, medium -> high), one in disagreement is flagged (at_elsewhere), and a chromosome nothing else
+  places takes its trough at medium. Agreement beyond chance but on a minority (atline.validate: support) allows at_pair
+  only. A trough never moves or opposes a satellite or LTR call.
+
 Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
 unmappable arrays, so a peak at an array's edge is adjacent to a call inside it. Agreement discounts at most
 HIC_FAR_BINS unmappable bins; opposition needs that many mappable bins. Across a longer blind stretch Hi-C cannot
@@ -78,13 +99,14 @@ from .util import gap, level_shift
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
               "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
               "seq_alt_start", "seq_alt_end", "seq_overruled_start", "seq_overruled_end", "seq_rejected_family",
-              "seq_rejected_start", "seq_rejected_end", "seq_spacing", "main_family", "te_clade",
-              "te_start", "te_end", "te_core_elements", "te_call_elements", "hic_gate", "hic_gate_k", "hic_gate_n",
-              "hic_gate_p", "hic_gate_refs",
+              "seq_rejected_start", "seq_rejected_end", "seq_spacing", "main_family", "te_clade", "te_seed",
+              "te_start", "te_end", "te_share", "te_chrom_elements", "te_core_elements", "te_call_elements", "at_gate", "at_start", "at_end",
+              "at_gc", "hic_gate", "hic_gate_k", "hic_gate_n",
+              "hic_gate_p", "hic_gate_refs", "hic_end_k", "hic_end_n",
               "hic_anch_peak_start", "hic_anch_peak_end", "hic_anch_core_start", "hic_anch_core_end", "hic_anch_level",
               "hic_anch_flags", "hic_anch_agrees_seq", "hic_denovo_peak_start", "hic_denovo_peak_end",
               "hic_denovo_confidence", "hic_denovo_flags", "fold_gate", "fold_point", "fold_core_start",
-              "fold_core_end", "align_gate", "align_point", "align_core_start", "align_core_end", "meth_seq",
+              "fold_core_end", "align_gate", "align_point", "align_core_start", "align_core_end", "cis_peak_start", "cis_peak_end", "meth_seq",
               "meth_seq_score", "meth_hic", "meth_hic_score",
               "meth_call", "meth_call_score"]
 
@@ -106,6 +128,9 @@ class Evidence:
     fold: dict | None = None  # fold.call() of this chromosome + status (the genome's fold test) and agrees (its core
                               # holds the de novo peak), or None
     align: dict | None = None  # the same for the trans arm alignment (fold.align_scan), or None
+    at: dict | None = None    # the AT-trough line on this chromosome: start, end, gc, status (the genome's FASTA test,
+                              # atline.scan), validated (the genome's troughs agree with Hi-C's prior-free peaks) and
+                              # agrees (they do here), or None
 
 
 def _iv(d, s="start", e="end"):
@@ -154,6 +179,11 @@ def _peak_far(ev: Evidence, iv) -> bool:
 def _te_agrees(ev: Evidence, iv) -> bool:
     """The satellite engine's rule (gap at most the wider interval's width): used for kept sequence calls, as that engine does."""
     return bool(ev.te and iv and agrees(iv[0], iv[1], dict(start=ev.te["start"], end=ev.te["end"])))
+
+
+def _te_decides(ev: Evidence) -> bool:
+    """A core that may act as a second line or oppose: a decisive marker's, and strong (signature.Signature.significant)."""
+    return bool(ev.te and ev.te.get("decisive") and ev.te.get("strong", True))
 
 
 def _te_near(ev: Evidence, iv, n: int) -> bool:
@@ -278,10 +308,10 @@ def _decide(ev: Evidence) -> dict:
     # Hi-C alone: also where a passed axis line does not pair on this chromosome (0.10: no call there)
     dn_only = _iv(h, "denovo_core_start", "denovo_core_end") if untested and not pair and seq_iv is None else None
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
+    at_ok = bool(ev.at and (ev.at.get("status") == "pass" or ev.at.get("validated")))   # the genome's troughs are tested
     second = []
     if strong:
-        decisive = bool(ev.te and ev.te.get("decisive"))
-        if decisive and _te_near(ev, peak, HIC_FAR_BINS) and not (seq_iv and _te_near(ev, seq_iv, HIC_FAR_BINS)):
+        if _te_decides(ev) and _te_near(ev, peak, HIC_FAR_BINS) and not (seq_iv and _te_near(ev, seq_iv, HIC_FAR_BINS)):
             second.append("te")
         if m_hic["label"] == "centromere_like" and (seq_iv is None or m_seq["label"] == "dip"):
             second.append("meth")
@@ -313,6 +343,9 @@ def _decide(ev: Evidence) -> dict:
         else:
             relation = "concordant"
             flags.append("hic_support")
+    elif not valid and not ax and h and h.get("end_pass") and h.get("end_higher") and not amb:
+        call, relation = seq_iv, "concordant"          # Hi-C tells the call's end from the other, in a genome where it does so
+        flags.append("hic_end")
     elif strong and far and (sconf != "high" or second):
         call, relation, source = core, "offset", "hic"
         if sconf == "high":
@@ -324,9 +357,61 @@ def _decide(ev: Evidence) -> dict:
         call = seq_iv
         if valid and peak:
             flags.append("hic_near" if not far else "hic_disagrees_weak")
+    pair = (h or {}).get("te_pair")      # Hi-C's peak at this chromosome's LTR core, the two lines tested genome-wide
+    # both readings run where the gate fails on most chromosomes; a chromosome whose own gate passed keeps what validated Hi-C said
+    if pair and not valid and source == "sequence" and call is not None and relation != "contested":
+        if gap(*call, *pair["core"]) == 0:                                           # both at the call: Hi-C supports it
+            if not amb:                                                              # no mappable bin between it and its competitor
+                relation = "concordant"
+                flags.append("te_hic_pair")
+            elif "hic_alt_ambiguous" not in flags:
+                flags.append("hic_alt_ambiguous")
+        elif sconf == "low" or pair["status"] == "pass":     # two lines at one locus against one line, unsure or on a minority
+            call, relation, source = pair["core"], "offset", "hic"
+            flags.append("te_hic_pair")
+            if sconf == "high":
+                second.append("te")
+                flags.append("moved_with_te")
+    elif pair and call is None:
+        call, relation, source = pair["core"], "functional_only", "hic"
+        flags.append("te_hic_pair")
+    cis = (h or {}).get("cis")           # the cis signal's extreme, its sign and level tested against the LTR cores
+    if cis and not valid and "te_hic_pair" not in flags and source == "sequence" and call is not None and relation != "contested":
+        if _vgap(ev, cis["peak"], call, True) <= _bins(ev, HIC_TOL_BINS):              # at the call: an independent line agrees
+            if not amb:
+                relation = "concordant"
+                flags.append("cis_agrees")
+            elif "hic_alt_ambiguous" not in flags:
+                flags.append("hic_alt_ambiguous")
+        elif _vgap(ev, cis["peak"], call, False) <= _bins(ev, HIC_FAR_BINS):           # within Hi-C's resolution: neither way
+            flags.append("cis_near")
+        elif sconf == "low":                 # elsewhere, the call unsure: the better candidate, still unsure
+            call, relation, source = cis["peak"], "offset", "hic"
+            flags.append("cis_only")
+        else:
+            flags.append("cis_elsewhere")
+            if cis["status"] == "pass":      # a line at the LTR cores on most chromosomes lies elsewhere: one line against one
+                relation = "contested"
+    elif cis and call is None:
+        call, relation, source = cis["peak"], "functional_only", "hic"
+        flags.append("cis_only")
+    if call is None and at_ok:           # nothing else places this chromosome
+        call, relation, source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
+        flags.append("at_only")
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, second=second, meth_call={"label": "", "score": np.nan})
+    if seq_iv is None and source == "hic" and ev.at:
+        trough = (ev.at["start"], ev.at["end"])
+        at_near = _vgap(ev, trough, call, True) <= _bins(ev, HIC_TOL_BINS)
+    else:
+        trough, at_near = None, False
+    at_pair = bool(at_near and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")))
+    if at_pair:                  # two independent lines on a chromosome without a sequence call: the trough is the finer
+        call = trough                                                # (a window of 1-500 kb, a Hi-C bin of 10-250 kb)
+        flags.append("at_pair")
+    elif trough and not at_near and ev.at.get("validated"):
+        flags.append("at_elsewhere")      # said in the caveat; a Hi-C call stands against a trough of the same standing
     if untested and not fo and source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
         if dpk and dco and _denovo_far(ev, dpk, dco, call):
@@ -342,15 +427,15 @@ def _decide(ev: Evidence) -> dict:
         flags.append(f"{axis}_offset")                     # here: said, not hidden (the call is low already)
     at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags)   # the call sits at the prior-free
     m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # core: its own item
-    support = []
+    support = ["at"] if at_pair or "at_only" in flags else []
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
-    if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second):
+    if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second) or "te_hic_pair" in flags:
         support.append("te")
     if valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, call) or
                                                        (source == "hic" and h.get("anch_level") != "none")):
         support.append("hic")
-    elif "hic_support" in flags or "hic_denovo_only" in flags:
+    elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only"} & set(flags):
         support.append("hic")
     if axis and f"{axis}_pair" in flags:
         support += ["hic", axis]
@@ -361,8 +446,12 @@ def _decide(ev: Evidence) -> dict:
     against = []
     if valid and strong and _peak_far(ev, call):
         against.append("hic")
-    if ev.te and ev.te.get("decisive") and not (_te_agrees(ev, call) if source == "sequence" else "te" in second):
+    if _te_decides(ev) and not (_te_agrees(ev, call) if source == "sequence" else "te" in second or "te_hic_pair" in flags):
         against.append("te")
+    if "at_elsewhere" in flags:
+        against.append("at")
+    if "cis_elsewhere" in flags:
+        against.append("hic")
     against += [x for x, y in ((axis, f_opp), ("hic", d_opp)) if y]
     if source == "sequence":
         if relation == "contested":
@@ -372,10 +461,14 @@ def _decide(ev: Evidence) -> dict:
             conf = level_shift(sconf, min(MAX_RAISE, raise_by))
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
-    elif "hic_medium_peak" in flags or "hic_denovo_only" in flags:
+    elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
+        conf = "medium" if ev.at.get("validated") else "low"
+    elif "cis_only" in flags:
         conf = "low"
+    elif "hic_medium_peak" in flags or "hic_denovo_only" in flags:
+        conf = "medium" if at_pair else "low"
     else:
-        conf = "high" if second else "medium"
+        conf = "high" if second or at_pair else "medium"
     return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,
                 flags=flags, second=second, meth_call=m_call)
 
@@ -405,12 +498,19 @@ def row(ev: Evidence, d: dict) -> dict:
         seq_rejected_family=ev.seq.get("rejected_family", na), seq_rejected_start=one(ev.seq.get("rejected_start")),
         seq_rejected_end=end(ev.seq.get("rejected_end")), seq_spacing=end(ev.seq.get("spacing")),
         main_family=ev.seq["main_family"], te_clade=ev.te["clade"] if ev.te else na,
+        te_seed=(ev.te.get("seed") or na) if ev.te else na,
         te_start=one(ev.te["start"]) if ev.te else na, te_end=end(ev.te["end"]) if ev.te else na,
+        te_share=round(ev.te["share"], 3) if ev.te and ev.te.get("share") is not None else na,
+        te_chrom_elements=ev.te.get("n", na) if ev.te else na,
         te_core_elements=end(ev.seq.get("te_core_elements")), te_call_elements=end(ev.seq.get("te_call_elements")),
+        at_gate=("pass_hic" if ev.at.get("validated") else ev.at["status"]) if ev.at else na,
+        at_start=one(ev.at["start"]) if ev.at else na, at_end=end(ev.at["end"]) if ev.at else na,
+        at_gc=round(ev.at["gc"], 3) if ev.at else na,
         hic_gate=gate_status(h) if h else na,
         hic_gate_k=h.get("gate_k", na) if h else na, hic_gate_n=h.get("gate_n", na) if h else na,
         hic_gate_p=h.get("gate_p", na) if h else na,
         hic_gate_refs=h.get("gate_refs", na) if h else na,
+        hic_end_k=h.get("end_k", na) if h else na, hic_end_n=h.get("end_n", na) if h else na,
         hic_anch_peak_start=one(h.get("anch_peak_start", -1)) if h else na,
         hic_anch_peak_end=end(h.get("anch_peak_end", -1)) if h else na,
         hic_anch_core_start=one(h.get("anch_core_start", -1)) if h else na,
@@ -427,6 +527,8 @@ def row(ev: Evidence, d: dict) -> dict:
         align_gate=ev.align["status"] if ev.align else na, align_point=one(ev.align["point"]) if ev.align else na,
         align_core_start=one(ev.align["core_start"]) if ev.align else na,
         align_core_end=end(ev.align["core_end"]) if ev.align else na,
+        cis_peak_start=one(h["cis"]["peak"][0]) if h.get("cis") else na,
+        cis_peak_end=end(h["cis"]["peak"][1]) if h.get("cis") else na,
         meth_seq=m["sequence_call"]["label"] or na, meth_seq_score=m["sequence_call"]["score"],
         meth_hic=m["hic_peak"]["label"] or na, meth_hic_score=m["hic_peak"]["score"],
         meth_call=m["call"]["label"] or na, meth_call_score=m["call"]["score"])

@@ -164,9 +164,50 @@ def test_a_chain_call_is_never_raised():
     assert cap(row(conf="low", core=(21_000_000, 21_500_000), clade="CRM"), decisive=True)["confidence"] == "low"
 
 
-def test_no_call_moves():
+def test_a_decisive_core_inside_the_call_narrows_it():
     r = cap(row(core=(21_000_000, 21_500_000), clade="CRM"), decisive=True)
-    assert (r["cen_start"], r["cen_end"]) == (20_000_000, 22_000_000)
+    assert (r["cen_start"], r["cen_end"]) == (21_000_000, 21_500_000) and "chain_to_core" in r["flags"]
+
+
+def test_a_core_that_may_not_act_does_not_narrow():
+    r = row(core=(21_000_000, 21_500_000), clade="Tekay")
+    rows = {"c": r}
+    cen.cap_chain_calls(rows, ARRAYS, {"chain"}, {"chain"}, {}, True, P, cores={"c": dict(strong=False)})
+    assert (r["cen_start"], r["cen_end"]) == (20_000_000, 22_000_000) and "chain_to_core" not in r["flags"]
+
+
+def test_a_narrower_core_only_touching_the_call_does_not_narrow():
+    r = cap(row(core=(21_900_000, 22_400_000), clade="CRM"), decisive=True)
+    assert (r["cen_start"], r["cen_end"]) == (20_000_000, 22_000_000) and "chain_to_core" not in r["flags"]
+
+
+def test_a_narrowed_call_is_measured_again(tmp_path):
+    import pysam
+    fa = tmp_path / "g.fa"
+    seq = ["A"] * 300_000
+    seq[10_000:10_050] = ["N"] * 50                                      # a gap outside the core
+    seq[120_000:120_020] = ["N"] * 20                                    # a gap inside it
+    fa.write_text(">c\n" + "".join(seq) + "\n")
+    pysam.faidx(str(fa))
+    arrays = pd.DataFrame([(0, "c", 5_000, 6_000, "+", "chain", 5, 0.9, 200), (0, "c", 110_000, 112_000, "+", "chain", 10, 0.9, 200)], columns=ARR_COLS)
+    r = {k: "." for k in cen.REG_COLS}
+    r.update(chrom="c", chrom_len=300_000, cen_start=5_000, cen_end=200_000, evidence="satellite", confidence="high", flags="near_end,gaps:2,gene_rich",
+             main_family="chain", sat_bp=3_000, main_family_bp=3_000, te_clade="CRM", te_core_start=100_000, te_core_end=150_000, te_core_elements=9,
+             n_gaps=2, gap_bp=70, n_genes=3, gene_ratio=2.0)
+    genes = {"c": np.array([10_000, 120_000, 140_000, 250_000])}
+    with pysam.FastaFile(str(fa)) as f:
+        cen.cap_chain_calls({"c": r}, arrays, {"chain"}, {"chain"}, {}, True, P, fa=f, genes=genes)
+    assert (r["cen_start"], r["cen_end"]) == (100_000, 150_000) and "chain_to_core" in r["flags"]
+    assert (r["n_gaps"], r["gap_bp"]) == (1, 20) and r["sat_bp"] == 2_000 and r["main_family_bp"] == 2_000
+    assert r["n_genes"] == 2 and "gaps:1" in r["flags"] and "gaps:2" not in r["flags"] and r["te_call_elements"] == 9
+    assert "gene_rich" in r["flags"] and r["gene_ratio"] == 3.0                                       # 2 genes in 50 kb, 4 in 300 kb
+
+
+def test_a_chain_call_otherwise_never_moves():
+    for r in (cap(row(core=(21_000_000, 21_500_000), clade="Athila")),                      # not decisive
+              cap(row(core=(23_000_000, 23_500_000), clade="CRM"), decisive=True),          # no overlap
+              cap(row(core=(19_000_000, 23_000_000), clade="CRM"), decisive=True)):         # the core is wider
+        assert (r["cen_start"], r["cen_end"]) == (20_000_000, 22_000_000) and "chain_to_core" not in r["flags"]
 
 
 def test_a_real_satellite_layer_in_the_call_spares_it():
@@ -201,7 +242,7 @@ def test_a_weak_chain_call_is_flagged_too():
 def test_flags_are_added_to_those_of_the_row():
     r = row(core=(21_000_000, 21_500_000), clade="CRM")
     r["flags"] = "te_concordant"
-    assert cap(r, decisive=True)["flags"] == "te_concordant,partial_chain"
+    assert cap(r, decisive=True)["flags"] == "te_concordant,partial_chain,chain_to_core"
 
 
 def test_chain_families_lists_only_chains():

@@ -1,6 +1,6 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.11.0
+Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.12.0
 with the genome's richest benchmarked inputs. Counts: right / chromosomes with truth (for mammals without
 CENP-A data: agreement with an independent satellite caller). Every number: [benchmark.md](benchmark.md).
 
@@ -31,7 +31,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 
 | genome | inputs | agree | note |
 |---|---|---|---|
-| [siamang](#siamang) | FASTA, genes, Hi-C | 20/26 agree (3 confident disagreements) |  |
+| [siamang](#siamang) | FASTA, genes, Hi-C | 20/26 agree (2 confident disagreements) |  |
 | [rhesus macaque](#rhesus-macaque) | FASTA, genes, Hi-C | 22/22 agree |  |
 | [sheep](#sheep) | FASTA, genes, Hi-C | 26/28 agree (1 confident disagreements) |  |
 | [goat](#goat) | FASTA, genes, Hi-C | 30/30 agree | all acrocentric |
@@ -51,10 +51,10 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | genome | inputs | right | note |
 |---|---|---|---|
 | [rice](#rice) | FASTA, `tes/`, genes, Hi-C | 12/12 |  |
-| [*Brassica rapa* CC1](#brassica-rapa-cc1) | FASTA, `tes/` | 10/10 | one of 11 accessions (FASTA alone: 109/110 in all 11) |
-| [soybean](#soybean) | FASTA, `tes/` | 19/20 (1 confidently wrong) | chr13: a CRM core replaced a `low` satellite call, 1.9 Mb from CENH3 (FASTA alone 20/20) |
-| [sorghum](#sorghum) | FASTA, `tes/` | 10/10 | CENH3 ChIP of line V9 |
-| [*Brachypodium distachyon*](#brachypodium-distachyon) | FASTA, `tes/` | 3/3 | CENH3 truth on 3 of 5 chromosomes |
+| [*Brassica rapa* CC1](#brassica-rapa-cc1) | FASTA, `tes/`, Hi-C | 10/10 | one of 11 accessions (FASTA alone: 110/110 in all 11) |
+| [soybean](#soybean) | FASTA, `tes/`, Hi-C | 19/20 (1 confidently wrong) | chr13: a CRM core replaced a `low` satellite call, 1.9 Mb from CENH3 (FASTA alone 20/20) |
+| [sorghum](#sorghum) | FASTA, `tes/`, Hi-C | 10/10 | CENH3 ChIP of line V9 |
+| [*Brachypodium distachyon*](#brachypodium-distachyon) | FASTA, `tes/`, Hi-C | 3/3 | CENH3 truth on 3 of 5 chromosomes |
 | [*Arabidopsis thaliana* (Col-CC)](#arabidopsis-thaliana-col-cc) | FASTA, `tes/`, ONT methylation | 5/5 |  |
 | [maize (Mo17)](#maize-mo17) | FASTA, `tes/`, genes | 9/10 (1 confidently wrong) | the knob repeat (23.6 Mb) is never called; chr5: CENH3 on satellite-free DNA 2 Mb from CentC |
 | [*Poa infirma*](#poa-infirma) | all four inputs | 7/7 | truth from earlier analyses; its sister *P. annua* is the README example |
@@ -63,27 +63,27 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 
 | genome | inputs | right | note |
 |---|---|---|---|
-| [barley](#barley) | FASTA, `tes/`, Hi-C | 6/7 | satellite calls toward the chromosome ends; Hi-C and the arm fold moved 6 onto CENH3 |
-| [potato](#potato) | FASTA, `tes/`, genes, Hi-C | 6/11 (2 confidently wrong) | half the centromeres are satellite-free; CRM cores place them |
-| [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/` | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 1/7) |
-| [moss (*Physcomitrium patens*)](#moss-physcomitrium-patens) | FASTA, `tes/`, Hi-C | 25/26 | Copia (Bryco) cluster centromeres without satellite |
-| [*Chlorella sorokiniana*](#chlorella-sorokiniana) | FASTA, `tes/` | 8/10 | centromeres of 2-7 Osser (Copia) insertions; every call `low` |
+| [barley](#barley) | FASTA, `tes/`, Hi-C | 7/7 | satellites fail the one-per-chromosome test; the CRM signature places all 7, and Hi-C's test then passes on 7 |
+| [potato](#potato) | FASTA, `tes/`, genes, Hi-C | 9/11 (1 confidently wrong) | half the centromeres are satellite-free; the CRM signature places them; Hi-C's cis signal, tested against its cores, moves 3 `low` calls |
+| [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/`, Hi-C | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 1/7) |
+| [moss (*Physcomitrium patens*)](#moss-physcomitrium-patens) | FASTA, `tes/`, Hi-C | 26/26 | Copia (Bryco) cluster centromeres without satellite; the Bryco signature decides |
+| [*Chlorella sorokiniana*](#chlorella-sorokiniana) | FASTA, `tes/` | 9/10 | centromeres of 2-7 Osser (Copia) insertions; the Osser signature decides |
 | [*Chlamydomonas reinhardtii*](#chlamydomonas-reinhardtii) | FASTA, `tes/` | 6/17 | LINE-cluster centromeres; every call `low` |
-| [tomato](#tomato) | FASTA, `tes/`, Hi-C | 1/12 (7 confidently wrong) | satellite-free centromeres beside a dominant satellite: a reported failure |
+| [tomato](#tomato) | FASTA, `tes/`, Hi-C | 10/12 | satellite-free centromeres beside a dominant satellite: a Tekay family and Hi-C's cis signal place 10 of 12, none confidently wrong |
 
 ## Point, regional and AT-rich centromeres (Hi-C)
 
 | genome | inputs | right | note |
 |---|---|---|---|
 | [*Saccharomyces cerevisiae*](#saccharomyces-cerevisiae) | FASTA, Hi-C | 16/16 | Hi-C alone at 10-kb bins; the trans arm alignment makes 13 calls `medium` |
-| [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | FASTA, Hi-C | 2/3 | chr2's Hi-C peak is too weak for a call |
-| [*Neurospora crassa*](#neurospora-crassa) | FASTA, Hi-C | 7/7 | the arm fold validates Hi-C |
-| [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | Hi-C alone at 10-kb bins |
+| [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | FASTA, Hi-C | 3/3 | chr2's Hi-C peak is too weak for a call; its AT trough, which Hi-C's peaks validate, places it |
+| [*Neurospora crassa*](#neurospora-crassa) | FASTA, Hi-C | 7/7 | the arm fold validates Hi-C; AT troughs alone place all 7 |
+| [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | AT troughs from the FASTA alone (13/14); Hi-C at 10-kb bins agrees with them |
 | [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 | held out |
 | [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | held out; 8 accessory chromosomes |
 | [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 10/14 | held out; Hi-C in anaphase (centromeres clustered) |
 | [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 0/14 | held out; Hi-C in G1 (centromeres unclustered): no test passes, no call |
-| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 7/8 | held out; truth is a kinetochore protein (Mtw1) |
+| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | held out; truth is a kinetochore protein (Mtw1) |
 | [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 0/7 | held out; 3C-seq: no test passes |
 
 ## Holocentric controls (any confident call is wrong)

@@ -13,6 +13,7 @@ import pandas as pd
 from . import __version__, morphology
 from .cdr import DIP_P
 from .params import AXIS_LEAN_P, GATE_MIN_REF
+from .sat.karyotype import sentence
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
 # GFF3 types are Sequence Ontology terms (validators and annotation tools check them); cenfuse's own kind and member
@@ -139,7 +140,7 @@ def architecture(d: dict) -> str:
 
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
-                nors=(), cpg: dict | None = None, five_s=()) -> dict:
+                nors=(), cpg: dict | None = None, five_s=(), at: dict | None = None, sat_test: dict | None = None) -> dict:
     """One genome: what each line found, whether it was validated, calls by relation and confidence, the inputs'
     provenance and the plants' verdicts."""
     called = t[t.start != "."]
@@ -152,8 +153,15 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              none=rel.get("none", 0),
              seq_called=int(((t.seq_start != ".") & ~t["flags"].astype(str).str.contains("long_unit_unsupported")).sum()),
              partial_chain_calls=int(t.seq_flags.astype(str).str.contains("partial_chain").sum()),
+             sat_one_per_chromosome=sentence(sat_test) if sat_test else ".",
              te_marker=tel["marker"][0] if tel.get("marker") else ".",
              te_decisive=bool(tel["marker"][2]) if tel.get("marker") else ".",
+             te_seed=tel["signature"].seed if tel.get("signature") is not None else ".",
+             te_specificity=round(tel["signature"].specificity, 1) if tel.get("signature") is not None else ".",
+             te_verdict=tel["signature"].why if tel.get("signature") is not None else ".",
+             at_gate=(at["status"] if at else "."), at_window=(at.get("window") or "." if at else "."),
+             at_p=(f"{at['p']:.3g}" if at else "."),
+             at_hic=(f"{at['hic']['k']}/{at['hic']['n']} {at['hic']['status']}" if at and at.get("hic") else "."),
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
              rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".",
@@ -169,7 +177,11 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
                  hic_gate_refs=h.gate_refs.iat[0] if "gate_refs" in h and len(h) else ".", hic_chromosomes=len(h),
                  hic_anch_on_seq=int(h.anch_agrees_seq.sum()), hic_denovo_on_seq=int(h.denovo_agrees_seq.sum()),
                  hic_denovo_on_anch=int(h.denovo_agrees_anch.sum()), hic_seq_called=int(h.seq_start.ge(0).sum()),
-                 hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".")
+                 hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".",
+                 te_hic=(f"{hic['te_anchored']['k']}/{hic['te_anchored']['n']} chromosomes (P "
+                         f"{hic['te_anchored']['p']:.2g}): {hic['te_anchored']['status']}") if hic.get("te_anchored") else ".",
+                 cis_line=(f"{'peak' if hic['cis']['sign'] > 0 else 'dip'} at the core on {hic['cis']['k']}/{hic['cis']['n']} "
+                           f"chromosomes (P {hic['cis']['p']:.2g}): {hic['cis']['status']}") if hic.get("cis") else ".")
         fo = hic.get("fold")
         d.update(fold_gate=fo["status"] if fo else ".", fold_on_denovo=f"{fo['k']}/{fo['n']}" if fo else ".",
                  fold_p=f"{fo['p']:.3g}" if fo else ".")

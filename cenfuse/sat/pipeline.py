@@ -6,9 +6,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
+import pysam
 import pyhmmer
 
-from . import __version__, annotate, centromere, classify, families, hor, output, plot, seeds, te
+from . import __version__, annotate, centromere, classify, families, hor, karyotype, output, plot, seeds, signature, te
 from .genomes import discover_genomes, load_genes
 from .params import MAX_CHROMOSOMES, TE_DERIVED_FRAC, Params, format_borrow, parse_borrow, to_dict
 from .util import SatelliteError, log, require_tools
@@ -48,8 +49,11 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # classify 0.13.1: the period test of `related` is symmetric; dominant_satellite; te_rejected; ltr_clade counts every
 # overlapping element. centromeres 0.13.1: calls on chains of partial hits (cap_chain_calls); rejected_family, element
 # counts. output 0.13.1: copy spacing; new columns.
-STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.13.1",
-                 "centromeres": "0.13.1", "hor": "0.3.0", "output": "0.13.1", "plot": "0.4.1"}
+# classify 0.14.0: the LTR signature (families recruited leave one chromosome out; a specific lineage other than CRM may
+# decide). centromeres 0.14.0: the one-per-chromosome test of the centromeric satellites caps calls; a core must be specific on
+# its chromosome to overrule a confident call; chain calls narrow to a decisive core. output 0.14.0: te_signature, satellite_test.
+STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.14.0",
+                 "centromeres": "0.14.0", "hor": "0.3.0", "output": "0.14.0", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],
@@ -103,7 +107,7 @@ class Pipeline:
             for st in STAGES[STAGES.index(force):]:
                 (self.work / f"{st}.done").unlink(missing_ok=True)
         (self.work / "params.json").write_text(json.dumps(to_dict(p), indent=1))
-        self._genes, self._te = {}, {}
+        self._genes, self._te, self._sig = {}, {}, {}
 
     @staticmethod
     def _check_borrow(borrow: dict, names: set) -> dict:
@@ -267,7 +271,7 @@ class Pipeline:
                 tagged = [f"{f} ({k}/{n})" for f, (n, k) in rd.items() if n and k / n >= self.p.rdna_array_frac]
                 if tagged:
                     log.info(f"classify: {g.name}: rDNA spacer repeats (not centromeric): {', '.join(tagged)}")
-                tev = self.te_evidence(g)
+                tev = self._te_verdict(g, fams, mains, info)
                 fams, per_chrom, rejected = classify.choose_with_te(fams, mains, g.chroms, self.p, info, tev,
                                                                     self.arrays(g))
                 if rejected:
@@ -293,11 +297,36 @@ class Pipeline:
             self._te[g.name] = self._te_evidence(g)
         return self._te[g.name]
 
+    def _te_verdict(self, g, fams, mains, info):
+        """The genome's TE evidence, with the signature's verdict (signature.decisive) made against what the satellite line
+        says without the TE line, and written beside the classify checkpoint so a resume reads the same verdict."""
+        table = self._p("classify", f"{g.name}.te_signature.tsv")
+        table.unlink(missing_ok=True)
+        self._te.pop(g.name, None)
+        tev = self.te_evidence(g)
+        s = self._sig.get(g.name)
+        if s is None:
+            return tev
+        base, _ = classify.choose_centromeric(fams, mains, g.chroms, self.p, info, self.arrays(g))
+        test = karyotype.satellite_test(self.arrays(g), set(base.family[base.cls == "centromeric"]), g.chroms, self.p)
+        signature.decisive(s, bool(base.dominant_satellite.astype(bool).any()), test["status"])
+        signature.write_table(s, table)
+        log.info(f"{g.name}: LTR signature: {s.why}")
+        self._te[g.name] = s.marker()
+        return self._te[g.name]
+
     def _te_evidence(self, g):
         gff = te.te_gff(self.cdir, g.name)
         if gff is None:
             log.info(f"{g.name}: no tes/{g.name}.gff3 or .gff [.gz]; satellite evidence only")
             return None
+        s = signature.build(gff, g.chroms)
+        if s is not None:
+            self._sig[g.name] = s
+            verdict, why = signature.read_verdict(self._p("classify", f"{g.name}.te_signature.tsv"))
+            if verdict is not None:                           # made in the classify stage of this folder
+                s.decisive, s.why = verdict, why
+            return s.marker()
         tes = te.load_te_gff(gff, g.chroms)
         if not tes:
             n = te.te_census(gff, g.chroms)
@@ -336,11 +365,18 @@ class Pipeline:
                     if c not in ("", "."):
                         chosen.setdefault(c, set()).add(r.family)
 
+            test = dict(n=len(g.chroms), features=0, covered=0, null_median=float("nan"), p=1.0, best_possible=1.0, status="none") \
+                if borrowed else karyotype.satellite_test(arrays, primary, g.chroms, self.p)     # a contig is no chromosome
+            self._p("centromeres", f"{g.name}.satellite_test.json").write_text(json.dumps(test))
+            log.info(f"centromeres: {g.name}: centromeric satellites: {karyotype.sentence(test)}")
+
             def call_with(prim):
                 return centromere.call_regions(g, arrays, prim, self.genes(g), self.seed_table(g),
                                                self.work / "centromeres" / f"tmp_{g.name}", self.threads, self.p,
                                                borrowed=borrowed, te=tev, capped=capped, acro=acro, rivals=rivals,
-                                               per_chrom=chosen)
+                                               per_chrom=chosen, not_one=not borrowed and test["status"] == "fail",
+                                               weak_cores=None if g.name not in self._sig else
+                                               {c: x for c, x in self._sig[g.name].cores.items() if not x["significant"]})
             rows, lu = call_with(primary)
             te_fams = set(fams.family[pd.to_numeric(fams.get("in_ltr"), errors="coerce") >= TE_DERIVED_FRAC]) \
                 if "in_ltr" in fams else set()
@@ -348,8 +384,10 @@ class Pipeline:
                 if r.get("main_family") in te_fams:
                     r["flags"] = "te_derived" if r["flags"] in (".", "") else r["flags"] + ",te_derived"
             if not borrowed:                                 # (a contig's own family metrics mean nothing)
-                n = centromere.cap_chain_calls(rows, arrays, primary, classify.chain_families(fams[fams.family.isin(primary)]),
-                                               centromere.derived_families(fams), bool(tev and tev[2]), self.p)
+                with pysam.FastaFile(str(g.fasta)) as fa:
+                    n = centromere.cap_chain_calls(rows, arrays, primary, classify.chain_families(fams[fams.family.isin(primary)]),
+                                                   centromere.derived_families(fams), bool(tev and tev[2]), self.p,
+                                                   cores=tev[1] if tev else None, fa=fa, genes=self.genes(g))
                 if n:
                     log.info(f"centromeres: {g.name}: {n} calls stand on chains of partial hits, not tandem satellites: "
                              f"at most medium")
@@ -407,6 +445,11 @@ class Pipeline:
             output.write_genome(data[g.name], names, self.out, self.p)
         output.write_families(fam, data, names, self._p("families", "families.hmm"),
                               self._p("families", "families.fa"), self.out)
+        for g in self.genomes:
+            for src, name in ((self._p("classify", f"{g.name}.te_signature.tsv"), f"{g.name}_te_signature.tsv"),
+                              (self._p("centromeres", f"{g.name}.satellite_test.json"), f"{g.name}_satellite_test.json")):
+                if src.exists():
+                    shutil.copyfile(src, self.out / name)
         dropped = self._p("families", "dropped_clusters.tsv")       # absent in a folder of an earlier version
         if dropped.exists():
             shutil.copyfile(dropped, self.out / "dropped_clusters.tsv")

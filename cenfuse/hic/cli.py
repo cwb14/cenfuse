@@ -335,7 +335,7 @@ def run_call(args) -> dict:
     log.info(f"done: {n}")
     # the in-memory state, so cenfuse scores anchored partner windows on the same matrix, balancing and bins
     # without rebuilding them
-    state = dict(M=M, W=W, bins=bins, good=good, mean=mean, members=members, loc=loc, pcs=pcs, hub=hub, rdna=rdna,
+    state = dict(M=M, W=W, bias=bias, bins=bins, good=good, mean=mean, members=members, loc=loc, pcs=pcs, hub=hub, rdna=rdna,
                  sat=sat, size=size, T=T, base_size=base.size, matrix_cache=None if cool else str(npz))
     return dict(rows=rows, rabl=rabl, bin_table=bin_table, stats=stats, state=state)
 

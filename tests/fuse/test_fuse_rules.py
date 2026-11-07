@@ -675,3 +675,61 @@ def test_hic_does_not_raise_a_call_it_cannot_tell_from_its_competing_cluster():
     w.seq.update(alt_start=1_400_000, alt_end=1_900_000)
     d = fuse.decide(w)
     assert d["confidence"] == "low" and "hic_support" not in d["flags"] and "hic_alt_ambiguous" in d["flags"]
+
+
+# ---------------------------------------------------------------- LTR cores and Hi-C (hicfuse.anchored_on_cores)
+def _paired(conf, core, status="support", gate=False):
+    e = ev(conf=conf, peak=30_000_000, gate=gate, strong=False, level="low")
+    e.hic = dict(e.hic, gate_support=False, te_pair=dict(core=core, status=status, clade="CRM"))
+    return e
+
+
+def test_a_pair_at_the_call_supports_it():
+    d = fuse.decide(_paired("low", (1_100_000, 1_200_000)))
+    assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "concordant" and d["confidence"] == "medium"
+    assert "te_hic_pair" in d["flags"] and {"te", "hic"} <= set(d["support"])
+
+
+def test_a_pair_elsewhere_moves_a_low_call():
+    d = fuse.decide(_paired("low", (30_000_000, 31_000_000)))
+    assert d["call"] == (30_000_000, 31_000_000) and d["relation"] == "offset" and d["source"] == "hic"
+    assert d["confidence"] == "medium" and "te_hic_pair" in d["flags"] and {"te", "hic"} <= set(d["support"])
+
+
+def test_a_pair_on_a_minority_leaves_a_confident_call():
+    for conf in ("medium", "high"):
+        d = fuse.decide(_paired(conf, (30_000_000, 31_000_000)))
+        assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == conf and "te_hic_pair" not in d["flags"]
+
+
+def test_a_pair_on_most_chromosomes_moves_any_call():
+    d = fuse.decide(_paired("medium", (30_000_000, 31_000_000), "pass"))
+    assert d["call"] == (30_000_000, 31_000_000) and d["confidence"] == "medium"
+    d = fuse.decide(_paired("high", (30_000_000, 31_000_000), "pass"))
+    assert d["call"] == (30_000_000, 31_000_000) and d["confidence"] == "high" and "moved_with_te" in d["flags"]
+
+
+def test_a_pair_cannot_raise_a_call_it_cannot_tell_from_its_competitor():
+    e = _paired("medium", (1_100_000, 1_200_000), "pass")
+    e.seq = dict(e.seq, alt_start=1_400_000, alt_end=1_500_000)                # no mappable bin between the call and the competitor
+    d = fuse.decide(e)
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "medium" and "te_hic_pair" not in d["flags"]
+    assert "hic" not in d["support"] and "hic_alt_ambiguous" in d["flags"]
+
+
+def test_the_ltr_lines_leave_a_chromosome_whose_own_gate_passed():
+    """They run where the gate fails on most chromosomes, but a chromosome can pass it alone."""
+    e = ev(conf="medium", peak=1_100_000, gate=True, strong=True, level="high")
+    base = fuse.decide(e)
+    e.hic = dict(e.hic, te_pair=dict(core=(30_000_000, 31_000_000), status="pass", clade="CRM"),
+                 cis=dict(peak=(30_000_000, 30_250_000), status="pass"))
+    d = fuse.decide(e)
+    assert base["relation"] == "concordant" and (d["call"], d["relation"], d["confidence"]) == (base["call"], base["relation"], base["confidence"])
+    assert not {"te_hic_pair", "cis_elsewhere", "cis_agrees"} & set(d["flags"])
+
+
+def test_a_pair_places_a_call_where_there_is_none():
+    e = _paired("low", (30_000_000, 31_000_000))
+    e.seq = dict(e.seq, start=-1, end=-1, evidence="none", confidence="none")
+    d = fuse.decide(e)
+    assert d["call"] == (30_000_000, 31_000_000) and d["relation"] == "functional_only" and d["confidence"] == "medium"

@@ -62,6 +62,17 @@ TE_MIN_SITES = 3               # fewer independent insertion sites of a clade on
 TE_DERIVED_FRAC = 0.5          # a call's main family with most array bp inside LTR retrotransposons: flag te_derived
 TE_ALPHA = 1e-3                # core significance: binomial tail x (L / core length) < 0.001 (conventional level)
 TE_CONTRA_ALPHA = 0.01         # a core contradicts a call if the clade marks it more at P <= 0.01 (conventional)
+TE_SPECIFIC_FOLD = 10.0        # a lineage other than CRM may decide only at >= 10-fold enrichment in its cores, and no core,
+                               # CRM's included, may overrule a confident call or a satellite family below it on its chromosome.
+                               # Measured on 42 polyploids whose best marker is not CRM, against 0.11's FASTA-only calls (an
+                               # independent line, no truth): cores within 1 Mb of the call, median 0.30 at <= 10-fold, 0.75 above
+TE_MAJOR_SHARE = 0.5           # a core of a lineage other than CRM is strong where it holds most of the signature's elements on
+                               # its chromosome (majority rule): the rest of them say the locus is not unique there
+TE_SEED_MIN_CORES = 3          # a CRM seed needs this many cores: fewer leave a chromosome under 2 others to learn from
+TE_RECRUIT_MIN = 5             # elements of a family on the other chromosomes: fewer cannot reach P <= 1e-3 at a core share of a
+                               # few percent (0.05^5 = 3e-7, before the Bonferroni correction)
+TE_RECRUIT_ROUNDS = 5          # recruitment repeats until its significant cores stop changing, this many rounds at most (a bound
+                               # on the time: the development genomes settle within 3)
 TE_CENTROMERIC_CLADE = "CRM"   # CR chromoviruses (CRM maize, CRR rice, CRB Brassica, CRS sugarcane) are
                                # centromere-specific in plants; other clades are often pericentromeric
 

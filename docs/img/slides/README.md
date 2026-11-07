@@ -1,7 +1,9 @@
 # Slides: "cenfuse: an integrative and accurate approach to calling centromeres in eukaryotes"
 
 Images for a talk, in order, one per slide (16:9, 300 dpi). The slide title is a suggestion; the takeaway is what the
-image shows. Every number is from the cenfuse 0.10.1 benchmark ([benchmark.md](../../benchmark.md)).
+image shows. Every number is from the cenfuse 0.10.1 benchmark ([benchmark.md](../../benchmark.md)), except slide 3 (the workflow),
+redrawn for 0.12: the one-per-chromosome test, AT troughs, the LTR signature at family level, and Hi-C tested against the LTR cores.
+The other slides show 0.10.1's rules and numbers; for 0.12's, see [benchmark.md](../../benchmark.md).
 
 Letter suffixes mark slides added between the numbered ones; `S` slides are supplements, for questions.
 

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .genomes import count_in
+from .signature import rejecting_cores
 from .te import agrees
 from .params import ACRO_ALPHA, FULL_MONOMER_COV, LOCUS_FOLD, RELATED_LEN_TOL, TANDEM_FRAC
 from .util import clipped_bp, log, merge_intervals, union_bp
@@ -563,7 +564,7 @@ def choose_with_te(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_info, t
     rejected = {}
     while True:
         out, per_chrom = choose_centromeric(fams, mains, chroms, p, fam_info, arrays)
-        rej = te_rejected(out, mains, [te[1]], fam_info) if te and te[2] else {}
+        rej = te_rejected(out, mains, [rejecting_cores(te[1])], fam_info) if te and te[2] else {}
         if not rej:
             return out, per_chrom, rejected
         rejected.update(rej)

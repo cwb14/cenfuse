@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .params import (TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_CONTRA_ALPHA, TE_MIN_BIN, TE_MIN_SITES,
-                     TE_SMOOTH)
+from .params import (TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_CONTRA_ALPHA, TE_MIN_BIN, TE_MIN_SITES, TE_SMOOTH,
+                     TE_SPECIFIC_FOLD)
 from .util import log, merge_intervals
 
 IGNORED_CLADES = {"unknown", "mixture", "na", "none", "."}
@@ -270,6 +270,14 @@ def elements_in(start: int, end: int, c: dict):
         return None
     m = np.asarray(m)
     return int(np.searchsorted(m, end) - np.searchsorted(m, start))
+
+
+def overrules(call_start: int, call_end: int, c: dict) -> bool:
+    """A core may replace a confident call only if it contradicts the call (contradicts) and is specific on its chromosome: at
+    least TE_SPECIFIC_FOLD times denser than the chromosome's other elements of the signature (fold; a core from te.core alone has
+    none and only contradicts counts). Oryza minuta: CRM families of 300 elements per chromosome at 3-4-fold took 9 CentO calls,
+    and the homoeologous pairs agreeing fell from 12 of 12 to 8."""
+    return c.get("fold", TE_SPECIFIC_FOLD) >= TE_SPECIFIC_FOLD and contradicts(call_start, call_end, c)
 
 
 def contradicts(call_start: int, call_end: int, c: dict) -> bool:

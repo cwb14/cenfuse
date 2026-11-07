@@ -46,9 +46,11 @@ ROLE_COLOR = {"centromeric": "#D55E00", "cen_associated": "#F4A582", "interstiti
 OTHER = "#B0B0B0"
 RDNA_MARK = "#8C8C8C"                            # rDNA arrays: context, so they do not outshine the centromere calls
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
-BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8"}
+BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8", "composition": "#C7E9C0"}
 LINES = ["satellite", "te", "hic", "meth"]
-LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "meth": "meth"}
+LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "meth": "meth"}
+AT_MARK = "#009E73"                              # an AT trough that acted
+CIS_MARK = "#6A3D9A"                             # the extreme of the cis Hi-C signal, where it passed its test
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
              "functional_only": "functional only", "sequence_only": "sequence only", "none": "none"}
 VERDICT_COLOR = {"shared": "#BDBDBD", "shifted": "#D55E00", "possible_shift": "#E69F00", "call_absent": "#000000",
@@ -74,7 +76,8 @@ def _rows(calls):
                         seq=_iv(r["seq_start"], r["seq_end"]), relation=r["relation"], conf=r["confidence"],
                         source=r["call_source"], support=set(str(r["support"]).split(",")) - {"."},
                         against=set(str(r["against"]).split(",")) - {"."},
-                        te=_iv(r["te_start"], r["te_end"]),
+                        te=_iv(r["te_start"], r["te_end"]), at=_iv(r.get("at_start", "."), r.get("at_end", ".")),
+                        cis=_iv(r.get("cis_peak_start", "."), r.get("cis_peak_end", ".")),
                         hic=_iv(r["hic_anch_core_start"], r["hic_anch_core_end"]),
                         hic_peak=_iv(r["hic_anch_peak_start"], r["hic_anch_peak_end"])))
     return out
@@ -213,6 +216,10 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax, b_xmax):
                 for s, e in _nan_runs(t[0], t[1], 4):
                     ax.add_patch(Rectangle((s, y0 + ml), e - s, mh - ml, fill=False, hatch="////", ec="#C8C8C8",
                                            lw=0, zorder=1))
+        if r["at"] and ("at" in r["support"] or "at" in r["against"]):    # the trough stands out on this scale only as a tick
+            ax.plot((r["at"][0] + r["at"][1]) / 2, y0 - 0.02, marker="^", ms=3.4, mew=0, color=AT_MARK, zorder=6, clip_on=False)
+        if r.get("cis"):
+            ax.plot((r["cis"][0] + r["cis"][1]) / 2, y0 - 0.02, marker="^", ms=3.4, mew=0, color=CIS_MARK, zorder=6, clip_on=False)
         ax.text(-Lmax * 0.01, y0 + 0.5, c, ha="right", va="center", fontsize=6.5)
         for j, line in enumerate(f["lines"]):
             if line in r["support"]:
@@ -266,6 +273,9 @@ def _offsets(ax, rows):
                 a, b = rel(iv)
                 ax.plot([x + dx, x + dx], [a, b], color=col, lw=1.0, zorder=3)
                 ax.plot(x + dx, (a + b) / 2, "o", color=col, ms=2.4, mew=0, zorder=4)
+        if r.get("cis"):
+            a, b = rel(r["cis"])
+            ax.plot(x + 0.32, (a + b) / 2, "^", color=CIS_MARK, ms=3.0, mew=0, zorder=4)
         if r["call"] and r["call"] != r["seq"]:
             a, b = rel(r["call"])
             ax.plot(x, (a + b) / 2, marker="D", ms=3.4, mfc="white", mec="black", mew=0.7, zorder=5)
@@ -320,19 +330,25 @@ def _overlay(ax, rows, hic, flank=None):
         ax.spines[sp].set_visible(False)
 
 
-def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False)):
+def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False), rows=()):
     items = [Patch(fc=ROLE_COLOR[r], ec="none", label=f"{r.replace('_', '-')} satellite") for r in ROLE_COLOR
              if r in roles]
     items.append(Patch(fc=OTHER, ec="none", label="other satellite"))
     items += [Patch(fc="none", ec="black", lw=0.7, label="sequence call"),
               Patch(fc=BAND["sequence"], ec="none", label="integrated call (sequence)"),
               Patch(fc=BAND["hic"], ec="none", label="integrated call (Hi-C placed)"),
-              Patch(fc=TE, alpha=0.8, ec="none", label="TE marker clade density")]
+              *([Patch(fc=BAND["composition"], ec="none", label="integrated call (AT trough)")]
+                if any(r.get("source") == "composition" for r in rows) else []),
+              Patch(fc=TE, alpha=0.8, ec="none", label="LTR signature density")]
     if has_hic:
         items += [Line2D([], [], color=HIC, lw=0.9, label="anchored Hi-C score"),
                   Line2D([], [], color=DENOVO, lw=0.6, label="prior-free Hi-C score")]
     if has_meth:
         items.append(Line2D([], [], color=METH, lw=0.6, label="adjusted CHG (down = loss)"))
+    if any(x in (r.get("support") or ()) or x in (r.get("against") or ()) for r in rows for x in ("at",)):
+        items.append(Line2D([], [], ls="", marker="^", ms=3.4, mew=0, color=AT_MARK, label="AT trough"))
+    if any(r.get("cis") for r in rows):
+        items.append(Line2D([], [], ls="", marker="^", ms=3.4, mew=0, color=CIS_MARK, label="extreme of the cis Hi-C signal"))
     items.append(Line2D([], [], ls="", marker=">", ms=3.4, color="black", label="telomere array"))
     items.append(Line2D([], [], ls="", marker="v", ms=3.4, color="black", label="interstitial telomeric array"))
     for has, face, label in zip(rdna, (RDNA_MARK, "white"), ("45S rDNA array (NOR)", "5S rDNA array")):
@@ -368,8 +384,8 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     rd = f.get("rdna") or {}
     rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
-    axis = [x for x in ("fold", "align") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
-    f["lines"] = LINES[:3] + axis + LINES[3:]                                                       # the line acted
+    axis = [x for x in ("fold", "align", "at") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
+    f["lines"] = LINES[:3] + axis + LINES[3:]                                                             # the line acted
     label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
     # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
     b_xmax = len(f["lines"]) - 0.35 + (max(_text_mm(_rel_label(r), 6) for r in rows) + 1.0) / B_COL_MM
@@ -390,7 +406,7 @@ def _page_iter(f: dict) -> Iterator[Figure]:
         ax = fig.add_axes([0.11, 1 - (gtop + gal_mm) / H, b_left - 0.015 - 0.11, gal_mm / H])
         axb = fig.add_axes([b_left, 1 - (gtop + gal_mm) / H, b_mm / (WIDTH / MM), gal_mm / H])
         _gallery(ax, axb, chunk, f, scale, has_hic, has_meth, Lmax, b_xmax)
-        _key(fig, 1 - 2 / H, has_hic, has_meth, roles, rdna)
+        _key(fig, 1 - 2 / H, has_hic, has_meth, roles, rdna, rows)
         fig.text(0.01, 1 - 21 / H, "A", fontsize=9, fontweight="bold", va="bottom")
         fig.text(b_left - 0.02, 1 - 21 / H, "B", fontsize=9, fontweight="bold", va="bottom")
         if last:
@@ -496,7 +512,7 @@ def _plant_rows(ax, f, chrom, plants_, prov):
         s, e = r0["seq"]
         ax.add_patch(Rectangle((s, y0 - 0.04), e - s, 0.4, fill=False, ec="black", lw=0.7, zorder=4))
     x_lab = lo - (hi - lo) * 0.01
-    for yy, name in ((y0 + 0.16, "satellite arrays"), (y0 + 0.58, "TE marker"), (y0 + 1.12, "Hi-C contact")):
+    for yy, name in ((y0 + 0.16, "satellite arrays"), (y0 + 0.58, "LTR signature"), (y0 + 1.12, "Hi-C contact")):
         ax.text(x_lab, yy, name, ha="right", va="center", fontsize=5.5, color="#505050")
     # plants
     vals = []
@@ -625,11 +641,13 @@ def legends(f) -> tuple[str, str]:
             f"stay contested. Satellite position and centromere function can part ways, so each line is shown "
             f"on its own.")
     short = [head,
-             "A, Every chromosome at one scale: satellite arrays by family role, retrotransposon marker density, "
+             "A, Every chromosome at one scale: satellite arrays by family role, the density of the LTR signature's elements, "
              "Hi-C contact with the other centromeres and the methylation track, with the sequence call (box) and "
              "the integrated call (band).",
              "B, Which evidence lines support or oppose each integrated call.",
              "C, Where each line places the centromere relative to the satellite call."]
+    if any(str(x) not in (".", "nan", "") for x in f["calls"].get("cis_peak_start", ())):
+        short[-1] += " A triangle marks the extreme of the contact crossing each bin, where that signal agrees with the LTR cores."
     if hic is not None:
         short.append("D, Hi-C contact with the other chromosomes' centromeres peaks at the integrated calls "
                      "(orange: calls placed away from the satellite).")
@@ -647,7 +665,7 @@ def legends(f) -> tuple[str, str]:
     a = (f"A, {n} chromosomes in assembly order, to one base-pair scale. Each satellite array "
          f"is a box colored by its family's role in this genome ({len(f['seq'].arrays):,} arrays; arrays too small "
          f"to see are drawn at the minimum visible width). The orange area is the density of the "
-         f"{tel['marker'][0] + ' ' if tel.get('marker') else ''}retrotransposon marker clade.")
+         f"{tel['marker'][0] + ' ' if tel.get('marker') else ''}LTR signature (the marker's families).")
     if hic is not None:
         h = hic["table"]
         a += (f" Blue: anchored Hi-C score at {hic['bin_size'] / 1e3:g}-kb bins (0 to {f['scale']['hic']:.1f} x "
@@ -680,7 +698,7 @@ def legends(f) -> tuple[str, str]:
                 "support-only test, significant) and the anchored peak within one bin, or the prior-free peak that "
                 "placed the call; methylation: centromere-like under the leave-one-chromosome-out "
                 "signature; fold and align, shown only where they acted: the call lies in the arm-fold or the trans "
-                "arm-alignment core); cross, a gated strong Hi-C peak, a CRM core, the arm fold or alignment, or a "
+                "arm-alignment core); cross, a gated strong Hi-C peak, a decisive LTR core, the arm fold or alignment, or a "
                 "validated prior-free Hi-C peak points elsewhere. "
                 "Text: relation and confidence.")
     long.append("C, Black bar: the sequence call, centered at 0. Orange: the TE marker core; blue: the anchored Hi-C "

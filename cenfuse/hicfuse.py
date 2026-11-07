@@ -54,6 +54,7 @@ HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confid
             "anch_peak_start", "anch_peak_end", "anch_core_start", "anch_core_end", "anch_ratio", "anch_boot_in_core",
             "anch_lopo_stable", "anch_null_p", "anch_level", "anch_flags", "anch_strong", "anch_agrees_seq", "chance",
             "gate_k", "gate_n", "gate_p", "gate_pass", "gate_support", "gate_refs", "masked",
+            "end_near", "end_other", "end_higher", "end_k", "end_n", "end_p", "end_pass",
             "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end", "denovo_confidence",
             "denovo_flags", "denovo_agrees_seq", "denovo_agrees_anch"]
 
@@ -255,6 +256,10 @@ def _chance(S, bins, good, k: int, s: int, e: int) -> float:
 
 
 SUPPORT_LEVELS = ("medium", "high")      # anchored peaks that count for the support tier: >= 2 of the 3 engine tests
+END_ZONE = 0.125                         # end_test: Levan's telocentric bound (fold.CI_MIN)
+END_SHARE = 0.05                         # ... the terminal 5% of a chromosome's scored bins stands for an end (a heuristic, about one
+END_MIN_BINS = 4                         # partner half-window at the bins chosen); at least the half-window itself
+CIS_SIM = 200                            # cis_chance: contact maps simulated per chromosome (resolution 0.005, as the engine's null)
 
 
 def clean_peak(flags) -> bool:
@@ -304,6 +309,55 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
     return t
 
 
+def _end_score(v: np.ndarray) -> tuple:
+    """Mean anchored score of the first and of the last END_SHARE of a chromosome's scored bins (at least END_MIN_BINS)."""
+    ok = np.flatnonzero(np.isfinite(v))
+    if len(ok) < 2 * END_MIN_BINS:
+        return float("nan"), float("nan")
+    n = max(END_MIN_BINS, int(len(ok) * END_SHARE))
+    return float(np.mean(v[ok[:n]])), float(np.mean(v[ok[-n:]]))
+
+
+def end_test(t: pd.DataFrame, S, bins) -> pd.DataFrame:
+    """Which end? (future.md #15) A call in the terminal eighth of a chromosome (Levan's telocentric bound, fold.CI_MIN) sits where a
+    peak cannot count: chromosome ends cluster in 3D whatever the centromere, so such a peak is flagged telomeric. But the two ends of a
+    chromosome can be told apart: the anchored score, made from the other chromosomes' calls only, is about twice as high at the end
+    holding the call in goat (28 of 30), sheep (22/23), horse (18/19) and mouse (20/20). Per chromosome x: on the OTHER chromosomes
+    with such a call, is the call's end the higher one, on most of them, beyond the 1/2 of chance (binomial, P <= GATE_P)?
+    Chicken does not pass (12 of 19)."""
+    t = t.copy()
+    names = {n: i for i, n in enumerate(bins.names)}
+    near, other, higher = [], [], []
+    for r in t.itertuples(index=False):
+        a, b, h = np.nan, np.nan, False
+        k = names[r.chrom]
+        L = int(bins.lengths[k])
+        if r.seq_start >= 0 and r.callable:
+            mid = (r.seq_start + r.seq_end) / 2
+            if min(mid, L - mid) < END_ZONE * L:
+                lo, hi = _end_score(S[bins.sl(k)])
+                a, b = (lo, hi) if mid < L / 2 else (hi, lo)
+                h = bool(a > b)
+        near.append(a), other.append(b), higher.append(h)
+    t["end_near"], t["end_other"], t["end_higher"] = near, other, higher
+    tested = np.isfinite(t.end_near.to_numpy(dtype=float))
+    ks, ns, ps, passed = [], [], [], []
+    hi = t.end_higher.to_numpy(dtype=bool)
+    for i in range(len(t)):
+        r_ = tested.copy()
+        r_[i] = False
+        n, k = int(r_.sum()), int(hi[r_].sum())
+        p = binom_tail(k, n) if n else float("nan")
+        ks.append(k), ns.append(n), ps.append(p), passed.append(bool(n >= GATE_MIN_REF and 2 * k > n and p <= GATE_P))
+    t["end_k"], t["end_n"], t["end_p"], t["end_pass"] = ks, ns, ps, passed
+    return t
+
+
+def binom_tail(k: int, n: int) -> float:
+    """P(X >= k), X ~ Binomial(n, 1/2)."""
+    return poisson_binomial_sf(k, [0.5] * n)
+
+
 def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
     """state: the Hi-C engine's in-memory state; seq: {chrom: (start, end, confidence)} of the sequence calls (start -1 =
     none). Returns (per-chromosome table without the de novo columns, {'S': anchored score, 'est': partners})."""
@@ -348,8 +402,172 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
                 r.update(anch_agrees_seq=_agrees_bin(bins, good, k, pc["peak"], s, e),
                          chance=_chance(S, bins, good, k, s, e))
         rows.append(r)
-    t = gate(pd.DataFrame(rows))
+    t = end_test(gate(pd.DataFrame(rows)), S, bins)
     return t, dict(S=S, est=est, win=win)
+
+
+def _core_zone(bins, k: int, s: int, e: int) -> tuple:
+    """(first, last) local bin of an LTR core and HALF_WIN bins on each side: where a peak counts as on the core."""
+    lo, hi = _bin_range(bins, k, s, e)
+    return max(0, lo - hp.HALF_WIN), min(int(bins.nb[k]) - 1, hi + hp.HALF_WIN)
+
+
+def anchored_on_cores(state: dict, cores: dict) -> dict:
+    """The anchored test with LTR cores in place of the sequence calls (future.md #11: where the sequence line is wrong
+    genome-wide, Hi-C anchored on it finds nothing). Partner windows at the cores. A chromosome agrees when its peak, the top of a
+    score made from the other chromosomes' anchors only, lies in its own core's zone; the zone's share of the chromosome is the
+    chance. The anchors stay where the LTR line put them: moved to the best score within their zones they find each other in any
+    map (randomized soybean Hi-C: 1 of 20 peaks on the cores, 4 of 20 moved, P 0.002). A peak counts only where it is clean
+    (clean_peak, as for the gate's low references): chromosome ends, hubs and NORs attract trans contacts whatever the centromere,
+    so cores at the chromosome ends agree with any nucleus that clusters its telomeres (held-out R. breviuscula, holocentric: Athila
+    cores at the ends of 4 of 5 chromosomes, 3 agreed, P 5e-4). Returns dict(k, n, p, status, peaks {chrom: (start, end)} of the
+    agreeing chromosomes): pass (on most chromosomes, Poisson-binomial P <= GATE_P); support (beyond chance, on fewer: the rule
+    of the support tier); fail."""
+    W, bins, good, mean, members = (state[k] for k in ("W", "bins", "good", "mean", "members"))
+    hub = state.get("hub")
+    hub = np.zeros(bins.N, dtype=bool) if hub is None else hub
+    rdna = state.get("rdna") or {}
+    idx = {n: i for i, n in enumerate(bins.names)}
+    win = {idx[c]: visible_window(bins, good, idx[c], *iv) for c, iv in cores.items() if c in idx and members[idx[c]]}
+    S = cluster_score(partner_oe(W, bins, good, mean, {k: w for k, w in win.items() if len(w)}), bins, good, members)
+    peaks, chance = {}, []
+    for c, iv in cores.items():
+        k = idx.get(c)
+        if k is None or not members[k]:
+            continue
+        v = S[bins.sl(k)]
+        if not np.isfinite(v).any():
+            continue
+        lo, hi = _core_zone(bins, k, *iv)
+        j = int(np.nanargmax(v))
+        chance.append(float(np.isfinite(v[lo:hi + 1]).sum() / np.isfinite(v).sum()))
+        fl = call_flags(k, dict(peak=j, core_lo=j, core_hi=j), bins, hub, rdna, True, 0.0, True, good=good)
+        if lo <= j <= hi and clean_peak(",".join(fl)):
+            g = int(bins.off[k]) + j
+            peaks[c] = (int(bins.start[g]), int(bins.end[g]))
+    n, m = len(chance), len(peaks)
+    p = poisson_binomial_sf(m, chance) if n else 1.0
+    status = "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
+    log.info(f"Hi-C anchored on the LTR cores: the peak lies at its core on {m}/{n} chromosomes (P {p:.2g}): {status}")
+    return dict(k=m, n=n, p=p, status=status, peaks=peaks)
+
+
+def _crossing(diagonals: dict, n: int, half: int) -> np.ndarray:
+    """Per bin of a chromosome of n bins: the sum, over the half bins on its left and the half bins on its right, of a value
+    per pair of bins. diagonals: {distance d: value of each pair (a, a + d)}; such a pair lies across bin a + t for t from
+    max(1, d - half + 1) to min(half, d)."""
+    v = np.zeros(n)
+    for d, x in diagonals.items():
+        for t in range(max(1, d - half + 1), min(half, d) + 1):
+            v[t:n - d + t] += x
+    return v
+
+
+def _cis_parts(W, bins, good, k: int, half: int) -> tuple:
+    """Of chromosome k, per distance d within the crossing box: (balanced contact of each pair of bins, whether both are
+    mappable, the mean contact over mappable pairs), and per bin what its box would hold at those means."""
+    sl, n = bins.sl(k), int(bins.nb[k])
+    B, g = W[sl, :][:, sl], good[sl]
+    diag, ok, mean = {}, {}, {}
+    for d in range(1, 2 * half):
+        diag[d] = B.diagonal(d)
+        ok[d] = g[:n - d] & g[d:]
+        mean[d] = float(diag[d][ok[d]].mean()) if ok[d].any() else 0.0
+    expected = _crossing({d: ok[d] * mean[d] for d in ok}, n, half)
+    expected[:half], expected[n - half:] = 0.0, 0.0                 # a bin needs its whole box on the chromosome
+    return diag, ok, mean, expected
+
+
+def cis_profile(W, bins, good, k: int, half: int = hp.HALF_WIN) -> np.ndarray:
+    """Per bin of chromosome k: the balanced contact between the half bins on its left and the half bins on its right (how much
+    contact crosses it within the partner half-window) over what the chromosome's mean contact at those distances predicts; NaN
+    where either side has no mappable bin. Beside a masked bin the box holds an unusual mix of distances, and contact falls
+    steeply with distance, so a plain mean has its extremes there whatever the locus. W: CSR."""
+    n = int(bins.nb[k])
+    if n <= 2 * half:
+        return np.full(n, np.nan)
+    diag, _, _, expected = _cis_parts(W, bins, good, k, half)
+    v = np.full(n, np.nan)
+    use = expected > 0
+    v[use] = _crossing(diag, n, half)[use] / expected[use]
+    return v
+
+
+def cis_chance(W, bins, good, bias, k: int, lo: int, hi: int, half: int = hp.HALF_WIN, n: int = CIS_SIM) -> dict:
+    """{+1: chance that the highest, -1: chance that the lowest value of cis_profile lies in bins lo..hi of chromosome k, when
+    no locus is special}: profiles from n contact maps drawn (Poisson) given each bin's coverage and the chromosome's mean
+    contact at each distance. A stretch's share of the chromosome is not that chance, since a profile is noisiest where coverage
+    is low, and LTR cores lie there: randomized Brachypodium Hi-C has extremes at the cores on 3 of 5 chromosomes, zones
+    7% of the chromosome and 55% by simulation. (1 + hits) / (1 + n), as the engine's null."""
+    nb = int(bins.nb[k])
+    hits = {+1: 0, -1: 0}
+    if nb <= 2 * half:
+        return {x: 1.0 for x in hits}
+    b = np.asarray(bias)[bins.sl(k)]
+    _, ok, mean, expected = _cis_parts(W, bins, good, k, half)
+    use = expected > 0
+    if not use.any():
+        return {x: 1.0 for x in hits}
+    pos = np.flatnonzero(use)
+    weight, counts = {}, {}
+    for d in ok:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            weight[d] = np.where(ok[d], 1.0 / (b[:nb - d] * b[d:]), 0.0)    # balanced = count * weight
+            counts[d] = np.where(weight[d] > 0, mean[d] / weight[d], 0.0)
+    rng = np.random.default_rng([hp.SEED, k])
+    for _ in range(n):
+        v = _crossing({d: rng.poisson(counts[d]) * weight[d] for d in ok}, nb, half)[use] / expected[use]
+        hits[+1] += bool(lo <= pos[int(np.argmax(v))] <= hi)
+        hits[-1] += bool(lo <= pos[int(np.argmin(v))] <= hi)
+    return {x: (1 + c) / (1 + n) for x, c in hits.items()}
+
+
+def cis_line(state: dict, cores: dict) -> dict:
+    """A cis readout of the centromere, tested against the LTR cores (future.md #12). The contact crossing a bin (cis_profile) has
+    its extreme at the centromere in many genomes, but which extreme differs: a peak in tomato, rice, Brachypodium and soybean, a dip in
+    potato. So the LTR line chooses the sign: for chromosome x, the sign whose extreme lies at the cores of the OTHER chromosomes most
+    significantly. Genome-wide, the better sign's agreement with the cores (the zone of _core_zone) must beat chance, Bonferroni
+    over the two signs; the chance per chromosome is the larger of the zone's share and cis_chance. Returns dict(k, n, p, sign,
+    status, peaks {chrom: (start, end)}, at_core {chrom: bool}): pass (on most chromosomes), support (beyond chance, on fewer),
+    fail."""
+    W, bins, good, members, bias = (state[k] for k in ("W", "bins", "good", "members", "bias"))
+    W = W.tocsr()
+    idx = {n: i for i, n in enumerate(bins.names)}
+    best, chance = {}, {}
+    for c, iv in cores.items():
+        k = idx.get(c)
+        if k is None or not members[k]:
+            continue
+        v = cis_profile(W, bins, good, k)
+        if not np.isfinite(v).any():
+            continue
+        lo, hi = _core_zone(bins, k, *iv)
+        ok = np.isfinite(v)
+        share = float(ok[lo:hi + 1].sum() / ok.sum())
+        sim = cis_chance(W, bins, good, bias, k, lo, hi)
+        chance[c] = {x: max(share, sim[x]) for x in sim}
+        best[c] = {+1: int(np.nanargmax(v)), -1: int(np.nanargmin(v))}
+        best[c] = {g: (j, lo <= j <= hi) for g, j in best[c].items()}
+
+    def test(sign, leave=None):
+        names = [c for c in best if c != leave]
+        m = sum(best[c][sign][1] for c in names)
+        return m, len(names), poisson_binomial_sf(m, [chance[c][sign] for c in names]) if names else 1.0
+    if not best:
+        return dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={})
+    sign = min((+1, -1), key=lambda g: (test(g)[2], -g))
+    m, n, p = test(sign)
+    p = min(1.0, 2 * p)
+    status = "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
+    peaks, at_core = {}, {}
+    for c in best:
+        g = min((+1, -1), key=lambda x: (test(x, c)[2], -x))          # the sign the other chromosomes choose
+        j, on = best[c][g]
+        off = int(bins.off[idx[c]]) + j
+        peaks[c], at_core[c] = (int(bins.start[off]), int(bins.end[off])), bool(on)
+    log.info(f"Hi-C cis signal against the LTR cores: its {'peak' if sign > 0 else 'dip'} lies at the core on {m}/{n} chromosomes "
+             f"(P {p:.2g}): {status}")
+    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=at_core)
 
 
 def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
@@ -421,15 +639,21 @@ def nor_peaks(t: pd.DataFrame, nors) -> pd.DataFrame:
 
 
 def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: dict | None = None,
-        nors=None) -> dict:
+        nors=None, te_cores: dict | None = None) -> dict:
     """Both Hi-C analyses for one genome, and the 3D association of each feature class. Returns dict(table,
     S (anchored score), denovo_S, bins, members, hub, rabl, stats, bin_size, telomere_S, classes, coverage (contacts
-    per bin, for the karyotype test of provenance), base_size and matrix_cache (the engine's finest matrix, for the
-    arm fold; None for .cool input)). nors: the genome's 45S arrays (rdna.detect), flagged rDNA."""
+    per bin, for the karyotype test of provenance), base_size, matrix_cache (the engine's finest matrix, for the
+    arm fold; None for .cool input), te_anchored and cis (the two tests against the LTR cores, or None)). nors: the genome's 45S
+    arrays (rdna.detect), flagged rDNA. te_cores: {chrom: (start, end)} of the LTR line: where the gate fails on most chromosomes,
+    the anchored test runs again on them (anchored_on_cores) and the cis signal is tested against them (cis_line)."""
     res = run_denovo(pairs, fai, prefix, satellites, threads)
     st = res["state"]
     st["rdna"] = add_nors(st["rdna"], nors)
     t, extra = anchored(st, seq, threads)
+    te_anchored, cis = None, None
+    if te_cores and 2 * int(t.gate_pass.sum()) <= len(t):
+        te_anchored = anchored_on_cores(st, te_cores)
+        cis = cis_line(st, te_cores)
     t = nor_peaks(t, nors)
     t = add_denovo(t, res["rows"], st["bins"])
     fc = feature_contacts(st, classes) if classes else pd.DataFrame(columns=FC_COLS)
@@ -445,7 +669,7 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
     return dict(table=t, S=extra["S"], est=extra["est"], denovo_S=st["loc"].S, bins=st["bins"],
                 members=st["members"], hub=st["hub"], rabl=res["rabl"], stats=res["stats"], bin_size=st["size"],
                 telomere_S=st["T"], classes=fc, coverage=np.asarray(st["M"].sum(axis=1)).ravel(),
-                base_size=st["base_size"], matrix_cache=st["matrix_cache"])
+                base_size=st["base_size"], matrix_cache=st["matrix_cache"], te_anchored=te_anchored, cis=cis)
 
 
 # ---------------------------------------------------------------------------------------------------------------

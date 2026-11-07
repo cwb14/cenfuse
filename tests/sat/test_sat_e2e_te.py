@@ -84,3 +84,34 @@ def test_decisive_core_replaces_a_satellite_call_far_from_it(tmp_path):
         assert r.overruled_family in set(cen.family[cen.genome == g]), g                # by its final name
         assert all(s.loc[c, over].eq(".").all() for c in (f"{g}01", f"{g}02", f"{g}04")), g   # kept, or no satellite
     assert set(cen["class"]) == {"centromeric"}
+
+
+def _families(cdir, truth, lineage, at):
+    """A family of `lineage` at (lo, hi) on every chromosome and a dispersed family of the same lineage: LTRquest's family=."""
+    (cdir / "tes").mkdir()
+    rng = np.random.default_rng(9)
+    for g, chroms in truth["genomes"].items():
+        lines = ["##gff-version 3"]
+        for c in chroms:
+            mids = [("cenfam", x) for x in rng.integers(*at, 30)] + [("wide", x) for x in rng.integers(0, L, 40)]
+            for i, (fam, m) in enumerate(mids):
+                s, e = max(1, int(m) - 2000), min(L, int(m) + 2000)
+                lines.append(f"{c}\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID={c}_{i};clade={lineage};family={fam}")
+        (cdir / "tes" / f"{g}.gff3").write_text("\n".join(lines) + "\n")
+
+
+def test_a_family_level_signature_is_written_and_stands_behind_a_dominant_satellite(tmp_path):
+    from cenfuse.sat.pipeline import Pipeline
+    cdir = tmp_path / "Synth"
+    truth = build_complex(cdir)
+    _families(cdir, truth, "Tekay", (135_000, 165_000))
+    Pipeline(cdir, 4, tmp_path / "cache", Params(**TEST_PARAMS)).run()
+    for g in truth["genomes"]:
+        out = cdir / "centromere"
+        sig = pd.read_csv(out / f"{g}_te_signature.tsv", sep="\t", dtype=str)
+        assert set(sig.seed) <= {"cenfam", "Tekay"} and set(sig.marker_lineage) == {"Tekay"}
+        assert set(sig.decisive) == {"False"} and sig.why.str.contains("flags only").all()            # it stands behind the satellite
+        assert (out / f"{g}_satellite_test.json").exists()
+        s = pd.read_csv(out / f"{g}_centromere_summary.tsv", sep="\t", dtype=str).set_index("chrom")
+        for c in (f"{g}01", f"{g}02", f"{g}03"):                    # the satellite calls stand
+            assert s.loc[c, "evidence"] == "satellite", (g, c)

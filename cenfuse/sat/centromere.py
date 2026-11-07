@@ -8,8 +8,8 @@ import pysam
 from . import longunit
 from .classify import end_zone, make_clusters, terminal_bp
 from .genomes import count_in
-from .params import TE_DERIVED_FRAC
-from .te import agrees, contradicts, elements_in, gap
+from .params import TE_CENTROMERIC_CLADE, TE_DERIVED_FRAC
+from .te import agrees, elements_in, gap, overrules
 from .util import log, union_bp
 
 REG_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "evidence", "confidence", "flags", "main_family",
@@ -97,14 +97,16 @@ def te_call(core: dict, replaced: dict = None) -> dict:
 def honesty_cap(te, borrowed: bool, primary: bool, dominant: bool) -> bool:
     """Whether a genome's satellite calls are capped at low: centromeric families exist but none dominates, so
     satellite evidence alone cannot tell a centromeric array from an interstitial one. Retrotransposon evidence lifts the
-    cap genome-wide only when decisive (CRM); a flags-only marker lifts it per call, for te_concordant calls (finalize),
+    cap genome-wide only when a CRM marker decides; any other marker lifts it per call, for te_concordant calls (finalize),
     because a line that contradicts a call, or says nothing about it, is no evidence for it (in the 185-genome batch a
     flags-only marker had lifted 47 te_discordant calls to medium/high). Borrowed genomes are never capped."""
-    return not borrowed and primary and not dominant and not (te is not None and te[2])
+    return not borrowed and primary and not dominant and not (te is not None and te[2] and
+                                                              te[0].lower() == TE_CENTROMERIC_CLADE.lower())
 
 
 def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: bool = False, te_flag=None,
-             capped: bool = False, te_decisive: bool = True, acro: frozenset = frozenset()) -> dict:
+             capped: bool = False, te_decisive: bool = True, acro: frozenset = frozenset(),
+             not_one: bool = False) -> dict:
     """borrowed (contig assemblies): near_end is replaced by contig_end (call within contig_end_bp of a contig
     end: the array may continue in another contig), which does not lower confidence. te_flag: te_concordant (at
     least medium: two independent lines agree) / te_discordant (lowers confidence one level); both only with
@@ -115,7 +117,9 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
     tell which array is the active one (T2T mammals: 2/6 such calls on the CENP-A domain), so the call is low and the
     second cluster is reported (alt_start/alt_end) for the other lines to choose. A rival satellite's cluster
     (call_regions) competes the same way, whatever its size. acro: acrocentric families (classify); a call on one is
-    flagged acrocentric."""
+    flagged acrocentric. not_one: the largest clusters of the centromeric families do not fall one per chromosome
+    (karyotype.satellite_test: fail), so satellite evidence alone cannot say those arrays are centromeres: a satellite call is
+    low unless a retrotransposon core agrees with it (flag not_one_per_chromosome)."""
     row = {k: "." for k in REG_COLS}
     row.update(chrom=chrom, chrom_len=L, evidence="none", confidence="none")
     if call is None:
@@ -163,8 +167,11 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
             conf = LOWER[conf]
         elif te_flag == "te_concordant" and RANK[conf] < RANK["medium"]:
             conf = "medium"                  # two independent lines agree: at least as sure as the core alone
-    if capped and call["evidence"] != "retrotransposon" and not (te_flag == "te_concordant" and not te_decisive):
+    if capped and call["evidence"] != "retrotransposon" and te_flag != "te_concordant":
         flags.append("no_dominant_satellite")
+        conf = "low"
+    if not_one and call["evidence"] in ("satellite", "weak_satellite") and te_flag != "te_concordant":
+        flags.append("not_one_per_chromosome")
         conf = "low"
     row.update(call)
     row.update(confidence=conf, flags=",".join(flags) or ".", n_gaps=len(runs), gap_bp=sum(runs),
@@ -180,14 +187,42 @@ def derived_families(fams: pd.DataFrame) -> dict:
     return {f: c for f, c, s in zip(fams.family, fams.ltr_clade, share) if s >= TE_DERIVED_FRAC}
 
 
-def cap_chain_calls(rows: dict, arrays: pd.DataFrame, primary: set, chains: set, derived: dict, decisive: bool, p) -> int:
+def remeasure(r: dict, fa, genes_c, arrays_c: pd.DataFrame, primary: set, p) -> None:
+    """A call's interval changed after finalize: its columns and position flags describe the new one. Confidence stays."""
+    s, e, L = r["cen_start"], r["cen_end"], r["chrom_len"]
+    runs = [m.end() - m.start() for m in re.finditer("[Nn]{%d,}" % p.min_gap_n, fa.fetch(r["chrom"], s, e))]
+    flags = [f for f in str(r["flags"]).split(",") if f not in (".", "", "near_end", "gene_rich") and not f.startswith("gaps:")]
+    z = end_zone(L, p)
+    if s < z or e > L - z:
+        flags.append("near_end")
+    n_genes, gene_ratio = ".", "."
+    if genes_c is not None:
+        n_genes = count_in(genes_c, s, e)
+        if len(genes_c):
+            gene_ratio = round((n_genes / (e - s)) / (len(genes_c) / L), 3)
+            if gene_ratio > 1:
+                flags.append("gene_rich")
+    if runs:
+        flags.append(f"gaps:{len(runs)}")
+    a = arrays_c[arrays_c.family.isin(primary) & (arrays_c.start < e) & (arrays_c.end > s)]
+    sat = union_bp((max(x, s), min(y, e)) for x, y in zip(a.start, a.end))
+    main = a[a.family == r["main_family"]]
+    r.update(flags=",".join(flags) or ".", n_gaps=len(runs), gap_bp=sum(runs), n_genes=n_genes, gene_ratio=gene_ratio, sat_bp=sat,
+             main_family_bp=union_bp((max(x, s), min(y, e)) for x, y in zip(main.start, main.end)))
+
+
+def cap_chain_calls(rows: dict, arrays: pd.DataFrame, primary: set, chains: set, derived: dict, decisive: bool, p,
+                    cores: dict = None, fa=None, genes: dict = None) -> int:
     """Calls that stand on a chain of partial hits (classify.partial_chain) are not satellite calls: flag partial_chain,
     and at most `medium` where a retrotransposon core overlaps the call, `low` otherwise. Only CRM may decide among
     retrotransposons, so a core of another clade counts only as a second line, not if the family is made of that clade
     (derived: one piece of evidence twice). Overlap, not te.agrees: its gap may be as wide as the call, and a call
     spanning 23% of a chromosome agrees with about 70% of random places. A call holding chrom_min_bp of real satellite is
-    a layered satellite call and stays as it is. Applied after finalize, so that the call a core replaces, and every
-    position, stay what they were: this lowers confidence and nothing else. Returns the calls flagged."""
+    a layered satellite call and stays as it is. Applied after finalize, so that the call a core replaces stays what it was:
+    this lowers confidence and, where a decisive core inside the call is narrower, narrows the call to it (chain_to_core:
+    such cores are more gene-poor than the chains, with the same homoeolog agreement; 7 of 7 right on the genomes with truth,
+    before and after). A core that may not act on its chromosome (cores: its marker's, strong False) does not narrow. fa, genes:
+    to measure a narrowed call again (remeasure). Returns the calls flagged."""
     real = arrays[arrays.family.isin(set(primary) - set(chains))]
     n = 0
     for c, r in rows.items():
@@ -204,6 +239,14 @@ def cap_chain_calls(rows: dict, arrays: pd.DataFrame, primary: set, chains: set,
         if RANK[r["confidence"]] > RANK[most]:
             r["confidence"] = most
         r["flags"] = "partial_chain" if r["flags"] in (".", "") else r["flags"] + ",partial_chain"
+        inside = on_core and s <= int(r["te_core_start"]) and int(r["te_core_end"]) <= e
+        if inside and decisive and (cores or {}).get(c, {}).get("strong", True) and int(r["te_core_end"]) - int(r["te_core_start"]) < e - s:
+            r["cen_start"], r["cen_end"] = int(r["te_core_start"]), int(r["te_core_end"])    # a chain says where the repeat
+            if fa is not None:                                                                # gathers, the core how narrowly
+                remeasure(r, fa, (genes or {}).get(c) if genes else None, arrays[arrays.chrom == c], primary, p)
+            r["flags"] += ",chain_to_core"
+            if r.get("te_core_elements", ".") != ".":
+                r["te_call_elements"] = r["te_core_elements"]
         n += 1
     return n
 
@@ -224,7 +267,7 @@ def rejected_cluster(arrays_c: pd.DataFrame, rejected: set, start: int, end: int
 
 def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads: int, p, borrowed: bool = False,
                  te=None, capped: bool = False, acro: frozenset = frozenset(), per_chrom: dict = None,
-                 rivals: frozenset = frozenset()):
+                 rivals: frozenset = frozenset(), not_one: bool = False, weak_cores: dict = None):
     """borrowed (contig assemblies with families from --classify-from): only full satellite calls count. A contig
     without the centromeric satellite is no evidence of a satellite-free centromere, so there is no weak-satellite
     or long-unit fallback, and the long-unit scan covers call flanks only.
@@ -252,7 +295,11 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     rival's terminal block outside it (a cluster >= chrom_min_bp reaching the end zone, the blocks that made the
     rival acrocentric; reported in alt_start/alt_end): two satellites both occur once per chromosome at its
     centromeric end, and which carries the kinetochore is not in the sequence (T2T mouse: the 234-bp major
-    satellite out-sizes the 120-bp minor satellite that carries CENP-A)."""
+    satellite out-sizes the 120-bp minor satellite that carries CENP-A).
+    not_one: the centromeric satellites failed the one-per-chromosome test (finalize). weak_cores: {chrom: core} of a decisive
+    signature where its core is too thin to be significant: such a core is the better candidate where nothing else stands, on a
+    chromosome without a call or with a satellite call of a family that failed the test. The call stays low (weak_core; potato:
+    right on chr04, chr09 and chr12, whose satellite calls were not)."""
     clade, cores, decisive = te if te else (None, {}, False)
     per_chrom = per_chrom or {}
     tmpdir.mkdir(parents=True, exist_ok=True)
@@ -292,6 +339,7 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
             if call is None and not borrowed:
                 call = longunit_call(lu_by.get(c, lu.iloc[:0]), L, gc, gd, p)
             te_flag, core = None, cores.get(c)
+            decisive_all, decisive = decisive, bool(decisive and (core or {}).get("strong", True))
             if core:
                 if call and decisive and not borrowed and weak_call(call, p) and \
                         agrees(call["cen_start"], call["cen_end"], core) and \
@@ -301,7 +349,7 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                     te_flag = "te_concordant"
                     if decisive and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \
                             gap(call["cen_start"], call["cen_end"], core["start"], core["end"]) > 0 and \
-                            core.get("mids") is not None and contradicts(call["cen_start"], call["cen_end"], core):
+                            core.get("mids") is not None and overrules(call["cen_start"], call["cen_end"], core):
                         # the array lies beside the CRM centromere (Ae. tauschii Chr2, Chr4)
                         te_flag, call = "satellite_beside_core", te_call(core, call)
                 elif call and call["evidence"] != "long_unit_tandem" and (not decisive or borrowed):
@@ -309,16 +357,19 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                 elif not borrowed:
                     if call and call["evidence"] in ("satellite", "weak_satellite"):
                         alone = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
-                                         None, capped, decisive, acro)["confidence"]
+                                         None, capped, decisive, acro, not_one)["confidence"]
                         if alone in ("high", "medium") and \
-                                not contradicts(call["cen_start"], call["cen_end"], core):
+                                not overrules(call["cen_start"], call["cen_end"], core):
                             te_flag = "te_discordant"            # the clade marks the call's locus about as much as the core
                         else:
                             te_flag = "satellite_away_from_core"  # decisive core outranks a distant satellite array
                     if te_flag != "te_discordant":
                         call = te_call(core, call)                # a chromosome without a call overrules nothing
+            thin = (weak_cores or {}).get(c) if decisive_all and not core and not borrowed else None
+            if thin and (call is None or (not_one and call["evidence"] in ("satellite", "weak_satellite"))):
+                te_flag, call, core, decisive = "weak_core", te_call(thin, call) if call else te_call(thin), thin, False
             rows[c] = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
-                               te_flag, capped, decisive, acro)
+                               te_flag, capped, decisive, acro, not_one)
             if core:
                 rows[c].update(te_clade=core.get("clade", clade), te_core_start=int(core["start"]),
                                te_core_end=int(core["end"]))
@@ -327,6 +378,7 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                     over = rows[c].get("overruled_start", ".")
                     iv = (over, rows[c]["overruled_end"]) if over != "." else (rows[c]["cen_start"], rows[c]["cen_end"])
                     rows[c].update(te_core_elements=int(core["k"]), te_call_elements=elements_in(*iv, core))
+            decisive = decisive_all
     log.debug(f"centromeres: {genome.name}: {len(lu)} long-unit arrays")
     return rows, lu
 

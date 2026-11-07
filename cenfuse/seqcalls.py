@@ -2,6 +2,7 @@
 from an earlier run (--satellite-dir). Coordinates are converted to 0-based half-open."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -26,6 +27,7 @@ class SeqLine:
     arrays: pd.DataFrame       # chrom, start, end, family, role, rdna, monomer_len, n_monomers, in_centromere
     families: pd.DataFrame     # satellite_families.tsv rows of this genome (empty when absent)
     source: Path
+    test: dict | None = None   # karyotype.satellite_test of the centromeric families; None in a folder of an earlier version
 
     def call(self, chrom: str):
         r = self.calls.loc[self.calls.chrom == chrom]
@@ -112,7 +114,9 @@ def read(sat_dir, genome: str, chroms: dict) -> SeqLine:
     fams = pd.read_csv(fam_path, sep="\t", dtype=str, keep_default_na=False) if fam_path.exists() else pd.DataFrame()
     if "genome" in fams:
         fams = fams[fams.genome == genome].reset_index(drop=True)
-    return SeqLine(genome, read_calls(summ, chroms), read_arrays(arr, chroms), fams, sat_dir)
+    test = sat_dir / f"{genome}_satellite_test.json"
+    return SeqLine(genome, read_calls(summ, chroms), read_arrays(arr, chroms), fams, sat_dir,
+                   json.loads(test.read_text()) if test.exists() else None)
 
 
 def satellite_clusters(arrays: pd.DataFrame) -> pd.DataFrame:

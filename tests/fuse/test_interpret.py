@@ -71,7 +71,7 @@ def test_no_call_where_only_an_unsupported_long_unit_array_stands_says_so():
             seq_evidence="long_unit_tandem", seq_confidence="low", support=".", main_family="long_unit")
     c = it.caveat(r, ctx(hic=False, tes=False))
     assert "long-unit tandem array (40.00-42.00 Mb)" in c and "no line" in c
-    assert "satellite-free" not in c and c.endswith("-> Hi-C or a CRM core (tes/; plants) can place one")
+    assert "satellite-free" not in c and c.endswith("-> Hi-C or an LTR core (tes/; plants) can place one")
     assert it.basis(r, ctx()) == "."
 
 
@@ -85,7 +85,7 @@ def test_a_chain_family_is_not_called_a_satellite():
 
 def test_a_chain_caveat_says_what_would_settle_it():
     r = row(seq_flags="partial_chain", confidence="low", support="satellite")
-    assert it.caveat(r, ctx(tes=False)).endswith("-> a CRM core (tes/; plants) or CENP-A/CENH3 data would decide")
+    assert it.caveat(r, ctx(tes=False)).endswith("-> an LTR core (tes/; plants) or CENP-A/CENH3 data would decide")
     assert it.caveat(r, ctx(tes=True)).endswith("-> CENP-A/CENH3 data would decide")
 
 
@@ -114,7 +114,7 @@ def test_sequence_evidence_kinds():
     assert it.basis(r, ctx(decisive=True)) == "CRM retrotransposon core (no satellite call)"
     assert it.caveat(r, ctx(decisive=True)) == "."
     r = row(seq_evidence="retrotransposon", te_clade="Bryco", support=".", confidence="low", main_family=".")
-    assert "only CRM cores may decide" in it.caveat(r, ctx(decisive=False))
+    assert "this lineage does not decide" in it.caveat(r, ctx(decisive=False))
 
 
 def test_satellite_engine_flags():
@@ -123,7 +123,7 @@ def test_satellite_engine_flags():
     assert "another satellite cluster (70.00-72.00 Mb) competes" in c
     assert c.endswith("-> CENP-A/CENH3 data would decide")
     assert "or Hi-C when mappable DNA separates them" in it.caveat(r, ctx(hic=False))
-    assert "or a CRM core (tes/; plants)" in it.caveat(r, ctx(tes=False))
+    assert "or an LTR core (tes/; plants)" in it.caveat(r, ctx(tes=False))
     r = row(seq_flags="competing_cluster,te_discordant", confidence="low", seq_alt_start=70_000_001,
             seq_alt_end=72_000_000, te_clade="Bryco", te_start=70_500_001, te_end=70_700_000)
     c = it.caveat(r, ctx())                             # the marker's core in the rival cluster: said once, there
@@ -243,7 +243,7 @@ def test_gaps_and_no_call():
     r = row(relation="none", start=".", end=".", confidence="none", seq_start=".", seq_end=".")
     assert it.basis(r, ctx()) == "."
     assert it.caveat(r, ctx()) == "no line found a centromere (satellite-free?)"
-    assert it.caveat(r, ctx(hic=False, tes=False)).endswith("-> Hi-C or a CRM core (tes/; plants) can place one")
+    assert it.caveat(r, ctx(hic=False, tes=False)).endswith("-> Hi-C or an LTR core (tes/; plants) can place one")
     assert it.caveat(r, ctx(hic=True)) == "no line found a centromere (satellite-free?)"
     assert it.caveat(SimpleNamespace(**{**vars(r), "hic_gate": "fail"}), ctx()).endswith("Hi-C failed its test here")
 
@@ -285,3 +285,39 @@ def test_untested_prior_free_peak_elsewhere_is_named():
     c = it.caveat(r, ctx())
     assert "Hi-C's prior-free peak, untested here, lies elsewhere (30.00-30.01 Mb)" in c
     assert c.endswith("-> CENP-A/CENH3 data would decide")
+
+
+def test_a_call_placed_by_an_at_trough_says_so():
+    r = row(call_source="composition", seq_evidence="none", at_gate="pass", at_gc=0.12, support="at", main_family=".",
+            confidence="low", relation="sequence_only")
+    assert "deepest AT trough" in it.basis(r, ctx()) and "12%" in it.basis(r, ctx())
+    assert "where the sequence is AT-rich, not where the kinetochore sits" in it.caveat(r, ctx())
+    assert it.caveat(r, ctx(hic=False)).endswith("-> Hi-C would test it")
+
+
+def test_a_trough_agreeing_with_hic_is_named():
+    r = row(call_source="hic", relation="functional_only", flags="hic_denovo_only,at_pair", at_gc=0.08, support="hic,at",
+            confidence="medium", seq_evidence="none", fold_gate=".", align_gate=".")
+    assert "an AT trough at the peak agrees" in it.basis(r, ctx())
+    assert "an AT trough" in it.caveat(r, ctx())
+
+
+def test_a_trough_elsewhere_is_said():
+    r = row(call_source="hic", relation="functional_only", flags="hic_denovo_only,at_elsewhere", against="at", at_start=500_001,
+            at_end=502_000, support="hic", confidence="low", seq_evidence="none", fold_gate=".", align_gate=".")
+    assert "the AT trough lies elsewhere (0.50-0.50 Mb)" in it.caveat(r, ctx())
+
+
+def test_a_pair_of_core_and_hic_is_named():
+    r = row(call_source="hic", relation="offset", flags="te_hic_pair", te_clade="CRM", support="te,hic", offset_bp=2_000_000,
+            confidence="medium", seq_evidence="satellite")
+    assert "the CRM core and Hi-C's peak" in it.basis(r, ctx())
+    k = row(relation="concordant", flags="te_hic_pair", te_clade="CRM", support="satellite,te,hic")
+    assert "Hi-C's peak lies at the CRM core" in it.basis(k, ctx())
+
+
+def test_a_weak_core_call_says_why_it_is_low():
+    r = row(seq_evidence="retrotransposon", te_clade="Tekay", support="te", main_family=".", confidence="low",
+            te_seed="fam7", te_core_elements=6, te_chrom_elements=23)
+    assert "seeded by fam7" in it.basis(r, ctx(decisive=True)) and "6 of its 23 elements" in it.basis(r, ctx(decisive=True))
+    assert "under half of the signature's elements" in it.caveat(r, ctx(decisive=True))
