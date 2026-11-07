@@ -48,7 +48,8 @@ RDNA_MARK = "#8C8C8C"                            # rDNA arrays: context, so they
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
 BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8", "composition": "#C7E9C0"}
 LINES = ["satellite", "te", "hic", "meth"]
-LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "meth": "meth"}
+LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "meth": "meth",
+              "age": "age"}
 AT_MARK = "#009E73"                              # an AT trough that acted
 CIS_MARK = "#6A3D9A"                             # the extreme of the cis Hi-C signal, where it passed its test
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
@@ -384,7 +385,7 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     rd = f.get("rdna") or {}
     rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
-    axis = [x for x in ("fold", "align", "at") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
+    axis = [x for x in ("fold", "align", "at", "age") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
     f["lines"] = LINES[:3] + axis + LINES[3:]                                                             # the line acted
     label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
     # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
@@ -647,7 +648,8 @@ def legends(f) -> tuple[str, str]:
              "B, Which evidence lines support or oppose each integrated call.",
              "C, Where each line places the centromere relative to the satellite call."]
     if any(str(x) not in (".", "nan", "") for x in f["calls"].get("cis_peak_start", ())):
-        short[-1] += " A triangle marks the extreme of the contact crossing each bin, where that signal agrees with the LTR cores."
+        short[-1] += (" A triangle marks the extreme of the contact crossing each bin, where that signal passed its test (against "
+                      "the LTR cores, or by Hi-C's own contacts between chromosomes).")
     if hic is not None:
         short.append("D, Hi-C contact with the other chromosomes' centromeres peaks at the integrated calls "
                      "(orange: calls placed away from the satellite).")

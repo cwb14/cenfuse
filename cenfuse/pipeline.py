@@ -22,8 +22,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, methfuse, morphology, \
-    output, plants, provenance, rdna, seqcalls, telomere, teline
+from . import __version__, ageline, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, methfuse, \
+    morphology, output, plants, provenance, rdna, seqcalls, telomere, teline
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
@@ -118,6 +118,17 @@ def denovo_nor_flag(h: dict, nors) -> dict:
     if near and "rDNA" not in fl:
         h = dict(h, denovo_flags=",".join(fl + ["rDNA"]))
     return h
+
+
+def cis_entry(cis: dict | None, chrom: str) -> dict | None:
+    """The cis line's entry for one chromosome as fuse reads it (Evidence.hic['cis']), or None where it does not act: the extreme,
+    the genome status, what tested it ('ltr': hicfuse.cis_line; 'trans': hicfuse.cis_trans_line; a 0.12 result names none and is
+    the LTR one), whether it was read outside the terminal eighths (interior: fuse leaves a call there alone) and whether this
+    chromosome's own trans peak lies at its extreme (pair)."""
+    if not hicfuse.cis_acts(cis) or chrom not in cis.get("peaks", {}):
+        return None
+    return dict(peak=cis["peaks"][chrom], status=cis["status"], tested_by=cis.get("tested_by", "ltr"),
+                interior=bool(cis.get("interior")), pair=bool((cis.get("pairs") or {}).get(chrom)))
 
 
 def plant_sites(seq: seqcalls.SeqLine, hic, others: dict) -> dict:
@@ -524,7 +535,7 @@ class Run:
 
     # ------------------------------------------------------------------ assembly
     @staticmethod
-    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None, at=None) -> list:
+    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None, at=None, ages=None) -> list:
         marker = tel.get("marker")
         sig = tel.get("signature")
         hrows = {} if hic is None else hic_rows(hic["table"], nors)
@@ -563,9 +574,9 @@ class Run:
                 if te is None:                                 # a core that acts only through Hi-C: the tables report it
                     te = dict(clade=x.get("clade", marker[0]), start=int(x["start"]), end=int(x["end"]), decisive=False, strong=False,
                               share=x.get("share"), n=x.get("n"), seed=sig.seed)
-            cis = (hic or {}).get("cis") or {}                   # hicfuse.cis_line: tested against the LTR cores
-            if h is not None and cis.get("status") in ("pass", "support") and r.chrom in cis["peaks"]:
-                h = dict(h, cis=dict(peak=cis["peaks"][r.chrom], status=cis["status"]))
+            c_entry = cis_entry((hic or {}).get("cis"), r.chrom)
+            if h is not None and c_entry is not None:
+                h = dict(h, cis=c_entry)
             meth = None if meth_items is None else meth_items.get(r.chrom, {})
             f = fo["calls"].get(r.chrom) if fo else None
             f = dict(f, status=fo["status"], agrees=fo["agrees"].get(r.chrom)) if f else None
@@ -586,7 +597,8 @@ class Run:
                                                                     rejected_family=r.rejected_family,
                                                                     rejected_start=int(r.rejected_start),
                                                                     rejected_end=int(r.rejected_end)),
-                                     te, h, meth, sat_bp(r.chrom), f, a, atline.on_chromosome(at, r.chrom)))
+                                     te, h, meth, sat_bp(r.chrom), f, a, atline.on_chromosome(at, r.chrom),
+                                     age=(ages or {}).get(r.chrom)))
         return out
 
     def provenance_of(self, g, seq, sat_dir: Path, tel: dict, telo: dict):
@@ -678,6 +690,14 @@ class Run:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
             tel = teline.te_line(g.tes, g.chroms, sat_dir, g.name)
             telo = self.stage_telomere(g)
+            spare = inputs.left_out(g.fasta, g.fai, g.chroms, telo.get("unit"))       # future.md #8: flagged, never added
+            if spare:
+                names = ", ".join(f"{c} ({L / 1e6:.2f} Mb)" for c, L in spare[:10]) + (f" and {len(spare) - 10} more" if len(spare) > 10 else "")
+                g.notes.append(f"{len(spare)} sequence{'s' if len(spare) > 1 else ''} left out of the chromosome set "
+                               f"hold{'' if len(spare) > 1 else 's'} telomere arrays at both ends ({names}): complete molecules, "
+                               f"such as a small chromosome or a B chromosome; list them in {g.name}.chromosomes.txt to analyze them")
+                log.warning(f"{g.name}: {g.notes[-1]}")
+            telo = dict(telo, left_out=spare)
             nors = self.stage_rdna(g)
             five_s = self.stage_rdna5s(g)
             gaps = self.stage_gaps(g)
@@ -708,7 +728,9 @@ class Run:
                                  "The sequence calls are kept; give tes/ (LTR cores) or methylation to decide") +
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
             at = atline.with_hic(at, hic, g.chroms)
-            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at)
+            ages = ageline.for_genome(g.tes, g.chroms, tel.get("signature"), hic["table"] if hic is not None else None,
+                                      seq.calls) if g.tes else {}
+            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at, ages=ages)
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}
             if self._chg_ok.get(g.name):
@@ -735,7 +757,7 @@ class Run:
                 pooled = meth["support"][meth["support"]["sample"] == "pooled"]
                 mi = {c: {r.item: dict(label=r.label, score=r.score) for r in d.itertuples(index=False)}
                       for c, d in pooled.groupby("chrom")}
-                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at)
+                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at, ages=ages)
             final = [fuse.decide(e) for e in evs]
             t = fuse.table(evs, final)
             calls = {e.chrom: d["call"] for e, d in zip(evs, final)}

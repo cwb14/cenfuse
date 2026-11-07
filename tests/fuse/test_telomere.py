@@ -122,3 +122,22 @@ def test_a_short_unit_outranks_a_long_one_that_covers_more_bp(tmp_path):
     seqs = {c: sub + tel + bg(rnd, 700_000) + tel + sub for c in ("c1", "c2", "c3")}
     fa, chroms = write(tmp_path, seqs)
     assert tm.detect(fa, chroms)["unit"] == tm.canonical(UNIT)
+
+
+def test_left_out_sequences_with_telomeres_at_both_ends_are_flagged(tmp_path):
+    """future.md #8: a complete molecule the length rule cut (a dot chromosome) is named; a scaffold with one telomere is not."""
+    import random
+    from cenfuse import inputs
+    rng = random.Random(5)
+    rnd = lambda n: "".join(rng.choice("ACGT") for _ in range(n))
+    tel = "TTTAGGG" * 300
+    rev = "CCCTAAA" * 300
+    seqs = {"chr1": tel + rnd(400_000) + rev, "dot": tel + rnd(250_000) + rev, "scaf": tel + rnd(250_000), "tiny": tel + rnd(1_000) + rev}
+    fa = tmp_path / "g.fa"
+    fa.write_text("".join(f">{c}\n{s}\n" for c, s in seqs.items()))
+    import pysam
+    pysam.faidx(str(fa))
+    fai = {c: len(s) for c, s in seqs.items()}
+    assert inputs.left_out(fa, fai, {"chr1": fai["chr1"]}, "AAACCCT") == [("dot", fai["dot"])]
+    assert inputs.left_out(fa, fai, {"chr1": fai["chr1"]}, None) == []
+    assert inputs.left_out(fa, fai, fai, "AAACCCT") == []

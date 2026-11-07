@@ -62,6 +62,20 @@ def context(seq, tel: dict, hic_given: bool, tes_given: bool, telo: dict | None 
                 tes=tes_given, its=list((telo or {}).get("interstitial", [])), te_why=sig.why if sig is not None else "")
 
 
+def _years(x) -> str:
+    """'1234 (56)' (median years, copies; fuse._age) -> '1,234 years, 56 copies'."""
+    try:
+        y, n = str(x).split(" (")
+        return f"{int(float(y)):,} years, {n.rstrip(')')} copies"
+    except ValueError:
+        return "?"
+
+
+def _cis_trans(r) -> bool:
+    """The row's cis signal was tested by Hi-C's trans contacts (hicfuse.cis_trans_line), not by LTR cores."""
+    return str(getattr(r, "cis_test", ".")) == "trans"
+
+
 def basis(r, ctx: dict) -> str:
     """What the call stands on, in words ('.' without a call)."""
     if r.relation == "none" or _int(r.start) is None:
@@ -101,19 +115,25 @@ def basis(r, ctx: dict) -> str:
             out.append(f"the {r.te_clade} core replaced a satellite array beside it that holds significantly fewer "
                        f"{r.te_clade} elements" + where)
         if "hic_chose_alt" in flags:
-            out.append("the second satellite cluster, chosen by validated Hi-C")
+            out.append("the second satellite cluster, chosen by a strong Hi-C peak (Hi-C finds the other chromosomes' centromeres "
+                       "beyond chance, but not on most)" if "hic_support" in flags else
+                       "the second satellite cluster, chosen by validated Hi-C")
         if "acrocentric" in sflags:
             out.append("the family sits at one end of most chromosomes (acrocentric karyotype)")
     elif r.call_source == "composition":
         out.append(f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose deepest troughs "
                    f"fall one per chromosome" if str(r.at_gate) == "pass" else
+                   f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), where Hi-C's prior-free peak agrees, "
+                   f"in a genome where the two agree beyond chance" if "at_denovo_pair" in flags else
                    f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose troughs agree "
                    f"with Hi-C's prior-free peaks")
     else:
         if "te_hic_pair" in flags:
             how = f"the {r.te_clade} core and Hi-C's peak, which agree here and beyond chance genome-wide"
         elif "cis_only" in flags:
-            how = "the extreme of the contact crossing each bin, a cis signal that agrees with the LTR cores beyond chance genome-wide"
+            how = ("the extreme of the contact crossing each bin, a cis signal that Hi-C's trans contacts confirm on most chromosomes"
+                   if _cis_trans(r) else
+                   "the extreme of the contact crossing each bin, a cis signal that agrees with the LTR cores beyond chance genome-wide")
         elif "fold_pair" in flags:
             how = "the arm fold and Hi-C's prior-free peak, which agree here"
         elif "align_pair" in flags:
@@ -133,7 +153,10 @@ def basis(r, ctx: dict) -> str:
         else:
             out.append(f"placed by {how} (no sequence call)")
         second = {"te": f"the {r.te_clade} core at the peak", "meth": "CHG methylation at the peak",
-                  "fold": "the arm fold", "align": "the trans arm alignment"}
+                  "fold": "the arm fold", "align": "the trans arm alignment",
+                  "age": f"copies of the centromeric LTR families younger at the peak than at the sequence call (median "
+                         f"{_years(getattr(r, 'age_peak', '.'))} vs {_years(getattr(r, 'age_call', '.'))}, P "
+                         f"{getattr(r, 'age_p', '.')}): the centromere moved"}
         named = set()
         for f in sorted(flags):
             if f.startswith("moved_with_"):
@@ -151,6 +174,8 @@ def basis(r, ctx: dict) -> str:
         elif line == "hic" and r.call_source == "sequence":
             out.append("Hi-C contact is higher at this chromosome end than at the other, as on most chromosomes of this genome"
                        if "hic_end" in flags else
+                       "the contact crossing each bin has its extreme here, a cis signal that Hi-C's trans contacts confirm on most "
+                       "chromosomes" if "cis_agrees" in flags and _cis_trans(r) else
                        "the contact crossing each bin has its extreme here, a cis signal that agrees with the LTR cores beyond chance"
                        if "cis_agrees" in flags else
                        f"Hi-C's peak lies at the {r.te_clade} core (the two agree beyond chance genome-wide)"
@@ -279,12 +304,18 @@ def caveat(r, ctx: dict) -> str:
     if "te" in against and not ("te_discordant" in sflags and r.call_source == "sequence") and not te_in_alt:
         out.append(f"the {r.te_clade} core lies elsewhere" + (f" ({interval(r.te_start, r.te_end)})"
                                                               if _int(r.te_start) is not None else ""))
-    if "hic" in against and "hic_offset" not in flags and "hic_denovo_offset" not in flags:
+    if "hic" in against and "hic_offset" not in flags and "hic_denovo_offset" not in flags and \
+            not ("cis_elsewhere" in flags and str(getattr(r, "hic_gate", ".")) != "pass"):     # the cis line said it above
         out.append(f"validated Hi-C points elsewhere{peak}")
     if "at_elsewhere" in flags:
         out.append(f"the AT trough lies elsewhere ({interval(r.at_start, r.at_end)})")
     if "cis_elsewhere" in flags:
-        out.append("the cis Hi-C signal has its extreme elsewhere")
+        out.append("the cis Hi-C signal has its extreme elsewhere" + (f" ({interval(r.cis_peak_start, r.cis_peak_end)})"
+                                                                      if _int(getattr(r, "cis_peak_start", None)) else ""))
+    if "cis_blind" in flags:
+        out.append(f"the cis Hi-C signal, which passed its test on most chromosomes, has its extreme elsewhere "
+                   f"({interval(r.cis_peak_start, r.cis_peak_end)}), but it is read outside the chromosome ends and cannot judge "
+                   f"a call this close to one")
     if "cis_only" in flags:
         out.append("a cis Hi-C signal alone")
         hint = hint or "CENP-A/CENH3 data would decide"
@@ -369,6 +400,8 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              hic_denovo_only=int(called["flags"].astype(str).str.contains("hic_denovo_only").sum()),
              hic_agree=int(sup.apply(lambda x: "hic" in x).sum()),
              hic_support=int(called["flags"].astype(str).str.contains("hic_support").sum()),
+             hic_chose_alt=int((called["flags"].astype(str).str.contains("hic_support")
+                                & called["flags"].astype(str).str.contains("hic_chose_alt")).sum()),
              hic_support_raised=int((called["flags"].astype(str).str.contains("hic_support")
                                      & (called.confidence.map(RANK) > called.seq_confidence.map(RANK))).sum()),
              hic_against=int(against.apply(lambda x: "hic" in x).sum()),
@@ -453,8 +486,9 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         elif _n(summ.get("hic_gate_support")):
             L.append(f"- **Hi-C** found the other chromosomes' centromeres beyond chance but not on most "
                      f"({_n(summ.get('hic_gate_support'))}/{n} chromosomes passed the support-only test): it supports "
-                     f"{f['hic_support']} calls where its peak agrees ({f['hic_support_raised']} raised one level); on "
-                     f"this test it moves no call.")
+                     f"{f['hic_support']} calls where its peak agrees ({f['hic_support_raised']} raised one level)" +
+                     (f", {f['hic_chose_alt']} of them on the competing satellite cluster its strong peak chose" if f["hic_chose_alt"]
+                      else "") + "; on this test it moves no call.")
         elif str(summ.get("hic_gate_pass", ".")) != "." and axis:
             L.append(f"- **Hi-C** " + (f"could not be tested against reference calls (too few) on any chromosome"
                                          if untested_all else f"failed its anchored test on every chromosome ({n})") +
@@ -462,6 +496,12 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                      f"two 3D lines moved {f['hic_moved']} and placed {f['hic_placed']} calls where they agree" +
                      (f"; Hi-C's prior-free peaks alone placed {f['hic_denovo_only']} `low` calls where they do not"
                       if f["hic_denovo_only"] else "") + ".")
+        elif (f["hic_moved"] or f["hic_placed"]) and (summ.get("te_hic", ".") not in (".", None) or
+                                                       summ.get("cis_line", ".") not in (".", None)):
+            L.append(f"- **Hi-C** " + (f"could not be tested against reference calls (too few)" if untested_all else
+                                         f"failed its anchored test on every chromosome ({n})") +
+                     f", but its readings tested otherwise (below: the LTR cores, or its cis signal) moved {f['hic_moved']} "
+                     f"and placed {f['hic_placed']} calls.")
         elif n and _n(summ.get("hic_gate_untested")) == n and not axis:
             L.append(f"- **Hi-C** could not be tested: too few reference calls to test it against" +
                      (f"; its prior-free peaks alone placed {f['hic_denovo_only']} `low` calls on chromosomes without "
@@ -483,6 +523,11 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                 "untested": "no test was possible (too few reference calls, no Rabl axis)",
                 "not_detected": "no centromere signature (a territorial or holocentric nucleus, or sequence calls "
                                 "wrong genome-wide: Hi-C alone cannot tell which)"}.get(summ.get("hic_architecture"))
+        cis_l = str(summ.get("cis_line", "."))
+        if summ.get("hic_architecture") in ("not_detected", "untested") and ("tested by trans contacts" in cis_l
+                                                                             and ": pass," in cis_l):
+            arch = ("centromeres that meet in trans when anchored on Hi-C's own cis extremes (the sequence calls failing as "
+                    "anchors): see the contact crossing each bin, below")
         if arch:
             ends = summ.get("hic_3d_ends", ".")
             L.append(f"- **3D organization** of this library: {arch}" +
@@ -508,6 +553,9 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                      + f"; its core agrees with {f['te_agree']} calls, and {f['te_calls']} calls stand on it.")
         else:
             L.append("- **LTR retrotransposons**: no lineage or family concentrates at one locus per chromosome.")
+    if "tested by trans contacts" in str(summ.get("cis_line", ".")):
+        L.append(f"- **The contact crossing each bin (cis)**, tested by Hi-C's trans contacts (no LTR cores; the anchored test "
+                 f"failed or could not run): {summ.get('cis_line')}.")
     if summ.get("te_hic", ".") not in (".", None):
         L.append(f"- **Hi-C on the LTR cores**: anchored on them (the sequence calls having failed as anchors), Hi-C's peak lies at "
                  f"the core on {summ.get('te_hic')}. The contact crossing each bin (cis): {summ.get('cis_line', '.')}.")

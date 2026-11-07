@@ -124,7 +124,7 @@ def test_gate_takes_low_references_only_when_no_call_is_high_or_medium():
     t = hicfuse.gate(_gate_table([True] * 6 + [False] * 2, conf=["low"] * 8).assign(anch_flags=""))
     assert t.gate_pass.all() and (t.gate_refs == "low").all() and (t.gate_n == 7).all()
     t = hicfuse.gate(_gate_table([True] * 8, conf=["high"] + ["low"] * 7).assign(anch_flags=""))
-    assert not t.gate_pass.any() and (t.gate_refs == "reference").all()     # one high call: low ones never count
+    assert t.gate_pass.all() and (t.gate_refs == "mixed").all()     # one high call is too few: the low ones join it (0.13)
     # Rabl nuclei: wrong calls at the chromosome ends would agree with the ends' trans cluster; with low references an
     # agreement at a telomeric (or hub, rDNA) peak does not count
     t = hicfuse.gate(_gate_table([True] * 8, conf=["low"] * 8).assign(anch_flags=["telomeric"] * 5 + [""] * 3))

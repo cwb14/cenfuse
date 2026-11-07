@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
+import pysam
 
+from . import telomere
 from .meth.track import chromosome_count, tenfold_count
 from .sat.genomes import GENE_EXT, _fasta_name, load_fai
 from .sat.te import TE_EXT
@@ -263,3 +265,26 @@ def make_view(genomes: list[GenomeInputs], src_dir: Path, view: Path) -> Path:
             os.symlink((src_dir / sub).resolve(), link)
     log.debug(f"genome view {view}: {', '.join(f'{g.name} ({len(g.chroms)} chromosomes)' for g in genomes)}")
     return view
+
+
+LEFT_OUT_MAX = 100        # the longest sequences outside the chromosome set read for left_out (two telomere.TERM_SEARCH reads each)
+
+
+def left_out(fasta, fai: dict, chroms: dict, unit: str | None) -> list:
+    """[(name, length)], longest first, of the sequences the chromosome set leaves out that hold an array of the genome's telomere
+    unit at both ends (telomere.end_array, the strict test): complete molecules, such as a small chromosome the length rule cut (a dot
+    chromosome after a tenfold gap) or a B chromosome (docs/future.md #8). It flags, never adds: telomeres at both ends make a
+    complete molecule, not a chromosome of the karyotype. Only the LEFT_OUT_MAX longest left-out sequences of at least
+    2 x telomere.TERM_SEARCH are read (two distinct ends)."""
+    if not unit:
+        return []
+    cand = sorted(((c, L) for c, L in fai.items() if c not in chroms and L >= 2 * telomere.TERM_SEARCH), key=lambda x: (-x[1], x[0]))
+    cand = dict(cand[:LEFT_OUT_MAX])
+    if not cand:
+        return []
+    with pysam.FastaFile(str(fasta)) as fa:
+        rows = telomere.end_rows(fa, cand, unit)
+    sides = {}
+    for c, side, *_ in rows:
+        sides.setdefault(c, set()).add(side)
+    return [(c, L) for c, L in cand.items() if len(sides.get(c, ())) == 2]

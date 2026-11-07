@@ -138,6 +138,19 @@ def architecture(d: dict) -> str:
     return "untested" if alone else "not_detected"
 
 
+def cis_sentence(cis: dict | None) -> str:
+    """The summary's cis_line: '<peak|dip> at the core on k/n chromosomes (P): status' (tested against the LTR cores, hicfuse.cis_line)
+    or 'trans peaks at the cis <peak|dip> on k/n chromosomes (P): status, tested by trans contacts; acts on m'
+    (hicfuse.cis_trans_line)."""
+    if not cis:
+        return "."
+    what = "peak" if cis["sign"] > 0 else "dip" if cis["sign"] < 0 else "extreme"
+    if cis.get("tested_by") == "trans":
+        return (f"trans peaks at the cis {what} on {cis['k']}/{cis['n']} chromosomes (P {cis['p']:.2g}): {cis['status']}, "
+                f"tested by trans contacts; acts on {len(cis.get('peaks') or {})}")
+    return f"{what} at the core on {cis['k']}/{cis['n']} chromosomes (P {cis['p']:.2g}): {cis['status']}"
+
+
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
                 nors=(), cpg: dict | None = None, five_s=(), at: dict | None = None, sat_test: dict | None = None) -> dict:
@@ -164,6 +177,7 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              at_hic=(f"{at['hic']['k']}/{at['hic']['n']} {at['hic']['status']}" if at and at.get("hic") else "."),
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
+             left_out_telomeric=",".join(c for c, _ in (telo or {}).get("left_out", [])) or ".",
              rdna_arrays=len(nors or ()), rdna_chromosomes=",".join(sorted({x[0] for x in nors or ()})) or ".",
              rdna5s_arrays=len(five_s or ()), rdna5s_chromosomes=",".join(sorted({x[0] for x in five_s or ()})) or ".")
     if "cen_point" in t:
@@ -180,8 +194,7 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
                  hic_sequence_conflict=hic["conflict"]["conflict"] if "conflict" in hic else ".",
                  te_hic=(f"{hic['te_anchored']['k']}/{hic['te_anchored']['n']} chromosomes (P "
                          f"{hic['te_anchored']['p']:.2g}): {hic['te_anchored']['status']}") if hic.get("te_anchored") else ".",
-                 cis_line=(f"{'peak' if hic['cis']['sign'] > 0 else 'dip'} at the core on {hic['cis']['k']}/{hic['cis']['n']} "
-                           f"chromosomes (P {hic['cis']['p']:.2g}): {hic['cis']['status']}") if hic.get("cis") else ".")
+                 cis_line=cis_sentence(hic.get("cis")))
         fo = hic.get("fold")
         d.update(fold_gate=fo["status"] if fo else ".", fold_on_denovo=f"{fo['k']}/{fo['n']}" if fo else ".",
                  fold_p=f"{fo['p']:.3g}" if fo else ".")

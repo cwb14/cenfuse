@@ -19,7 +19,7 @@
    moss, chicken), an agreeing peak marked a right call 61 of 64 times. Without the majority, agreements must stand on
    their own: with randomized Hi-C (partners re-paired, coverage kept) peaks still land on the calls 3-6 times per
    genome (chance ~1; low-coverage bins at unmappable arrays' edges carry noisy maxima), almost all at level low or
-   none.
+   none. Since 0.13 a strong peak on the sequence line's own competing cluster may also choose that cluster (fuse).
 
 Distances are counted in mappable bins (`visible_gap`). Hi-C sees nothing inside a megabase array of near-identical
 repeat units: no read maps uniquely there, so its bins are masked. In T2T mammals the CENP-A domain lay inside such
@@ -278,7 +278,9 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
     line is least sure. There the low calls are the references, and an agreement counts only at a clean peak: chromosome
     ends, hubs and NORs cluster in 3D whatever the centromere, so in a Rabl nucleus wrong calls at the ends would
     otherwise agree with Hi-C. Two independent lines that agree beyond chance on most chromosomes validate each other;
-    gate_refs records which references were used."""
+    gate_refs records which references were used. Where some calls are confident but too few for a leave-one-out test (fewer
+    than GATE_MIN_REF + 1), the low calls join them on the same terms ('mixed'; future.md #30: cucumber with tes/ had 2 high
+    calls, and Hi-C went untested on all 7 chromosomes although it had been tested on the low calls without tes/)."""
     t = table.copy()
     scored = t.anch_peak_start.ge(0) & t.chance.notna() & t.seq_start.ge(0)
     ref = t[scored & t.seq_confidence.eq("high")]
@@ -288,6 +290,10 @@ def gate(table: pd.DataFrame) -> pd.DataFrame:
     if not t.seq_confidence.isin(["high", "medium"]).any():
         ref = t[scored & t.seq_confidence.eq("low")]
         refs, agree = "low", ref.anch_agrees_seq & ref.anch_flags.map(clean_peak)
+    elif len(ref) < GATE_MIN_REF + 1:
+        ref = t[scored & t.seq_confidence.isin(["high", "medium", "low"])]
+        clean = ref.anch_flags.map(clean_peak) if "anch_flags" in ref else True
+        refs, agree = "mixed", ref.anch_agrees_seq & (ref.seq_confidence.ne("low") | clean)
     majority = 2 * int(agree.sum()) > len(ref)
     sig = agree & ref.anch_level.isin(SUPPORT_LEVELS) if "anch_level" in ref else agree
     ks, ns, ps, passed, support = [], [], [], [], []
@@ -412,7 +418,7 @@ def _core_zone(bins, k: int, s: int, e: int) -> tuple:
     return max(0, lo - hp.HALF_WIN), min(int(bins.nb[k]) - 1, hi + hp.HALF_WIN)
 
 
-def anchored_on_cores(state: dict, cores: dict) -> dict:
+def anchored_on_cores(state: dict, cores: dict, label: str = "the LTR cores") -> dict:
     """The anchored test with LTR cores in place of the sequence calls (future.md #11: where the sequence line is wrong
     genome-wide, Hi-C anchored on it finds nothing). Partner windows at the cores. A chromosome agrees when its peak, the top of a
     score made from the other chromosomes' anchors only, lies in its own core's zone; the zone's share of the chromosome is the
@@ -421,8 +427,8 @@ def anchored_on_cores(state: dict, cores: dict) -> dict:
     (clean_peak, as for the gate's low references): chromosome ends, hubs and NORs attract trans contacts whatever the centromere,
     so cores at the chromosome ends agree with any nucleus that clusters its telomeres (held-out R. breviuscula, holocentric: Athila
     cores at the ends of 4 of 5 chromosomes, 3 agreed, P 5e-4). Returns dict(k, n, p, status, peaks {chrom: (start, end)} of the
-    agreeing chromosomes): pass (on most chromosomes, Poisson-binomial P <= GATE_P); support (beyond chance, on fewer: the rule
-    of the support tier); fail."""
+    agreeing chromosomes, chance {chrom: the zone's share}): pass (on most chromosomes, Poisson-binomial P <= GATE_P); support
+    (beyond chance, on fewer: the rule of the support tier); fail. cis_trans_line reads the same test on other anchors (label)."""
     W, bins, good, mean, members = (state[k] for k in ("W", "bins", "good", "mean", "members"))
     hub = state.get("hub")
     hub = np.zeros(bins.N, dtype=bool) if hub is None else hub
@@ -430,7 +436,7 @@ def anchored_on_cores(state: dict, cores: dict) -> dict:
     idx = {n: i for i, n in enumerate(bins.names)}
     win = {idx[c]: visible_window(bins, good, idx[c], *iv) for c, iv in cores.items() if c in idx and members[idx[c]]}
     S = cluster_score(partner_oe(W, bins, good, mean, {k: w for k, w in win.items() if len(w)}), bins, good, members)
-    peaks, chance = {}, []
+    peaks, chance = {}, {}
     for c, iv in cores.items():
         k = idx.get(c)
         if k is None or not members[k]:
@@ -440,16 +446,17 @@ def anchored_on_cores(state: dict, cores: dict) -> dict:
             continue
         lo, hi = _core_zone(bins, k, *iv)
         j = int(np.nanargmax(v))
-        chance.append(float(np.isfinite(v[lo:hi + 1]).sum() / np.isfinite(v).sum()))
+        chance[c] = float(np.isfinite(v[lo:hi + 1]).sum() / np.isfinite(v).sum())
         fl = call_flags(k, dict(peak=j, core_lo=j, core_hi=j), bins, hub, rdna, True, 0.0, True, good=good)
         if lo <= j <= hi and clean_peak(",".join(fl)):
             g = int(bins.off[k]) + j
             peaks[c] = (int(bins.start[g]), int(bins.end[g]))
     n, m = len(chance), len(peaks)
-    p = poisson_binomial_sf(m, chance) if n else 1.0
+    p = poisson_binomial_sf(m, list(chance.values())) if n else 1.0
     status = "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
-    log.info(f"Hi-C anchored on the LTR cores: the peak lies at its core on {m}/{n} chromosomes (P {p:.2g}): {status}")
-    return dict(k=m, n=n, p=p, status=status, peaks=peaks)
+    (log.info if label == "the LTR cores" else log.debug)(        # the cis signs' raw tests: cis_trans_line logs the verdict
+        f"Hi-C anchored on {label}: the peak lies at its anchor on {m}/{n} chromosomes (P {p:.2g}): {status}")
+    return dict(k=m, n=n, p=p, status=status, peaks=peaks, chance=chance)
 
 
 def _crossing(diagonals: dict, n: int, half: int) -> np.ndarray:
@@ -567,7 +574,87 @@ def cis_line(state: dict, cores: dict) -> dict:
         peaks[c], at_core[c] = (int(bins.start[off]), int(bins.end[off])), bool(on)
     log.info(f"Hi-C cis signal against the LTR cores: its {'peak' if sign > 0 else 'dip'} lies at the core on {m}/{n} chromosomes "
              f"(P {p:.2g}): {status}")
-    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=at_core)
+    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=at_core, tested_by="ltr", interior=False)
+
+
+def interior(v: np.ndarray) -> np.ndarray:
+    """A per-bin profile with its terminal eighths (END_ZONE, Levan's telocentric bound) set to NaN: chromosome ends cluster in
+    3D whatever the centromere (the rule of the which-end test and of the telomeric flag), so a contact readout cannot test a
+    place there."""
+    v = np.array(v, dtype=float)
+    e = int(np.ceil(END_ZONE * len(v)))
+    if e:
+        v[:e], v[len(v) - e:] = np.nan, np.nan
+    return v
+
+
+def cis_trans_line(state: dict) -> dict:
+    """The cis signal tested by Hi-C's own trans contacts (future.md #26), for a genome without LTR cores: two readouts of one
+    library, the contact crossing each bin and the contact between chromosomes, test each other where the gate fails. For each sign,
+    each chromosome's anchor is the extreme of its cis profile (cis_profile) outside its terminal eighths (interior), and the
+    anchored test (anchored_on_cores) asks whether each chromosome's trans peak, made from the other chromosomes' anchors only,
+    lies at its own anchor; the zone's share is the chance, Bonferroni over the two signs. Tomato without tes/: the peak at its
+    anchor on 10 of 12 chromosomes, P 6e-14, all 10 on CENH3; C. neoformans in G1, 12 of 14. The terminal eighths are out because
+    there both readouts see the chromosome ends, which fold and cluster whatever the centromere (Ae. tauschii and potato: every
+    agreement of an unrestricted profile lay in a terminal eighth, none on CENH3).
+    The two readouts share the library's coverage, so agreement on a minority of chromosomes can come from coverage alone
+    (randomized soybean Hi-C: 6 of 20 dips, P 3e-5; no randomized library reached a majority): the line acts only at pass, on a
+    majority beyond chance, and only on a chromosome whose OTHER chromosomes pass that test too (leave one out, as the gate). Both
+    signs passing leaves the sign unknown: no action. Returns cis_line's fields (peaks: the chromosomes where it acts) with
+    tested_by 'trans', interior True, pairs {chrom: its own trans peak lies at its anchor} and status pass / support / fail /
+    ambiguous."""
+    W, bins, good, members = (state[k] for k in ("W", "bins", "good", "members"))
+    W = W.tocsr()
+    ext = {+1: {}, -1: {}}
+    for k, c in enumerate(bins.names):
+        if not members[k]:
+            continue
+        v = interior(cis_profile(W, bins, good, k))
+        if not np.isfinite(v).any():
+            continue
+        off = int(bins.off[k])
+        for g in (+1, -1):
+            j = int(np.nanargmax(g * v))
+            ext[g][c] = (int(bins.start[off + j]), int(bins.end[off + j]))
+    empty = dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={}, pairs={}, tested_by="trans", interior=True)
+    if len(ext[+1]) < GATE_MIN_REF:
+        return empty
+    st = dict(state, W=W)
+    res = {g: anchored_on_cores(st, ext[g], label=f"the cis {'peaks' if g > 0 else 'dips'}") for g in (+1, -1)}
+
+    def test(g, leave=None):
+        r = res[g]
+        names = [c for c in r["chance"] if c != leave]
+        m = sum(c in r["peaks"] for c in names)
+        p = min(1.0, 2 * poisson_binomial_sf(m, [r["chance"][c] for c in names])) if names else 1.0
+        return m, len(names), p
+
+    def verdict(m, n, p):
+        return "fail" if p > GATE_P or m < GATE_MIN_REF or n < GATE_MIN_REF else "pass" if 2 * m > n else "support"
+    sign = min((+1, -1), key=lambda g: (test(g)[2], -g))
+    m, n, p = test(sign)
+    status = verdict(m, n, p)
+    if status != "fail" and verdict(*test(-sign)) == "pass":
+        status = "ambiguous"                      # both signs pass: which extreme is the centromere is unknown
+    peaks, pairs = {}, {}
+    for c in res[sign]["chance"]:
+        pairs[c] = c in res[sign]["peaks"]
+        if status == "pass" and verdict(*test(sign, c)) == "pass":
+            peaks[c] = ext[sign][c]
+    log.info(f"Hi-C cis signal tested by trans contacts: trans peaks lie at the cis {'peak' if sign > 0 else 'dip'} on {m}/{n} "
+             f"chromosomes (P {p:.2g}): {status}; acts on {len(peaks)}")
+    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=dict(pairs), pairs=pairs, tested_by="trans",
+                interior=True)
+
+
+def cis_acts(cis: dict | None) -> bool:
+    """Whether a cis line's peaks may act on calls: the LTR-tested line at pass or support; the trans-tested one at pass only
+    (cis_trans_line keeps in its peaks only the chromosomes where it acts)."""
+    if not cis:
+        return False
+    if cis.get("tested_by") == "trans":
+        return cis.get("status") == "pass"
+    return cis.get("status") in ("pass", "support")
 
 
 def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
@@ -645,7 +732,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
     per bin, for the karyotype test of provenance), base_size, matrix_cache (the engine's finest matrix, for the
     arm fold; None for .cool input), te_anchored and cis (the two tests against the LTR cores, or None)). nors: the genome's 45S
     arrays (rdna.detect), flagged rDNA. te_cores: {chrom: (start, end)} of the LTR line: where the gate fails on most chromosomes,
-    the anchored test runs again on them (anchored_on_cores) and the cis signal is tested against them (cis_line)."""
+    the anchored test runs again on them (anchored_on_cores) and the cis signal is tested against them (cis_line); without
+    LTR cores the cis signal is tested by the trans contacts (cis_trans_line)."""
     res = run_denovo(pairs, fai, prefix, satellites, threads)
     st = res["state"]
     st["rdna"] = add_nors(st["rdna"], nors)
@@ -654,6 +742,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
     if te_cores and 2 * int(t.gate_pass.sum()) <= len(t):
         te_anchored = anchored_on_cores(st, te_cores)
         cis = cis_line(st, te_cores)
+    elif 2 * int(t.gate_pass.sum()) <= len(t):          # no LTR cores: the cis signal is tested by the trans contacts instead
+        cis = cis_trans_line(st)
     t = nor_peaks(t, nors)
     t = add_denovo(t, res["rows"], st["bins"])
     fc = feature_contacts(st, classes) if classes else pd.DataFrame(columns=FC_COLS)
