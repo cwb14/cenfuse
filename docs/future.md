@@ -1,7 +1,7 @@
 # Future development
 
-Open problems in cenfuse 0.12. Each gives the evidence, a proposed approach and the check it needs (a rerun, or new truth
-data). Entries closed in 0.11 or 0.12 keep their numbers and say what was done; the rest is not implemented. The evidence comes
+Open problems in cenfuse 0.13. Each gives the evidence, a proposed approach and the check it needs (a rerun, or new truth
+data). Entries closed in 0.11, 0.12 or 0.13 keep their numbers and say what was done; the rest is not implemented. The evidence comes
 from the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allotetraploid plant genomes (2,355 calls).
 
 | # | problem | needs |
@@ -11,9 +11,9 @@ from the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allot
 | 3 | [satellites specific to subgenomes vs the honesty cap](#3-satellites-specific-to-subgenomes-vs-the-honesty-cap) | tested in 0.11: no gain over random splits |
 | 4 | [the decisive CRM test with subgenome-specific lineages](#4-the-decisive-crm-test-with-subgenome-specific-lineages) | CENH3 truth, a null |
 | 5 | [a faster search](#5-a-faster-search) | low-complexity cost done in 0.11; the whole benchmark searched again; the cost of real hits |
-| 6 | [faster seed clustering](#6-faster-seed-clustering) | identical clusters on every stored seed set |
+| 6 | [faster seed clustering](#6-faster-seed-clustering) | identical clusters on every stored seed set; a query partition tested in 0.13: not exact |
 | 7 | [the FasTAN crash, reported upstream](#7-the-fastan-crash-reported-upstream) | the user's decision, then a fixed release |
-| 8 | [large unplaced scaffolds and dot chromosomes](#8-large-unplaced-scaffolds-and-dot-chromosomes) | known chromosome lists and karyotypes |
+| 8 | [large unplaced scaffolds and dot chromosomes](#8-large-unplaced-scaffolds-and-dot-chromosomes) | a flag for left-out complete molecules done in 0.13; known chromosome lists and karyotypes |
 | 9 | [CENH3 truths for allopolyploids](#9-cenh3-truths-for-allopolyploids) | new data |
 | 10 | [the LTR retrotransposon line](#10-the-ltr-retrotransposon-line) | measured in 0.12; `te_concordant` against random placements is reported, and the rules stay |
 | 11 | [Hi-C anchors where the sequence line is wrong genome-wide](#11-hi-c-anchors-where-the-sequence-line-is-wrong-genome-wide) | done in 0.12 |
@@ -31,12 +31,14 @@ from the benchmark ([benchmark.md](benchmark.md)) and from a replay of 106 allot
 | 23 | [a family's unit length can overstate its copies](#23-a-familys-unit-length-can-overstate-its-copies) | done in 0.11 |
 | 24 | [telomeres outside the rules](#24-telomeres-outside-the-rules) | done in 0.11 |
 | 25 | [non-CRM centromeric LTR retrotransposons](#25-better-recognition-and-use-of-non-crm-centromeric-localized-ltr-rt) | done in 0.12 |
-| 26 | [the cis signal without `tes/`](#26-the-cis-signal-without-tes) | a test with more power |
+| 26 | [the cis signal without `tes/`](#26-the-cis-signal-without-tes) | done in 0.13: tested by trans contacts |
 | 27 | [wrong LTR cores that look right](#27-wrong-ltr-cores-that-look-right) | more genomes with a non-CRM signature and truth |
-| 28 | [where AT troughs do not work](#28-where-at-troughs-do-not-work) | a line for point centromeres and AT-rich genomes |
+| 28 | [where AT troughs do not work](#28-where-at-troughs-do-not-work) | a line for point centromeres and AT-rich genomes; merging troughs of one centromere tested in 0.13: no change |
 | 29 | [what the contact crossing a centromere is](#29-what-the-contact-crossing-a-centromere-is) | Hi-C of mutants or of other stages |
-| 30 | [a Hi-C test with too few confident references](#30-a-hi-c-test-with-too-few-confident-references) | a genome where the low calls would decide it |
-| 31 | [a centromere that left its satellite and its LTR families](#31-a-centromere-that-left-its-satellite-and-its-ltr-families) | CENH3 data for *P. annua* |
+| 30 | [a Hi-C test with too few confident references](#30-a-hi-c-test-with-too-few-confident-references) | done in 0.13 |
+| 31 | [a centromere that left its satellite and its LTR families](#31-a-centromere-that-left-its-satellite-and-its-ltr-families) | age tie-breaker done in 0.13; CENH3 data for *P. annua* |
+| 32 | [calls in a terminal eighth that an interior line contradicts](#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts) | a test that can see the ends |
+| 33 | [cis and trans at one locus as a confident call](#33-cis-and-trans-at-one-locus-as-a-confident-call) | finer truth for small genomes |
 
 ## 1. Calls on chains of partial copies
 
@@ -104,7 +106,12 @@ sample of chromosomes. *Check:* monomer and array tables equal to the stored ann
 **Evidence.** BLAST is 98% of seed clustering, driven by multimeric seeds: *Acanthus* took 76 min at 16 threads
 (median over 106 genomes: 0.7 min). Aligning only the pairs the clustering consults was 10× faster with identical
 clusters on 8 genomes, but BLAST's hit lists differ for 0.2-0.5% of those pairs, so it is not exact by construction.
-**Approach.** A fixed, thread-independent partition of the queries.
+**Tested in 0.13, not built.** A fixed partition of the queries over single-thread BLAST processes, on *Acanthus*' stored rounds: the
+heaviest round (200 x 200 seeds, 773,595 hits) ran slower (0.79x at 4 workers against BLAST's own 4 threads) and its hit lists were not
+identical to one run's: with thousands of HSPs per pair, BLAST's output depends on how the queries are batched. Small rounds were identical
+but gained little (0.65-1.39x).
+**Approach.** Fewer HSPs to report: a pair already known to match (or not) needs no further HSPs, so a two-pass search (first the best HSP per
+pair, then full tiling only for the pairs the clustering consults) would cut the output that dominates heavy rounds.
 **Check.** Identical cluster assignments and representatives on every stored seed set.
 
 ## 7. The FasTAN crash, reported upstream
@@ -121,8 +128,10 @@ the user decides.
 **Evidence.** On 121 polyploid assemblies with known chromosome lists, the length rule keeps 31 sequences outside the
 lists (1.5-117 Mb) in 12 assemblies; it drops a dot chromosome that stands alone after a tenfold gap (*D.
 melanogaster* chromosome 4 without the Y) and dot chromosomes followed by a tapering scaffold tail.
-**Approach.** A second signal for the sequences at the edge of the set (telomere arrays at both ends, a centromere-like
-array, genes, Hi-C), to flag candidates in the report, not to drop or add them.
+**Done in 0.13, in part.** The longest sequences left out of the set (up to 100, at least 200 kb) that hold arrays of the
+genome's telomere unit at both ends are named in the report and in `left_out_telomeric`: complete molecules, such as a dot
+chromosome after a tenfold gap or a B chromosome. They are flagged, never added.
+**Approach, still open.** The other edge: large scaffolds kept in the set without a telomere, a centromere-like array or genes.
 **Check.** The 121 lists as truth; *D. melanogaster* and bird karyotypes; the 383 assemblies of the rule's evidence
 as a no-change control.
 
@@ -285,9 +294,12 @@ the polyploids, none lost, interstitial arrays unchanged.
 sign and test it. Two ways to do without them were tried. One locus per chromosome: tomato passes (11 of 12 covered, P 0.003), potato and
 *Verticillium* miss after correcting for two signs (P 0.044, 0.047), and chicken's dips pass (P 0.0008) while 2 of 26 lie on CENP-A. Hi-C's own
 prior-free peaks: no agreement in tomato, potato or rice, and in *Ae. tauschii* 6 of 7 agree with 0 of 7 right.
-**Approach.** A sharper statistic than a count of chromosomes covered: how far the extreme stands above the chromosome's other extremes, or the shape of
-the signal (a peak flanked by dips).
-**Check.** Tomato and potato without `tes/` pass, chicken and randomized Hi-C do not.
+**Done in 0.13**, with the library's own trans contacts as the test ([design.md](design.md#the-cis-and-trans-readouts-of-hi-c-test-each-other-hicfusecis_trans_line)):
+each chromosome's cis extreme, outside its terminal eighths, anchors the trans test of the LTR cores. Tomato: 10 of 12 chromosomes'
+trans peaks lie at their cis peaks (P 6e-14), all on CENH3; *C. neoformans* in G1: 12 of 14. Read over whole chromosomes, *Ae. tauschii*
+passed with 0 of 4 agreements on CENH3, all in terminal eighths; randomized soybean Hi-C reached support (6/20), so the line acts only
+at pass. Potato does not pass (its dips are right on 9 of 11, but its trans contacts at them are not). Chicken, the mammals, the
+holocentric genomes and every randomized library fail. What remains: potato without `tes/`, and the ends (entry 32).
 
 ## 27. Wrong LTR cores that look right
 
@@ -306,6 +318,10 @@ the dominant satellite array rather than over it (*Arabidopsis*), and the Hi-C t
 **Evidence.** The test passes in *P. falciparum*, *M. sympodialis* and *N. crassa*. It fails in *Z. tritici*, *C. tropicalis*, *C. neoformans* and *V. dahliae*,
 whose deepest troughs do not fall one per chromosome, and it can say nothing about point centromeres (yeast: 125 bp) or genomes with few chromosomes (*S. pombe*:
 `untested`). It passes on about 4% of genomes with shuffled GC blocks, as its level of 5% allows, and then gives `low` calls.
+**Tested in 0.13, not changed.** Counting the troughs of one AT-rich run once (each trough's half-depth run excluded before the next)
+changes no genome: *C. neoformans*' 30-65-kb centromeres hold two sub-troughs with GC-normal sequence between them (CEN11: 0.865 and
+0.925 Mb), so the run breaks, and *V. dahliae* has three deep troughs Mb apart on one chromosome. In *C. neoformans* the cis signal tested
+by trans contacts now places them (entry 26), and an AT trough agreeing with a weak prior-free peak places 3 more (`at_denovo_pair`).
 **Approach.** A second feature with the trough (a gene desert, without `genes/` a run of low k-mer complexity).
 **Check.** *Z. tritici* and *C. tropicalis* pass; holocentric genomes and shuffled genomes do not.
 
@@ -328,8 +344,9 @@ balancing each simulated map again (instead of reusing the real map's balancing)
 only when the genome has no `high` or `medium` call at all. Cucumber 9930 (held out) without `tes/` has 7 `low` calls, and Hi-C is tested on them;
 with `tes/`, the Tekay signature raises 2 calls to `high`, so 2 references remain, too few, and the test is `untested` on all 7 chromosomes. No call
 differs: on the low references Hi-C changed no level either.
-**Approach.** When the confident references are fewer than the test needs, add the `low` calls at clean peaks, as the fallback already does.
-**Check.** A genome where this lets Hi-C act, with truth; the randomized Hi-C controls stay silent.
+**Done in 0.13.** When the confident references are fewer than the test needs (4), the `low` calls join them, agreements at clean peaks
+only for the `low` ones (`hic_gate_refs` `mixed`). No benchmark call with truth changes; the randomized controls stay silent.
+**Check still open.** A genome where this lets Hi-C act, with truth.
 
 ## 31. A centromere that left its satellite and its LTR families
 
@@ -345,8 +362,28 @@ centromeric chromatin, so young copies mark where the centromere is now, as in m
 the present centromeres and older ones their flanks ([Wolfgruber et al. 2009](https://pmc.ncbi.nlm.nih.gov/articles/PMC2776974/)).
 No CENH3 data place Pa1A's centromere. In the scored benchmark, Hi-C contests a sequence call
 (`hic_offset`) on one chromosome only, CHM13 CP068258.2 in two runs, and there the sequence call is right: one case each way.
-**Approach.** Where Hi-C passes genome-wide and its anchored peak on one chromosome lies far from a call that only the sequence lines share,
-compare the insertion ages of the signature families at the two sites. As a locator on its own, the core of the young copies does worse
-than the density core (on CENH3 for 128 vs 155 of 172 chromosomes with truth; `bench/young_core.py`), so age can only break a tie between
-sites that another line raised.
+**Done in 0.13** (`ageline.py`). Where validated Hi-C's strong peak lies far from a `high` call, copies of the chromosome's signature
+families (learned from the other chromosomes) that are younger at the peak than at the call (one-sided Mann-Whitney, P ≤ 0.01, at least
+3 dated copies at each site, both widened by 4 bins) are the second line that lets Hi-C move the call (`moved_with_age`), in a genome
+where the premise holds: on the other chromosomes the signature's younger copies lie in the cores more often than its older ones
+(Fisher, P ≤ 0.01; *P. annua* leaving Pa1A out: P 5e-10). As a locator on
+its own, the core of the young copies does worse than the density core (on CENH3 for 128 vs 155 of 172 chromosomes with truth;
+`bench/young_core.py`), so age only breaks a tie between sites that another line raised. In the benchmark it can act only on Pa1A.
 **Check.** CENH3 ChIP or CUT&Tag of *P. annua*; genomes with known evolutionarily new centromeres and Hi-C; the randomized Hi-C controls stay silent.
+
+## 32. Calls in a terminal eighth that an interior line contradicts
+
+**Evidence.** The cis signal tested by trans contacts (entry 26) is read outside the terminal eighths, because there both readouts see the
+chromosome ends. It therefore has no say on a call inside one: tomato without `tes/` keeps 2 wrong `low` satellite calls 8.6% and 11.8%
+from an end (CM175073.1, CM175075.1), while its interior extremes lie on CENH3. Moving such a call would be right in tomato and wrong for an
+acrocentric chromosome among metacentric ones, which the line cannot see.
+**Approach.** A second line that can see the ends: the which-end test (anchored score at the two ends) where it passes, or an LTR core.
+**Check.** Tomato moves its 2 calls; acrocentric mammals (goat, sheep, mouse) keep theirs.
+
+## 33. Cis and trans at one locus as a confident call
+
+**Evidence.** Where the cis signal passes its test by trans contacts, a chromosome whose own trans peak lies at its cis extreme holds two
+readouts at one locus, as `te_hic_pair` holds an LTR core and Hi-C. Such calls stay `low` in 0.13: in *C. neoformans* G1, 10 of the 12 pairs
+lie on CENP-A and the other 2 lie 2 bins (19-20 kb) from it, wrong by the 1-bin rule, so as `medium` they would be confident errors.
+**Approach.** `medium` for a pair where the bin is coarse relative to the centromere, or a finer interval from the AT trough.
+**Check.** Small genomes with truth at 10-kb bins; the randomized controls stay silent.

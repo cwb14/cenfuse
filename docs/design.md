@@ -129,7 +129,9 @@ the lineage rules below apply to its lineages alone.
   `low` (`weak_core`).
 - **The age of the elements.** The signature's youngest elements concentrate in the cores more than the oldest in nearly every CRM
   lineage and in Bryco, the reverse of lineages that accumulate near centromeres (Athila, Retand, most Tekay). It separates lineages
-  but not families, so it is reported (`te_signature.tsv`) and decides nothing.
+  but not families, so it is reported (`te_signature.tsv`) and places nothing. Since 0.13 the same contrast, measured on the other
+  chromosomes, is the premise of the age tie-breaker (`ageline.py`): where it holds, younger copies at a strong validated Hi-C peak
+  than at a `high` call are the second line that lets Hi-C move the call (Integration, below).
 - **Formats.** An element's lineage comes from `clade=` (LTRquest, EDTA + TEsorter) or from a DANTE_LTR element's
   `Final_Classification`. DANTE_LTR's rank-D clusters (protein domains without LTRs) are not elements: in potato they
   made 195 of 223 CRM and put cores up to 15 Mb off CENH3. A file without lineages (EDTA alone gives superfamilies
@@ -189,10 +191,12 @@ is why Hi-C is tested before it may act.
 6. **The test (gate).** For chromosome x, the references are the other chromosomes' `high` calls (with `medium` if
    fewer than 4 are `high`). x passes when the references' own peaks agree with their calls on most of them, beyond
    chance (Poisson-binomial P ≤ 0.01). Fewer than 3 references: `untested`. Where no call is `high` or `medium`
-   anywhere, the `low` calls are the references, and only agreements at clean peaks count.
+   anywhere, the `low` calls are the references, and only agreements at clean peaks count; where confident calls exist but
+   are fewer than 4, the `low` calls join them on the same terms (0.13, `gate_refs` `mixed`).
 7. **Support tier.** Where agreements are beyond chance (P ≤ 0.01, at least 3) but not on most chromosomes, Hi-C
    carries centromere information, yet its peak is often elsewhere. It may then only support: a call whose own
-   significant peak agrees goes up one level (`hic_support`); it never opposes, moves or places a call. Only
+   significant peak agrees goes up one level (`hic_support`); it never opposes, moves or places a call, but a strong
+   peak on the sequence line's own competing cluster chooses that cluster (0.13; moss without `tes/`: 5 calls, all right). Only
    agreements at peaks of strength `medium` or `high` count, because randomized libraries put weak peaks on 3-6 calls
    per genome at the edges of unmappable arrays.
 8. **Hi-C alone.** In a genome with fewer than 3 reference calls (point, regional, AT-rich centromeres) nothing can
@@ -256,6 +260,28 @@ the LTR cores, weak ones included. The sequence calls play no part.
   other chromosomes with such a call, beyond the 1/2 of chance (binomial, P ≤ 0.01), a call at the higher end rises a level
   (`hic_end`), unless a competing cluster shares that end. It uses the sequence calls as anchors, and needs no `tes/`.
 
+## The cis and trans readouts of Hi-C test each other (`hicfuse.cis_trans_line`)
+
+Without `tes/` nothing chose the sign of the cis signal or tested it, although tomato's profile alone has its extreme on CENH3 on all
+12 chromosomes. Two readouts of one library can do it: the contact crossing each bin (cis) and the contact between chromosomes
+(trans). Where the gate fails on most chromosomes and there are no LTR cores:
+
+- **Anchors.** For each sign, each chromosome's anchor is the extreme of its cis profile outside its terminal eighths (Levan's
+  telocentric bound, as for the which-end test). Chromosome ends fold and cluster whatever the centromere, so there both readouts see
+  the ends: read over whole chromosomes, *Ae. tauschii* passed (4/7, P 3e-5) and potato reached support (3/12) with every agreement
+  in a terminal eighth and none on CENH3.
+- **The test.** The anchored test of the LTR cores, on these anchors: each chromosome's trans peak, made from the other chromosomes'
+  anchors only, lies at its own anchor (clean peaks; the zone's share is the chance), Bonferroni over the two signs. Both signs
+  passing leaves the sign unknown (`ambiguous`): nothing acts.
+- **What it may do.** Only at `pass`, and only on a chromosome whose other chromosomes pass too (leave one out, as the gate). The two
+  readouts share the library's coverage, and agreement on a minority can come from coverage alone: randomized soybean Hi-C reached
+  support (6/20, P 3e-5); no randomized library, mammal or holocentric genome reached a majority. For the same reason a sign at
+  support never vetoes the other at pass; only both passing leaves the sign unknown. Where it acts, the cis rules apply
+  (`cis_agrees`, `cis_near`, `cis_only` low, `cis_elsewhere`), except that a call inside a terminal eighth, which the line cannot
+  see, is neither supported, opposed nor moved; where the extreme lies elsewhere it is flagged (`cis_blind`) and its caveat says so.
+- **Result.** Tomato from the FASTA and Hi-C: 10/12 right (was 1/12); the other 2 calls lie in a terminal eighth. *C. neoformans*
+  in G1, where the prior-free peaks sit at the chromosome ends: 12/14 (was 0/14), all `low`.
+
 ## Methylation: CHG (`cenfuse.meth` and `methfuse.py`)
 
 The CHG line learns, leave-one-chromosome-out, what methylation looks like at the confident calls of the other
@@ -288,9 +314,9 @@ locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 | no tested line | the sequence call, `sequence_only` |
 | tested Hi-C (or methylation) agrees | the sequence call, `concordant`, +1 level per line (+2 at most) |
 | tested strong Hi-C peak more than 4 mappable bins away, call `low`/`medium` | moves to the Hi-C core, `offset`, `medium` |
-| same, call `high` | moves only with a second line at the peak (a CRM core within 4 bins, or methylation `centromere_like` at the peak and a dip at the call): `high`. Otherwise `contested` (`hic_offset`), one level lower |
+| same, call `high` | moves only with a second line at the peak (a CRM core within 4 bins; methylation `centromere_like` at the peak and a dip at the call; or, 0.13, copies of the chromosome's signature families significantly younger at the peak than at the call, in a genome whose young copies concentrate in the cores of the other chromosomes, `moved_with_age`): `high`. Otherwise `contested` (`hic_offset`), one level lower |
 | Hi-C peak 1-4 bins away | neither supports nor opposes (`hic_near`) |
-| competing cluster: a strong peak agrees with the second cluster, mappable DNA between them | the second cluster is chosen (`hic_chose_alt`) |
+| competing cluster: a strong peak agrees with the second cluster, mappable DNA between them | the second cluster is chosen (`hic_chose_alt`); on the support tier too (0.13), the call rising one level (`hic_support`), unless Hi-C read on the LTR cores or the cis signal acts on that chromosome |
 | competing cluster with no mappable bin between it and the call | no Hi-C support (`hic_alt_ambiguous`): Hi-C cannot tell the two apart |
 | no sequence call, strong peak | the Hi-C core, `functional_only`, `medium` (a clean medium peak: `low`, `hic_medium_peak`) |
 | a long-unit array that stays the call with no support from Hi-C, `tes/` or methylation | no call (`long_unit_unsupported`); the array stays in `seq_start`/`seq_end` and in the loci, and the chromosome is decided as one without a sequence call |
@@ -300,9 +326,11 @@ locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 | no references anywhere, no sequence call, clean `high` prior-free peak | the prior-free core, `functional_only`, `low` (`hic_denovo_only`) |
 | gate failed, Hi-C's peak at the LTR core, the two agreeing genome-wide | a call there +1 (`te_hic_pair`); a `low` call elsewhere moves to the core, `medium`; at `pass` any call does, and a `high` one stays `high` |
 | gate failed, the cis signal tested against the LTR cores | at the call +1 (`cis_agrees`); within 4 bins nothing (`cis_near`); farther, a `low` call moves to it, still `low` (`cis_only`), and a confident call stays (`cis_elsewhere`), one level lower at `pass` |
+| gate failed, no LTR cores, the cis signal tested by the trans contacts at `pass` (0.13) | the same rules, outside the terminal eighths only: a call inside one is left as it is |
 | gate failed, no Rabl axis, a call in a terminal eighth at the end with the higher anchored score, as on most such chromosomes | +1 (`hic_end`) |
 | no call from sequence, Hi-C or LTRs, AT troughs passed their test | the trough, `composition`: `low` (`at_only`), `medium` where Hi-C's prior-free peaks validated the troughs |
 | a Hi-C call on a chromosome without a sequence call, a tested trough agreeing | takes the trough's interval, one level up (`at_pair`) |
+| no call from any line, the trough and a clean prior-free Hi-C peak (placing no call of its own) agreeing, in a genome where the two agree beyond chance (0.13) | the trough, `low` (`at_denovo_pair`) |
 
 CpG kinetochores are added after the integration and change nothing. Per genome, `hic_sequence_conflict` says when
 Hi-C's prior-free peaks are confident but disagree with the sequence calls while the gate fails: one line is wrong
@@ -351,6 +379,8 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | Hi-C on LTR cores: zone | core ± HALF_WIN bins | the partner half-window, Hi-C's resolution |
 | cis: half window, CIS_SIM | 4 bins, 200 maps | the partner half-window; the engine's null resolution (0.005) |
 | which end: END_ZONE, END_SHARE, END_MIN_BINS | 1/8, 5%, 4 bins | Levan's telocentric bound; a named heuristic of about one half-window at the bins chosen; the half-window |
+| cis tested by trans: the ends out, level | END_ZONE; `pass` only | the which-end test's bound; a minority agreement can come from the coverage the two readouts share |
+| age: AGE_ALPHA, AGE_MIN, zones | 0.01 one-sided (the site test and the premise), 3 dated copies, ± 4 bins | the LTR line's level for overruling a call (TE_CONTRA_ALPHA); as the three insertions that make an LTR core; Hi-C's resolution at both sites |
 | sat: min_array_monomers, LEN_TOL | 3 copies, 5% | a tandem array; unit-length tolerance |
 | sat: TRACT_MIN_MODEL, TRACT_MIN_BP, TRACT_MAX_FRAC | 500 bp, 64 bp, 50% | what is left of a model must make a whole copy significant alone (250 positions clear the ~47 bits of E 1e-5 on a 500-Mb chromosome by far); one DUST window of low complexity in the consensus; a model mostly of low complexity stays as it is, with too little left to score |
 | 45S: ORGANELLE_NEXT, NUCLEAR_AFTER | A; 19 bases, most differing | prokaryote-type SSU has A after the motif; 1,100 organelle hits differ at 11-17 of the next 19 bases, 110 nuclear hits with that base mutated at 1-5, 4 between |
@@ -391,6 +421,10 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | telomere stretches under half density in choosing the unit | only after the unit is chosen | decoy units in loose stretches could block the real unit |
 | a faster, inexact seed clustering | not used | 10× faster, but BLAST's hit lists differ for 0.2-0.5% of pairs, so it is not exact by construction ([future.md](future.md)) |
 | GFF3 feature types | Sequence Ontology terms, cenfuse's kind as `kind=` | cenfuse's own kinds as types: no validator or pipeline accepts them |
+| the cis signal without `tes/` | tested by the library's own trans contacts, terminal eighths out, acting at `pass` | the whole chromosome read: *Ae. tauschii* passed with 0 of 4 agreements on CENH3, all in terminal eighths; acting at support: randomized soybean Hi-C reached it; a cis + trans pair as a `medium` call: 2 near misses in *C. neoformans* G1 would be confident errors |
+| AT troughs of one centromere counted once | not changed | excluding each trough's half-depth run: no genome changes (*C. neoformans*' centromeres hold two sub-troughs separated by GC-normal sequence) |
+| Hi-C on the support tier and a far strong peak | it chooses the competing cluster only | moving any `low` call to the peak: moss 7 right, 1 wrong, and nothing elsewhere |
+| insertion age as a locator | a tie-breaker only (`moved_with_age`) | the core of the young copies: on CENH3 for 128 of 172 chromosomes, the density core 155 |
 
 ## Known risks
 
@@ -412,7 +446,15 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   is outvoted: the two sequence lines agree on the old site and Hi-C can only contest it (*P. annua* Pa1A: earlier analyses put its
   centromere at the Hi-C peak, 21 Mb from the satellite; 0.12 keeps the satellite site at `medium`, `contested`;
   [future.md #31](future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).
-- The cis line needs `tes/` to choose its sign and to test it; without LTR cores it does not run, though tomato's profile alone would be right.
+- Without LTR cores the cis line is tested by the trans contacts of the same library: coverage they share can make them agree on a
+  minority of chromosomes (randomized soybean: support), so it acts only at `pass`; a structure that both folds and clusters away
+  from the centromere on most chromosomes would pass (none seen outside the terminal eighths). It cannot see the terminal eighths,
+  so a wrong call there stays (tomato: 2 of 12).
+- The age tie-breaker trusts that centromeric families still insert where the centromere is now. It tests that premise on the
+  other chromosomes (their younger copies must lie in their cores more often than their older ones), so lineages that accumulate
+  beside centromeres with age (Athila, Retand, most Tekay) cannot use it; within a genome that passes, recent dispersed insertions
+  at a non-centromeric Hi-C peak could still tip it. It only acts where validated Hi-C already contests a `high` call (in the
+  benchmark: *P. annua* Pa1A, without truth; its premise P 5e-10).
 - The AT test passes on 4% of shuffled genomes (P ≤ 0.05 by design), and then gives `low` calls on chromosomes nothing else places. Point
   centromeres and AT-rich genomes without a clear trough (*Z. tritici*, *C. tropicalis*) do not pass.
 - The one-per-chromosome test has no power with few chromosomes (`untested`) and passes on any family that happens to lie once per chromosome.
@@ -452,11 +494,13 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 
 ## Tests
 
-`pytest -q -n 8`: 976 tests on small synthetic fixtures (about 8 min). They cover every rule above with unit tests; a
+`pytest -q -n 8`: 1,004 tests on small synthetic fixtures (about 8 min). They cover every rule above with unit tests; a
 synthetic genome with planted cases (a Hi-C move with a CRM core, the same without a second line, a hub decoy, a
 satellite-free chromosome, randomized Hi-C, three plants); a full satellite-engine run on its synthetic genome, with and without
 `tes/`; the LTR signature (seed, leave-one-out recruitment, shuffled positions); the one-per-chromosome test; GC troughs planted one
 per chromosome against a decoy; Hi-C anchored on LTR cores, and the cis signal on maps with low coverage, masked bins and no locus
-effect, which must fail; planted CpG dips and every methylation format; every Hi-C pairs layout; a yeast-like Rabl genome called at
+effect, which must fail; the cis signal tested by trans contacts (pass, support that does not act, both signs, extremes at the ends,
+leave one out) and the integration rules of 0.13 (calls in a terminal eighth, the support tier's competing cluster, `mixed` references,
+an AT trough with a prior-free peak, insertion age and its premise); planted CpG dips and every methylation format; every Hi-C pairs layout; a yeast-like Rabl genome called at
 10-kb bins; the chromosome-set rule, the list file and the resume guard; FasTAN crash recovery; parallel family models byte for byte
 equal to the serial build; the report's sentences.

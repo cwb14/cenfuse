@@ -35,7 +35,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `call_source` | where the final call comes from: `sequence` (satellite or TE line), `hic`, `composition` (an AT trough) or `none` |
 | `relation` | how the final call relates to the sequence call (below) |
 | `confidence` | `high`, `medium`, `low` (unsure) or `none` |
-| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align` |
+| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call) |
 | `flags` | the integration's flags (below) |
 | `offset_bp` | distance between the final and the sequence call (0 when they overlap) |
 | `basis` | what the call stands on, in words |
@@ -68,9 +68,11 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | column | meaning |
 |---|---|
 | `hic_gate`, `hic_gate_k`, `hic_gate_n`, `hic_gate_p` | the leave-one-out test for this chromosome: `pass` (Hi-C's peaks agree with the other chromosomes' calls on most of them, P ≤ 0.01), `support` (beyond chance on at least 3, but not most), `fail` or `untested` (fewer than 3 reference calls); k of n agree, with P |
-| `hic_gate_refs` | the reference calls the test used: `reference` (the confident calls), or `low` (no confident call anywhere, so the `low` calls at clean peaks) |
+| `hic_gate_refs` | the reference calls the test used: `reference` (the confident calls), `low` (no confident call anywhere, so the `low` calls at clean peaks), or `mixed` (fewer than 4 confident calls, joined by the `low` calls at clean peaks) |
 | `hic_end_k`, `hic_end_n` | which end: of the other chromosomes with a call in a terminal eighth, how many score higher at the end holding the call |
-| `cis_peak_start`, `cis_peak_end` | the extreme of the contact crossing each bin, where the cis signal passed its test against the LTR cores |
+| `cis_peak_start`, `cis_peak_end` | the extreme of the contact crossing each bin, where the cis signal passed its test (against the LTR cores, or without them by Hi-C's trans contacts) |
+| `cis_test` | what tested the cis signal: `ltr` (the LTR cores) or `trans` (Hi-C's trans contacts anchored on the cis extremes, read outside the terminal eighths) |
+| `age_peak`, `age_call`, `age_p`, `age_premise_p` | with `tes/` (LTRquest K2P_T) and Hi-C, only where age can break a tie (a `high` sequence call and a strong peak of validated Hi-C more than a bin from it): the median insertion age in years (and the number of copies) of the chromosome's signature families at Hi-C's anchored core and at the sequence call, each widened by 4 bins; the one-sided Mann-Whitney P that the copies at the peak are younger; and the one-sided Fisher P that, on the other chromosomes, the signature's younger copies lie in the cores more often than its older ones (the premise; both must be ≤ 0.01 for `moved_with_age`) |
 | `hic_anch_peak_*`, `hic_anch_core_*`, `hic_anch_level`, `hic_anch_flags` | the anchored Hi-C peak (contacts with the other chromosomes' calls): position, core, strength (`high`, `medium`, `low`) and flags (`hub`, `rDNA`, `telomeric`) |
 | `hic_anch_agrees_seq` | whether the anchored peak agrees with the sequence call |
 | `hic_denovo_peak_*`, `hic_denovo_confidence`, `hic_denovo_flags` | Hi-C's own prior-free peak (no sequence call used) |
@@ -136,14 +138,16 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 | `te_derived`, `gene_rich`, `gaps:N`, `contig_end` | the main family lies mostly inside LTR retrotransposons; the call is more gene-dense than its chromosome; N assembly gaps in the call; the call reaches a contig end (`--classify-from`) |
 | `hic_offset` | strong tested Hi-C points elsewhere but cannot move a `high` call without a second line (`contested`) |
 | `hic_disagrees_weak`, `hic_near` | a tested peak elsewhere too weak to oppose; a peak beside the call but within Hi-C's resolution (no effect) |
-| `hic_support` | Hi-C passed only its support test: its own significant peak agrees, so the call rose one level (on this tier Hi-C never opposes or moves) |
+| `hic_support` | Hi-C passed only its support test: its own significant peak agrees, so the call rose one level (on this tier Hi-C never opposes or moves; with `hic_chose_alt`, a strong peak chose the competing cluster) |
 | `hic_end` | the call lies in a terminal eighth and the anchored score is higher at its end than at the other, as on most such chromosomes of this genome: the call rose one level |
 | `te_hic_pair` | anchored on the LTR cores, Hi-C's peak lies at this chromosome's core, the two agreeing beyond chance genome-wide: a call there rose one level, or a `low` call (with the test passed on most chromosomes, any call) moved there |
-| `cis_agrees`, `cis_near`, `cis_only`, `cis_elsewhere` | the extreme of the contact crossing each bin, tested against the LTR cores: at the call (one level up); within 4 bins of it (neither way); farther, a `low` call moved to it (still `low`), or a chromosome without a call placed there; farther, the call kept, one level lower if the test passed on most chromosomes (`contested`) |
+| `cis_agrees`, `cis_near`, `cis_only`, `cis_elsewhere` | the extreme of the contact crossing each bin, tested against the LTR cores (or, without them, by Hi-C's trans contacts on most chromosomes; column `cis_test`): at the call (one level up); within 4 bins of it (neither way); farther, a `low` call moved to it (still `low`), or a chromosome without a call placed there; farther, the call kept, one level lower if the test passed on most chromosomes (`contested`). The trans-tested signal is read outside the terminal eighths and leaves a call inside one as it is |
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing: it takes the trough's interval, one level up; the trough lies elsewhere |
+| `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
+| `cis_blind` | the call lies in a terminal eighth, where the cis signal tested by trans contacts cannot see; its extreme lies elsewhere (the caveat says where), and the call is left as it is |
 | `fold_pair`, `align_pair` | Hi-C's prior-free peak and the arm fold (or the trans arm alignment) agree here, away from the sequence call: the call moved, or was placed, at `medium` |
 | `fold_offset`, `align_offset`, `hic_denovo_offset` | the arm fold / the alignment / Hi-C's prior-free peak points elsewhere: one level lower each |
-| `moved_with_te`, `_meth`, `_fold`, `_align` | a `high` call moved because a second line (TE core, methylation, arm fold, alignment) agreed with Hi-C |
+| `moved_with_te`, `_meth`, `_fold`, `_align`, `_age` | a `high` call moved because a second line (TE core, methylation, arm fold, alignment; or copies of the centromeric LTR families younger at the peak than at the call, in a genome whose young copies mark its cores) agreed with Hi-C |
 | `hic_medium_peak` | no sequence call; a clean medium-strength Hi-C peak placed a `low` call |
 | `hic_denovo_only` | too few sequence calls to test Hi-C: Hi-C's own clean peak placed this `low` call (untested) |
 | `hic_denovo_elsewhere` | in such a genome, Hi-C's clean peak lies away from the kept sequence call (the caveat says where) |
@@ -159,13 +163,14 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 | `te_marker`, `te_decisive`, `te_seed`, `te_specificity`, `te_verdict` | the LTR marker lineage, whether it is decisive, the seed and its fold enrichment, and why |
 | `at_gate`, `at_window`, `at_p`, `at_hic` | the AT-trough line: its test, the window it chose, P, and the agreement with Hi-C's prior-free peaks |
 | `telomere_unit`, `telomere_ends`, `telomere_interstitial` | the telomere repeat found, ends with a telomere array, arrays inside chromosomes |
+| `left_out_telomeric` | sequences left out of the chromosome set that hold telomere arrays at both ends (complete molecules: a small chromosome the length rule cut, a B chromosome); flagged in the report, never added |
 | `rdna_arrays`, `rdna_chromosomes`, `rdna5s_arrays`, `rdna5s_chromosomes` | 45S (NOR) and 5S rDNA arrays |
 | `karyotype`, `t2t_chromosomes`, `calls_with_gaps`, `short_arm_at_end` | Levan classes of the `high` and `medium` calls (`low` calls and chromosomes without a call counted apart); complete chromosomes; calls holding gaps; confident calls whose short arm is at the sequence end (the convention puts it first) |
 | `hic_bin`, `hic_chromosomes` | the Hi-C bin size; chromosomes Hi-C analyzed |
 | `hic_gate_pass`, `hic_gate_support`, `hic_gate_untested`, `hic_gate_refs` | chromosomes passing the Hi-C test, on the support tier, untested; which references it used |
 | `hic_anch_on_seq`, `hic_denovo_on_seq`, `hic_denovo_on_anch`, `hic_seq_called` | agreement counts between anchored peaks, prior-free peaks and sequence calls |
 | `hic_sequence_conflict` | Hi-C's prior-free peaks are confident but disagree with the sequence calls, and the test fails: one line is wrong genome-wide |
-| `te_hic`, `cis_line` | where the Hi-C test failed and `tes/` was given: Hi-C's peak at the LTR cores, and the cis signal at the LTR cores (k/n, P, verdict) |
+| `te_hic`, `cis_line` | where the Hi-C test failed: with `tes/`, Hi-C's peak at the LTR cores, and the cis signal at the LTR cores (k/n, P, verdict); without LTR cores, the cis signal tested by trans contacts (k/n, P, verdict, and the chromosomes it acts on; `ambiguous` when both signs pass) |
 | `hic_rabl`, `fold_gate`, `fold_on_denovo`, `fold_p`, `align_gate`, `align_on_denovo`, `align_p`, `hic_axis` | the Rabl-axis tests: the arm fold and the trans arm alignment (k/n chromosomes whose prior-free peak lies in the core, P), and the axis that acted (`fold`, `align`) |
 | `hic_3d_centromeres`, `hic_3d_ends`, `hic_architecture` | how strongly the calls and the chromosome ends contact each other in 3D; what the library showed: `rabl_axis`, `centromere_clustering` (test passed), `weak_centromere_clustering` (support tier), `untested`, `not_detected` |
 | `meth_*`, `cpg_*` | the CHG line (samples, anchors, signature, deciding samples) and the CpG line (chromosomes passing, dips, kinetochores) |

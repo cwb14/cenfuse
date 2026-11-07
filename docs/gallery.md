@@ -1,6 +1,6 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.12.0
+Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.13.0
 with the genome's richest benchmarked inputs. Counts: right / chromosomes with truth (for mammals without
 CENP-A data: agreement with an independent satellite caller). Every number: [benchmark.md](benchmark.md).
 
@@ -81,8 +81,8 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | AT troughs from the FASTA alone (13/14); Hi-C at 10-kb bins agrees with them |
 | [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 | held out |
 | [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | held out; 8 accessory chromosomes |
-| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 10/14 | held out; Hi-C in anaphase (centromeres clustered) |
-| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 0/14 | held out; Hi-C in G1 (centromeres unclustered): no test passes, no call |
+| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | held out; Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more (0.13) |
+| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | held out; Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` (0.13) |
 | [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | held out; truth is a kinetochore protein (Mtw1) |
 | [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 0/7 | held out; 3C-seq: no test passes |
 

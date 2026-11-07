@@ -11,9 +11,10 @@ Every call comes with a confidence and, in words, what speaks for and against it
 **A** one row per chromosome: Hi-C score (blue), CHG methylation (black), satellite arrays colored by role,
 retrotransposon density (orange); black box = the sequence call, gray band = the final call; ▶ ▼ telomere arrays at
 the ends and inside; ◆ ◇ 45S and 5S rDNA arrays. **B** the evidence that supports (●) or opposes (×) each call.
-**C** where each kind of evidence puts the centromere. **D** the Hi-C score around each call. Pa1A is `contested`: Hi-C (×) peaks
-22 Mb from the call that the satellite and the LTR signature share, where earlier analyses put its centromere
-([docs/future.md #31](docs/future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).*
+**C** where each kind of evidence puts the centromere. **D** the Hi-C score around each call. On Pa1A validated Hi-C peaks 21 Mb
+from the satellite that the LTR signature also marks (TE ×), and the copies of the centromeric LTR families there are young (median
+0 years) while those at the satellite are old (620,000 years; column `age`): the centromere moved, and the call (arrow) moves with
+it, where earlier analyses put it ([docs/future.md #31](docs/future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).*
 
 ## How it works
 
@@ -37,16 +38,22 @@ while anything else falls in proportion to chromosome length.
 4. **Hi-C** (`hic/`). Centromeres meet in the nucleus. Before Hi-C may act on a chromosome, it has to find the
    centromeres of the *other* chromosomes in your library. Where those calls are wrong genome-wide, Hi-C is tested
    against the LTR cores instead, and so is a cis signal: in tomato the two flanks of each centromere touch about twice
-   as often as expected. Where nuclei hold their centromeres at one pole (a Rabl configuration), the way chromosome arms
-   fold and align tests Hi-C, and Hi-C tells which end of an acrocentric chromosome holds the centromere. In genomes
-   whose centromeres carry no repeat, Hi-C places the calls itself.
+   as often as expected. Without LTR cores, Hi-C's two readouts test each other: the cis signal's extremes anchor the
+   contacts between chromosomes, and where those find the other chromosomes' extremes on most chromosomes, the cis
+   signal may act (tomato from the FASTA and Hi-C: 10/12 right, from 1/12). Where nuclei hold their centromeres at one
+   pole (a Rabl configuration), the way chromosome arms fold and align tests Hi-C, and Hi-C tells which end of an
+   acrocentric chromosome holds the centromere. In genomes whose centromeres carry no repeat, Hi-C places the calls
+   itself.
 5. **Methylation** (`meth/`). In primates, CpG methylation dips where the kinetochore sits: where cenfuse shows that
    the dips mark centromeres in your genome, it places the kinetochore inside each call. In plants, CHG methylation
    can be a second line of evidence, though it [changed no call](docs/future.md#16-the-chg-line-has-changed-no-call)
    in the benchmark.
 6. **Integration.** The sequence call stands unless tested evidence moves it. Agreement raises its confidence,
-   disagreement lowers it. `low` means "unsure": cenfuse prefers right, then uncertain, over wrong. How well the lines
-   agree with each other, against chance, is reported for every genome.
+   disagreement lowers it, and two tested lines at one locus outrank one: a `high` call moves only when a second line
+   sits at Hi-C's peak (an LTR core, methylation, or younger copies of the centromeric LTR families than at the call: a
+   centromere that moved). No line speaks where it cannot see: contact readouts never judge the chromosome ends, which
+   cluster in the nucleus whatever the centromere. `low` means "unsure": cenfuse prefers right, then uncertain, over
+   wrong. How well the lines agree with each other, against chance, is reported for every genome.
 
 Details: [docs/design.md](docs/design.md).
 
@@ -55,7 +62,7 @@ Details: [docs/design.md](docs/design.md).
 Calls were scored against centromeres mapped by CENP-A/CENH3 ChIP (or CUT&Tag, DiMeLo-seq) on the same assembly.
 A call is right when it overlaps the CENP-A domain (mammals), lies within 4 Hi-C bins of the CENH3 domain (plants:
 about 1 Mb; moss and algae: 100 kb), or within 1 Hi-C bin (fungi, *Plasmodium*); *confident* = `high` or `medium`.
-Every number is from cenfuse 0.12.0. Per genome, the controls and every failure are in
+Every number is from cenfuse 0.13.0. Per genome, the controls and every failure are in
 [docs/benchmark.md](docs/benchmark.md); every genome's overview page is in the [gallery](docs/gallery.md).
 
 | genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |
@@ -73,39 +80,45 @@ Every number is from cenfuse 0.12.0. Per genome, the controls and every failure 
 | barley | CRM retrotransposons | 0/7, 0 | + `tes/`: 7/7, 0; + Hi-C: 6/7, 0; both: 7/7, 0 |
 | potato | satellite on half, none on half | 2/11, 0 | + `tes/`: 10/11, 1; + Hi-C too: 9/11, 1 |
 | *Aegilops tauschii* | CRM beside satellites | 1/7, 0 | + `tes/`: 5/7, 2 |
-| moss (*Physcomitrium*) | Copia (Bryco) retrotransposon clusters | 16/26, 0 (all `low`) | + `tes/`: 26/26, 0; + Hi-C too: 26/26, 0 |
+| moss (*Physcomitrium*) | Copia (Bryco) retrotransposon clusters | 16/26, 0 (all `low`) | + `tes/`: 26/26, 0; + Hi-C: 21/26, 0; both: 26/26, 0 |
 | *Chlorella sorokiniana* | 2-7 Copia (Osser) insertions | 0/10, 0 | + `tes/`: 9/10, 0 |
 | *Chlamydomonas* | LINE clusters | 6/17, 0 (all `low`) | + `tes/`: unchanged |
-| tomato | no repeat, beside a dominant satellite | 1/12, 0 | + `tes/`: 6/12, 2; + Hi-C too: 10/12, 0 |
+| tomato | no repeat, beside a dominant satellite | 1/12, 0 | + Hi-C: 10/12, 0; + `tes/`: 6/12, 2; both: 10/12, 0 |
 | horse EquCab3 (older assembly) | satellites; chr11 none | 3/5, 0 (all `low`) | + Hi-C: unchanged |
 | budding and fission yeast, *Plasmodium*, *Neurospora* | point, regional, AT-rich | 20/40, 0 | + Hi-C: 40/40, 0 |
-| 5 more fungi, held out in 0.10 (6 Hi-C libraries) | regional | 8/72, 0 | + Hi-C: 45/72, 0 |
+| 5 more fungi, held out in 0.10 (6 Hi-C libraries) | regional | 8/72, 0 | + Hi-C: 60/72, 0 |
 | 4 holocentric genomes (any confident call is wrong) | no single centromere | 0 confident in 46 | + Hi-C: 0 confident |
 
 - **Confidence means something.** Over the 47 genomes with truth, each with all its inputs, `high` calls were right 406 of 410 times,
-  `medium` 62/67, `low` 82/124 (0.11: 331/345, 102/105, 100/149).
+  `medium` 62/67, `low` 97/141 (0.12: 406/410, 62/67, 82/124).
 - **Lines that fail their test do not act.** Of the 16 confident errors the FASTA alone made in tomato, potato, barley and *Ae. tauschii*,
-  none is left: their satellites do not fall one per chromosome, so those calls stay `low`. On the 202 runs made by both releases,
-  confident errors fell from 104 to 43 and right calls rose from 2,330 to 2,432.
+  none is left: their satellites do not fall one per chromosome, so those calls stay `low`. Against 0.12, on the same 258 runs: 44 more
+  right calls and not one more confident error.
+- **Hi-C's two readouts test each other.** Without `tes/`, the contacts between chromosomes test the cis signal: from the FASTA and Hi-C,
+  tomato goes from 1 to 10 of 12 right, *C. neoformans* in G1 from 0 to 12 of 14; no randomized library, mammal or holocentric genome passes.
 - **Controls.** On randomized Hi-C (57 runs) and misplaced methylation (8 primates), no test passed, and no call changed against
   the same genome's run without them (56 of the 57 Hi-C runs have one). Shuffling LTR
   positions within chromosomes (157 annotations) gives no signature. Five more mammals without CENP-A data agree with an independent
   satellite caller on 113/121 chromosomes.
-- **Held out from the 0.12 rules** (never scored before they were frozen): *B. rapa* with `tes/` 70/70 right, 0 confidently wrong (7 accessions); grape, new to the benchmark, 18/18 from the FASTA and 18/18 with `tes/`; holocentric genomes with `tes/` 3 confident calls (*R. breviuscula* with Hi-C), 0 after the rule change it prompted; CHM13 with `tes/` unchanged.
+- **Held out from the 0.12 rules** (never scored before they were frozen): *B. rapa* with `tes/` 70/70 right, 0 confidently wrong (7 accessions); grape, new to the benchmark, 18/18 from the FASTA and 18/18 with `tes/`; holocentric genomes with `tes/` 3 confident calls (*R. breviuscula* with Hi-C), 0 after the rule change it prompted; CHM13 with `tes/` unchanged. 0.13 reran them with the others (it was
+  developed with them in view): unchanged, but for *C. neoformans* with `tes/` and Hi-C, which gains as it does without `tes/`.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): 39 kinetochores, a median of 45 kb
   wide inside calls of 3.9 Mb; 35 within 50 kb of CENP-A. With human, 62 of 63 lie on curated CENP-A domains.
 
 **Where it is strong:** satellite centromeres from the FASTA alone; satellite-free centromeres from LTR retrotransposon families learned in
 the genome itself (CRM in grasses, potato and *Ae. tauschii*; Bryco in moss; Osser in *Chlorella*; a Tekay family in tomato); AT-rich
 centromeres from the FASTA alone (*Plasmodium*, *Malassezia*, *Neurospora*); point and regional centromeres from Hi-C (yeasts, fungi);
-satellite-free centromeres that Hi-C sees in cis once the LTR line has tested it (tomato 10/12, none confidently wrong); no confident call on
-holocentric chromosomes; knobs and other large satellites were not mistaken for centromeres.
+satellite-free centromeres that Hi-C sees in cis, tested by the LTR cores or by Hi-C's own contacts between chromosomes (tomato 10/12 either
+way, none confidently wrong); a centromere that moved away from its satellite, where validated Hi-C and young copies of the centromeric
+LTR families agree (*P. annua* Pa1A, no ChIP yet); no confident call on holocentric chromosomes; knobs and other large satellites were not
+mistaken for centromeres.
 
 **Where it is weak:** an LTR signature can have cores beside the centromere that look like the right ones (tomato without Hi-C: 2 of the
-5 such cores stay `medium`); the cis Hi-C signal needs `tes/` to be tested, and works in some plants and fungi but in no mammal; a small active
-array beside a large inactive one of the same satellite is called confidently on the large one (one orangutan chromosome); right calls
-are often left `low` (chicken 27/33, *Z. tritici* 19/21); Hi-C helps only where nuclei cluster their centromeres, fold their arms or mark
-them in cis, and with enough reads. In allopolyploids, a family called centromeric can be a chain of partial retrotransposon copies:
+5 such cores stay `medium`); the cis Hi-C signal works in some plants and fungi but in no mammal, and without `tes/` it cannot judge calls
+in the terminal eighth of a chromosome (tomato keeps 2 wrong `low` calls there); a small active array beside a large inactive one of the
+same satellite is called confidently on the large one (one orangutan chromosome); right calls are often left `low` (chicken 27/33,
+*Z. tritici* 19/21, *C. neoformans* 12/14); Hi-C helps only where nuclei cluster their centromeres, fold their arms or mark them in cis,
+and with enough reads. In allopolyploids, a family called centromeric can be a chain of partial retrotransposon copies:
 such calls are flagged and the sequence line holds them to `medium` at most (lines that pass their tests may raise them), a
 [choice no genome with truth has tested](docs/future.md#1-calls-on-chains-of-partial-copies).
 
@@ -115,7 +128,7 @@ such calls are flagged and the sequence line holds them to `medium` at most (lin
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: 976 tests, ~8 min
+pytest -q -n 8          # optional: 1,004 tests, ~8 min
 ```
 
 ## Quick start
@@ -152,7 +165,7 @@ mygenome/
 |---|---|
 | FASTA | satellite families and their roles, telomeres, rDNA arrays, one sequence call per chromosome |
 | `tes/` | the LTR retrotransposon families that mark centromeres in this genome, learned from it (from the FASTA alone barley gets 0/7 right, potato 2/11, tomato 1/12; with `tes/` 7/7, 10/11, 6/12); with Hi-C, they also test Hi-C where the satellite calls cannot |
-| `hic/` | a test of every call; tested Hi-C can move a call, and where the FASTA gives no call (point, regional, AT-rich centromeres) it places one; with `tes/`, a cis signal at satellite-free centromeres (tomato: 10/12) |
+| `hic/` | a test of every call; tested Hi-C can move a call, and where the FASTA gives no call (point, regional, AT-rich centromeres) it places one; a cis signal at satellite-free centromeres, tested by the LTR cores or, without `tes/`, by Hi-C's own contacts between chromosomes (tomato: 10/12 either way) |
 | `meth/` | CpG: the kinetochore inside each call (primates); CHG (with `tes/`): a possible second line of evidence in plants |
 | `genes/` | gene density at every locus; rejects gene-rich repeats as centromeres |
 
