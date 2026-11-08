@@ -62,7 +62,7 @@ Details: [docs/design.md](docs/design.md).
 Calls were scored against centromeres mapped by CENP-A/CENH3 ChIP (or CUT&Tag, DiMeLo-seq) on the same assembly.
 A call is right when it overlaps the CENP-A domain (mammals), lies within 4 Hi-C bins of the CENH3 domain (plants:
 about 1 Mb; moss and algae: 100 kb), or within 1 Hi-C bin (fungi, *Plasmodium*); *confident* = `high` or `medium`.
-Every number is from cenfuse 0.13.0. Per genome, the controls and every failure are in
+Every number is from cenfuse 0.14.0, whose calls equal 0.13.0's on all 260 benchmark runs. Per genome, the controls and every failure are in
 [docs/benchmark.md](docs/benchmark.md); every genome's overview page is in the [gallery](docs/gallery.md).
 
 | genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |
@@ -100,6 +100,13 @@ Every number is from cenfuse 0.13.0. Per genome, the controls and every failure 
   the same genome's run without them (56 of the 57 Hi-C runs have one). Shuffling LTR
   positions within chromosomes (157 annotations) gives no signature. Five more mammals without CENP-A data agree with an independent
   satellite caller on 113/121 chromosomes.
+- **Held out from 0.14: the first allotetraploid with CENH3 truth.** *Ae. geniculata* (UUMM, 14 chromosomes) from the FASTA: 0 of 14
+  right, but none confident, because its satellites fail the one-per-chromosome test; with `tes/`, 13 of 14 right (all `medium`) and 1
+  confidently wrong. The wild potato *S. verrucosum*: 5/12 (all `low`) from the FASTA, 8/12 with `tes/` (7 of them `high` or `medium`,
+  1 confidently wrong) ([benchmark.md](docs/benchmark.md#held-out-from-014-an-allotetraploid-and-a-wild-potato)).
+- **Held out from 0.14: 13 tomatoes of one genus.** From the FASTA 20 of 156 chromosomes are right and none is confident: their centromeres hold little
+  satellite, and cenfuse says it is unsure. With `tes/` 70 of 156 are right, but 15 of the 69 confident calls are wrong (22%), so in this genus a `medium` call
+  from a Tekay core deserves caution ([benchmark.md](docs/benchmark.md#held-out-from-014-thirteen-tomatoes)).
 - **Held out from the 0.12 rules** (never scored before they were frozen): *B. rapa* with `tes/` 70/70 right, 0 confidently wrong (7 accessions); grape, new to the benchmark, 18/18 from the FASTA and 18/18 with `tes/`; holocentric genomes with `tes/` 3 confident calls (*R. breviuscula* with Hi-C), 0 after the rule change it prompted; CHM13 with `tes/` unchanged. 0.13 reran them with the others (it was
   developed with them in view): unchanged, but for *C. neoformans* with `tes/` and Hi-C, which gains as it does without `tes/`.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): 39 kinetochores, a median of 45 kb
@@ -114,7 +121,8 @@ LTR families agree (*P. annua* Pa1A, no ChIP yet); no confident call on holocent
 mistaken for centromeres.
 
 **Where it is weak:** an LTR signature can have cores beside the centromere that look like the right ones (tomato without Hi-C: 2 of the
-5 such cores stay `medium`); the cis Hi-C signal works in some plants and fungi but in no mammal, and without `tes/` it cannot judge calls
+5 such cores stay `medium`), and a call at one edge of a wide LTR core counts as agreeing with it (the held-out *Ae. geniculata*'s one
+confident error; [future.md #45](docs/future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)); the cis Hi-C signal works in some plants and fungi but in no mammal, and without `tes/` it cannot judge calls
 in the terminal eighth of a chromosome (tomato keeps 2 wrong `low` calls there); a small active array beside a large inactive one of the
 same satellite is called confidently on the large one (one orangutan chromosome); right calls are often left `low` (chicken 27/33,
 *Z. tritici* 19/21, *C. neoformans* 12/14); Hi-C helps only where nuclei cluster their centromeres, fold their arms or mark them in cis,
@@ -126,9 +134,10 @@ such calls are flagged and the sequence line holds them to `medium` at most (lin
 
 ```bash
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
-mamba env create -f environment.yml && mamba activate cenfuse
+mamba env create -f environment.yml && mamba activate cenfuse      # or, on linux-64, the benchmark's exact environment:
+                                                                    # mamba create -n cenfuse --file environment.lock.txt
 pip install --no-deps .
-pytest -q -n 8          # optional: 1,004 tests, ~8 min
+pytest -q -n 8          # optional: about 1,150 tests, a few minutes; CENFUSE_REQUIRE_TOOLS=1 fails instead of skipping without the tools
 ```
 
 ## Quick start
@@ -141,11 +150,13 @@ cenfuse run mygenome -t 32
 Then read `mygenome/cenfuse/cenfuse_report.md` (what was found, in words), `asm.centromeres.tsv` (one row per
 chromosome) and `cenfuse_overview.pdf`.
 
-**Runtime and memory.** The satellite search takes most of the time and grows with satellite content: T2T mammals
-(2.6-3.6 Gb) 1-10 h at 12 threads, mouse 9 h at 16, maize 50 min at 16, *Arabidopsis* 15 min at 8. Hi-C and the
-integration take minutes (times from before 0.11, whose search is up to 4.9x faster on genomes where long repeat models hold
-low-complexity tracts, and about the same elsewhere). Peak memory: 8-74 GB for T2T mammals at 12 threads, 5 GB for *Arabidopsis*. A
-rerun resumes where it stopped, and fresh runs give identical results (Linux).
+**Runtime and memory.** The satellite search takes most of the time and grows with genome size and satellite content. Fresh
+runs from the FASTA (2026-11-07; the search code is unchanged in 0.14): the allotetraploid *Ae. geniculata* (7.9 Gb) 64 min at 32 threads, the wild potato *S. verrucosum*
+(0.7 Gb) 16 min at 16, 13 tomatoes (0.8-1.2 Gb) 13-50 min at 16; adding `tes/` to the finished run, 1-12 min. From before 0.11 (whose search is up to 4.9x faster
+where long repeat models hold low-complexity tracts): T2T mammals (2.6-3.6 Gb) 1-10 h at 12 threads, mouse 9 h at 16. Hi-C and
+the integration take minutes. Peak memory (the largest process): 17.5 GB for *Ae. geniculata* at 32 threads, 7-46 GB for the tomatoes at 16, 8-74 GB for T2T
+mammals at 12. A rerun resumes where it stopped, fresh runs give identical results (Linux), and every run records its versions,
+tools, inputs and cost (CPU hours; the peak memory of all its processes) in `run_info.json`.
 
 ## Inputs
 
@@ -178,7 +189,7 @@ Several FASTAs in one folder are analyzed together and share satellite family na
 <summary><b>Recipes: making each input</b> (click)</summary>
 
 **LTR retrotransposons** with [LTRquest](https://github.com/cwb14/LTRquest), the annotator cenfuse is developed and
-benchmarked with. Generate the `tes/` file with exactly this command:
+benchmarked with. Generate the `tes/` file with this command (the benchmark's annotations used it without `--proteins`):
 
 ```bash
 ltrquest --genome asm.fa --proteins related.pep.fa --max-rounds 1 --threads 32 \
@@ -188,7 +199,7 @@ mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm
 
 | flag | why |
 |---|---|
-| `--proteins` | a protein FASTA of this or any related species: masks genes during detection |
+| `--proteins` | optional: a protein FASTA of this or any related species, to mask genes during detection (untested with cenfuse: no benchmark annotation used it) |
 | `--max-rounds 1` | one detection pass, as in every benchmark run; LTRquest's default keeps searching for nested elements for up to 10 rounds, which cenfuse's tests were not benchmarked on |
 | `--detect-args "ltr-timeout=300"` | caps the slowest detectors at 5 min per chunk: they stall on centromeric satellites |
 | `--run-sdust` | drops candidates made mostly of low-complexity sequence |
@@ -304,8 +315,11 @@ on its own ([docs/plants.md](docs/plants.md)).
 | `--seed-engine fastan\|trf` | tandem-repeat finder for the satellite search [fastan] |
 | `--seed-cache DIR` | share tandem-repeat results between runs |
 | `--classify-from T=S` | genome T (e.g. a contig assembly) takes its satellite families from genome S |
-| `--force STAGE` | recompute a stage and every later one; needed after adding `tes/` or `genes/` to an earlier run (`--force classify`) |
+| `--force STAGE` | recompute a stage (`all`: every stage); a later stage reruns when what it reads changed. Adding `tes/` or `genes/` to an earlier run needs none: the satellite engine sees the new files and recomputes from classify |
 | `-v` | per-step progress |
+
+`cenfuse control KIND IN OUT` writes a negative control of one input: Hi-C pairs re-paired or relocated at random, GC blocks or
+LTR positions shuffled ([outputs.md](docs/outputs.md#negative-controls-cenfuse-control)). Run cenfuse on the control: no test should pass.
 
 There are no tuning knobs: every threshold is a fixed constant with its reason ([docs/design.md](docs/design.md#constants)).
 
@@ -319,6 +333,9 @@ There are no tuning knobs: every threshold is a fixed constant with its reason (
 | [`docs/outputs.md`](docs/outputs.md) | every output column and flag, the options, running and resuming |
 | [`docs/plants.md`](docs/plants.md) | inputs from several plants: provenance and per-plant scoring |
 | [`docs/future.md`](docs/future.md) | open problems, each with its evidence and the check it needs |
+| [`docs/constants.md`](docs/constants.md) | every constant in the code with its reason, generated from the code |
+| [`benchmark/`](benchmark/README.md) | the truth manifest, the scorer and the scripts that make this page's and benchmark.md's tables |
+| [`.github/workflows/tests.yml`](.github/workflows/tests.yml) | the test suite in the benchmark's exact environment, every tool required |
 | [`docs/img/slides/`](docs/img/slides/README.md) | figures for a talk on cenfuse |
 
 ## License

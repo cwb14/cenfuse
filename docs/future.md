@@ -1,8 +1,10 @@
 # Future development
 
-Open problems and planned work after cenfuse 0.13.0. The entries come from the benchmark ([benchmark.md](benchmark.md)), a replay of
+Open problems and planned work after cenfuse 0.14.0. The entries come from the benchmark ([benchmark.md](benchmark.md)), a replay of
 106 allotetraploid plant genomes (2,355 calls), and the development notes of every version, from the predecessors (cenrep, cenhic) to
-0.13, each checked against the 0.13.0 code (2026-11-07). An entry gives the evidence, an approach, the check that would settle it, and
+0.13, each checked against the 0.13.0 code (2026-11-07), then updated for 0.14.0 (2026-11-08: no rule changed; checkpoints, locks,
+the run manifest, atomic writes, a Hi-C stage about twice as fast, the benchmark in the repository, negative controls as a command, held-out
+truth for an allotetraploid, a wild potato and 13 tomatoes; each entry's "0.14" paragraph says what was done or measured). An entry gives the evidence, an approach, the check that would settle it, and
 where in the code to start. Entry numbers are stable, because the code, the tests and the other docs cite them (`future.md #31`): a
 closed entry keeps its number, and a new one takes the next free number.
 
@@ -24,11 +26,14 @@ instead of searching again. *The Hi-C test* is the gate (design.md, Hi-C step 6)
 (design.md, What may decide). *Confident* means `high` or `medium`. *Headroom* counts the chromosome-runs where some line's own locus is
 right but the final call is not.
 
-**Where things live.** future.md, design.md, outputs.md and plants.md are edited in the repo. README.md and docs/benchmark.md are
-generated: `v12/bench/fill_docs.py` fills `v12/docs_src/*.template.md` with the tables of `v12/results/md13/`, so an edit made in the
-repo is lost at the next fill (#34). The scorer, the truth files, the negative-control generators and the analysis scripts cited below
-also live outside the repo, in the development folders `v2/` to `v12/` of `/data2/chris/centromere_benchmark/` (v8 = 0.8, v9 = 0.9,
-v10 = 0.10.0, v10.1-v10.3 = 0.10.1, v10.4 = 0.11, v11 = 0.12, v12 = 0.13; v2-v7 are 0.1.0 development; cenrep and cenhic sit at the top).
+**Where things live.** future.md, design.md, outputs.md, plants.md and constants.md (generated from the code by
+`python -m cenfuse.consts`) are edited in the repo. README.md and docs/benchmark.md are generated: `benchmark/release.sh` scores a
+release's stored runs and fills `benchmark/docs_src/*.template.md` with the tables (`benchmark/fill_docs.py`), so an edit made in the
+generated files is lost at the next fill. Since 0.14 the scorer, the truth manifest and the table chain are in the repo
+([benchmark/](../benchmark/README.md)) and the Hi-C, GC and LTR negative controls are a command (`cenfuse control`); the truth files,
+the stored runs, the truth-making scripts and the analysis scripts cited below live outside it, in the development folders `v2/` to
+`v13/` of `/data2/chris/centromere_benchmark/` (v8 = 0.8, v9 = 0.9, v10 = 0.10.0, v10.1-v10.3 = 0.10.1, v10.4 = 0.11, v11 = 0.12,
+v12 = 0.13, v13 = 0.14; v2-v7 are 0.1.0 development; cenrep and cenhic sit at the top).
 
 ## Rules for any change
 
@@ -52,31 +57,24 @@ Every release so far has kept these (design.md, Principles; benchmark.md, sectio
 
 ## Where to start
 
-The 0.13 release is right on 2,174 of the 2,624 chromosome-runs with truth in its real arms (82.9%). Taking, on each, a line whose own
-locus is right would reach 91.7% (`v12/bench/headroom.py`, `v12/results/headroom13.tsv`). Most of that headroom lies in AT troughs
-(117 of the 231 chromosome-runs, 113 where only the trough is right) and in competing clusters (64, mouse 38). Twelve confident misses
-remain (benchmark.md, section 11), and until this rewrite 11 of them were in no entry. In order:
+0.14 changed no rule: its calls equal 0.13's on all 260 runs, which are right on 2,174 of the 2,624 chromosome-runs with truth in
+the real arms (82.9%); taking, on each, a line whose own locus is right would reach 91.7% (`v12/bench/headroom.py`). Most of that
+headroom lies in AT troughs (117 of the 231 chromosome-runs) and in competing clusters (64, mouse 38). Twelve confident misses
+remain (benchmark.md, section 11). The held-out genomes of 0.14 add 17, all with `tes/`: 2 in *Ae. geniculata* and *S. verrucosum*, 15 in the 13 tomatoes.
+In order:
 
-1. **#34 Put the benchmark in the repository**: the scorer, a truth manifest, the control generators and the doc templates. Every other
-   check depends on it.
-2. **#35 Score the truth already on disk**, then fetch the public sets. On disk: *Ae. geniculata*, an allotetraploid with CENH3 on all
-   14 chromosomes, and *S. verrucosum*. Public: wheat, oat, 14 tomato lines, 4 soybean lines, cattle, gibbon, a same-animal horse set and a
-   second pig ChIP. They bear on #1, #3, #4, #9, #10, #27, #36, #45 and #50.
-3. **#36 Freeze a held-out set for the 0.13 rules** before writing the next rule. No 0.13 rule has one.
-4. **#45 Confident calls at the edge of a wide LTR core**: 5 of the 7 confident errors with `tes/` (maize chr5, *Ae. tauschii* Chr5 and
-   Chr7, potato chr08, tomato CM175074.1).
-5. **#28 and #39 Fungal centromeres the FASTA already marks.** Each chromosome's deepest AT trough lies on the centromere in *V.
-   dahliae* (8/8) and *C. neoformans* (12/14). Small tandem arrays below the satellite engine's 20-kb priors mark 7-10 of 14 *C.
-   neoformans* centromeres. From the FASTA, cenfuse calls none of them.
-6. **#59 Fix checkpoints that miss changed inputs.** After `tes/` or `genes/` is added to an earlier run, the run resumes on stale
-   satellite calls unless `classify` is forced.
-7. **#60 Write a run manifest and a lock file.** "Fresh runs are identical" holds only within one environment, and no output records
-   the tools.
-8. **#37, #38 and #50 The mammal misses.** Seven of the 12 confident misses are scored against truth from other animals or from another
-   caller (pig 3, siamang 2, sheep 1), or against a disputed array (Bornean orangutan). Better truth exists for pig, siamang and horse
-   (#35).
-9. **#63 Split `fuse._decide`** (217 lines, 161 branches) into ordered rules with a `rule` column before adding more rules.
-10. **#38 Find which array holds the kinetochore.** Mouse's competing cluster is the right one on 19 of 20 chromosomes.
+1. **#46 and #36 The LTR line outside CRM genomes.** In 13 held-out tomatoes a Tekay signature decides in 12, and from it 15 of 69 confident calls are wrong
+   (22%), while the majority rule `TE_MAJOR_SHARE` holds back 59 cores that are right on 36 chromosomes, where the kept call is right on 6. Both need a reason of their own and new
+   held-out Solanaceae (tobacco, eggplant): these genomes have been seen.
+2. **#35 Fetch the public sets**: wheat, oat, 4 soybean lines (and the soybean pan-centromere), cattle, gibbon, a same-animal horse set, the siamang's DiMeLo-seq (on disk).
+   The benchmark can score new truth from the repo (`benchmark/`, #34), and the held-out protocol worked (#36).
+3. **#45 Calls at the edge of a wide LTR core**: 6 confident errors (one held out, *Ae. geniculata* chr05U). Agreement at the core's maximum failed its check; the core's
+   maximum is tied in half the profiles, so a tie-break with a reason comes first.
+4. **#28 and #39 Fungal centromeres the FASTA already marks** (AT troughs right on 8/8 *V. dahliae*, 12/14 *C. neoformans*).
+5. **#37, #38 and #50 The mammal misses**: seven of the 12 are scored against other animals' ChIP or another caller.
+6. **#63 The other large functions** (`interpret`'s sentences, `Run.run`, `hicfuse.py`): the cascade is split into rules (0.14).
+7. **#32 The own-trans-pair rule** for calls in a terminal eighth (tomato's 2), when a second genome shows the case.
+8. **#65 and #60 CI's first run** (`.github/workflows/tests.yml`, written and tested locally, not yet run on GitHub).
 
 ## All entries
 
@@ -87,38 +85,38 @@ remain (benchmark.md, section 11), and until this rewrite 11 of them were in no 
 | [3](#3-satellites-specific-to-subgenomes-vs-the-honesty-cap) | satellites | satellites specific to subgenomes vs the honesty cap | tested, not adopted | CENH3 for an allopolyploid with such satellites |
 | [4](#4-the-decisive-crm-test-with-subgenome-specific-lineages) | LTR | the decisive CRM test with subgenome-specific lineages | waiting for data | CENH3 in the named species |
 | [5](#5-a-faster-search) | speed | a faster search | partly done | the whole benchmark searched again; the cost of real hits |
-| [6](#6-faster-seed-clustering) | speed | faster seed clustering | open | a two-pass BLAST; BLAST at two thread counts |
+| [6](#6-faster-seed-clustering) | speed | faster seed clustering | open | a two-pass BLAST (thread counts: identical families on both genomes, 0.14) |
 | [7](#7-the-fastan-crash-reported-upstream) | engineering | the FasTAN crash, reported upstream | user's decision | file the report |
 | [8](#8-large-unplaced-scaffolds-and-dot-chromosomes) | inputs | large unplaced scaffolds and dot chromosomes | partly done | the other edge; organelles; known karyotypes |
-| [9](#9-cenh3-truths-for-allopolyploids) | benchmark | CENH3 truths for allopolyploids | partly done | score *Ae. geniculata* (on disk) |
+| [9](#9-cenh3-truths-for-allopolyploids) | benchmark | CENH3 truths for allopolyploids | partly done | *Ae. geniculata* scored (0.14); the public allopolyploid sets (#35) |
 | [10](#10-the-ltr-retrotransposon-line) | LTR | the LTR retrotransposon line | partly done | out-of-sample test (#36); the head-to-head test acts on no call |
 | [11](#11-hi-c-anchors-where-the-sequence-line-is-wrong-genome-wide) | Hi-C | Hi-C anchors where the sequence line is wrong genome-wide | closed | |
 | [12](#12-cis-signals-of-satellite-free-centromeres) | Hi-C | cis signals of satellite-free centromeres | closed | |
-| [13](#13-bird-microchromosomes-in-hi-c) | Hi-C | bird microchromosomes in Hi-C | open | the per-chromosome bin cap; deeper bird Hi-C |
+| [13](#13-bird-microchromosomes-in-hi-c) | Hi-C | bird microchromosomes in Hi-C | open | deeper bird Hi-C (the bin cap is not the limit, 0.14) |
 | [14](#14-the-rabl-axis-where-the-fold-has-no-power) | Hi-C | the Rabl axis where the fold has no power | partly done | partners on confident calls; Rabl tissue |
 | [15](#15-centromeres-at-the-edge-of-a-terminal-unmappable-array) | Hi-C | centromeres at the edge of a terminal unmappable array | partly done | chicken; the sheep `high` call |
 | [16](#16-the-chg-line-has-changed-no-call) | methylation | the CHG line has changed no call | open | same-plant CHG with CENH3 (data exist) |
 | [17](#17-knobs-and-the-size-floor) | satellites | knobs and the size floor | partly done | other knob-rich lines with CENH3 |
 | [18](#18-organelle-insertions-called-45s-arrays) | rDNA | organelle insertions called 45S arrays | closed | |
 | [19](#19-long-unit-calls-are-mostly-wrong) | satellites | long-unit calls are mostly wrong | closed | |
-| [20](#20-the-rdna-spacer-tag-at-its-threshold) | satellites | the rDNA spacer tag at its threshold | open | run the 11 *B. rapa* accessions together |
+| [20](#20-the-rdna-spacer-tag-at-its-threshold) | satellites | the rDNA spacer tag at its threshold | closed | |
 | [21](#21-moved-calls-whose-sentences-disagree) | reporting | moved calls whose sentences disagree | closed | |
 | [22](#22-pa1a-in-other-p-annua-plants) | plants | Pa1A in other *P. annua* plants | waiting for data | CENH3 or deeper reads from those plants |
 | [23](#23-a-familys-unit-length-can-overstate-its-copies) | satellites | a family's unit length can overstate its copies | closed | |
 | [24](#24-telomeres-outside-the-rules) | telomeres | telomeres outside the rules | closed | |
 | [25](#25-non-crm-centromeric-ltr-retrotransposons) | LTR | non-CRM centromeric LTR retrotransposons | closed | |
 | [26](#26-the-cis-signal-without-tes) | Hi-C | the cis signal without `tes/` | closed | potato and the ends: #32, #53 |
-| [27](#27-wrong-ltr-cores-that-look-right) | LTR | wrong LTR cores that look right | open | non-CRM signatures with truth (wild tomatoes) |
+| [27](#27-wrong-ltr-cores-that-look-right) | LTR | wrong LTR cores that look right | open | what tells the tomatoes' wrong cores from the right ones (0.14: #36, #46) |
 | [28](#28-where-at-troughs-do-not-work) | AT | where AT troughs do not work | open | a test that *V. dahliae* and *C. neoformans* pass |
 | [29](#29-what-the-contact-crossing-a-centromere-is) | Hi-C | what the contact crossing a centromere is | waiting for data | mutant or cell-cycle Hi-C |
 | [30](#30-a-hi-c-test-with-too-few-confident-references) | Hi-C | a Hi-C test with too few confident references | built, unchecked | a genome where it acts, with truth |
 | [31](#31-a-centromere-that-left-its-satellite-and-its-ltr-families) | LTR | a centromere that left its satellite and its LTR families | built, unchecked | CENH3 of *P. annua* |
-| [32](#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts) | Hi-C | calls in a terminal eighth that an interior line contradicts | open | a line that can see the ends |
+| [32](#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts) | Hi-C | calls in a terminal eighth that an interior line contradicts | open | a second genome for the own-trans-pair rule (tomato: 2 calls, 0.14) |
 | [33](#33-cis-and-trans-at-one-locus-as-a-confident-call) | Hi-C | cis and trans at one locus as a confident call | open | the AT trough's finer interval |
-| [34](#34-the-benchmark-cannot-be-rerun-from-the-repository) | benchmark | the benchmark cannot be rerun from the repository | open | scorer, truth, controls and templates into the repo |
-| [35](#35-truth-on-disk-or-public-not-yet-used) | benchmark | truth on disk or public, not yet used | waiting for compute | *Ae. geniculata* and *S. verrucosum* first |
-| [36](#36-no-held-out-test-of-the-013-rules) | benchmark | no held-out test of the 0.13 rules | open | freeze a held-out set |
-| [37](#37-scoring-rules-and-controls-to-tighten) | benchmark | scoring rules and controls to tighten | open | midpoint scores; full-depth controls |
+| [34](#34-the-benchmark-cannot-be-rerun-from-the-repository) | benchmark | the benchmark cannot be rerun from the repository | partly done | the truth-making and analysis scripts; a fresh, unseeded run of every arm (two done, 0.14) |
+| [35](#35-truth-on-disk-or-public-not-yet-used) | benchmark | truth on disk or public, not yet used | partly done | the public sets (the two on disk and 13 tomatoes scored in 0.14) |
+| [36](#36-no-held-out-test-of-the-013-rules) | benchmark | no held-out test of the 0.13 rules | partly done | other lineages (the 13 tomatoes are one genus, 0.14) |
+| [37](#37-scoring-rules-and-controls-to-tighten) | benchmark | scoring rules and controls to tighten | partly done | the end-conditioned chance model; full-depth controls |
 | [38](#38-which-array-holds-the-kinetochore) | satellites | which array holds the kinetochore | open | settle the orangutan truth; mouse as a test bed |
 | [39](#39-satellite-arrays-below-the-engines-absolute-sizes) | satellites | satellite arrays below the engine's absolute sizes | open | a family-free tandem readout, tested one per chromosome |
 | [40](#40-a-centromeric-satellite-smaller-than-a-shared-familys-cluster) | satellites | a centromeric satellite smaller than a shared family's cluster | open | chromosome-specific families tested together |
@@ -126,28 +124,28 @@ remain (benchmark.md, section 11), and until this rewrite 11 of them were in no 
 | [42](#42-the-one-per-chromosome-test-near-its-level) | satellites | the one-per-chromosome test near its level | open | potato with genes; oat |
 | [43](#43-assemblies-that-lack-or-misassemble-the-centromeric-array) | satellites | assemblies that lack or misassemble the centromeric array | open | the 56 repaired ape centromeres as positives |
 | [44](#44-holocentric-genomes-one-low-call-per-chromosome) | satellites | holocentric genomes: one low call per chromosome | open | score the satellite holocentromeres with CENH3 |
-| [45](#45-confident-calls-at-the-edge-of-a-wide-ltr-core) | LTR | confident calls at the edge of a wide LTR core | open | agreement by chance, not by gap |
-| [46](#46-crm-decides-by-its-name) | LTR | CRM decides by its name | open | Solanaceae with CENH3 |
+| [45](#45-confident-calls-at-the-edge-of-a-wide-ltr-core) | LTR | confident calls at the edge of a wide LTR core | open | agreement at the core's maximum failed its check (0.14); tied maxima first |
+| [46](#46-crm-decides-by-its-name) | LTR | CRM decides by its name | open | `TE_MAJOR_SHARE` on new held-out Solanaceae (lead from 13 tomatoes, 0.14) |
 | [47](#47-centromeric-retroelements-the-ltr-line-cannot-read) | LTR | centromeric retroelements the LTR line cannot read | open | fungal lineage labels; non-LTR families |
 | [48](#48-how-much-the-ltr-line-depends-on-the-annotation) | LTR | how much the LTR line depends on the annotation | open | rerun the thinning on 0.13 |
 | [49](#49-hi-c-cannot-see-inside-megabase-arrays) | Hi-C | Hi-C cannot see inside megabase arrays | open | multi-mapped reads or array-unique k-mers |
 | [50](#50-satellite-free-centromeres-in-mammals) | Hi-C | satellite-free centromeres in mammals | open | same-animal horse data |
 | [51](#51-hi-c-tests-at-their-threshold) | Hi-C | Hi-C tests at their threshold | open | the depth series on 0.13; the bin |
 | [52](#52-hi-c-alone-untested) | Hi-C | Hi-C alone, untested | open | guards and the dormant mis-mapping controls |
-| [53](#53-where-the-cis-trans-line-passes-every-extreme-is-trusted) | Hi-C | where the cis-trans line passes, every extreme is trusted | open | act only where a chromosome's own pair holds |
+| [53](#53-where-the-cis-trans-line-passes-every-extreme-is-trusted) | Hi-C | where the cis-trans line passes, every extreme is trusted | tested, not adopted | the diagnostic on gate-passing genomes |
 | [54](#54-the-support-tiers-evidence) | Hi-C | the support tier's evidence | open | score its raises against functional truth |
 | [55](#55-cpg-kinetochores-outside-primates) | methylation | CpG kinetochores outside primates | open | HGSVC3 as a held-out set; a mouse negative |
-| [56](#56-telomeres-and-rdna-arrays-the-benchmark-does-not-count) | features | telomeres and rDNA arrays the benchmark does not count | open | recall per genome |
+| [56](#56-telomeres-and-rdna-arrays-the-benchmark-does-not-count) | features | telomeres and rDNA arrays the benchmark does not count | partly done | a 2-copy rDNA rule; single-end telomere arrays |
 | [57](#57-per-plant-verdicts-that-depend-on-other-chromosomes) | plants | per-plant verdicts that depend on other chromosomes | open | a leave-one-call-out check |
-| [58](#58-report-wording-and-undocumented-outputs) | reporting | report wording and undocumented outputs | open | one flag-to-sentence table |
-| [59](#59-checkpoints-that-miss-changed-inputs-or-code) | engineering | checkpoints that miss changed inputs or code | open | one checkpoint system keyed on code and inputs |
-| [60](#60-reproducibility-across-environments) | engineering | reproducibility across environments | open | a run manifest; a lock file |
-| [61](#61-memory) | engineering | memory | open | a memory budget |
-| [62](#62-hi-c-engine-speed) | engineering | Hi-C engine speed | open | one leave-one-out and null implementation |
-| [63](#63-the-integration-cascade-and-other-large-functions) | code | the integration cascade and other large functions | open | ordered rules with a `rule` column |
-| [64](#64-constants-without-a-reason-in-designmd) | code | constants without a reason in design.md | open | generate the Constants table from the code |
-| [65](#65-tests-that-pass-without-running) | code | tests that pass without running | open | fail on missing tools in CI |
-| [66](#66-statements-the-013-outputs-no-longer-bear-out) | docs | statements the 0.13 outputs no longer bear out | open | a docs audit per release |
+| [58](#58-report-wording-and-undocumented-outputs) | reporting | report wording and undocumented outputs | partly done | one flag-to-sentence table |
+| [59](#59-checkpoints-that-miss-changed-inputs-or-code) | engineering | checkpoints that miss changed inputs or code | partly done | checkpoints other than pickles |
+| [60](#60-reproducibility-across-environments) | engineering | reproducibility across environments | partly done | the macOS difference; CI's first run |
+| [61](#61-memory) | engineering | memory | open | what sets the peak (7-46 GB on similar genomes, 0.14) |
+| [62](#62-hi-c-engine-speed) | engineering | Hi-C engine speed | partly done | the library loop; a 2n = 80 polyploid timed |
+| [63](#63-the-integration-cascade-and-other-large-functions) | code | the integration cascade and other large functions | partly done | the report's sentence functions, `Run.run`, `hicfuse.py` |
+| [64](#64-constants-without-a-reason-in-designmd) | code | constants without a reason in design.md | partly done | other bare literals inside functions |
+| [65](#65-tests-that-pass-without-running) | code | tests that pass without running | partly done | a slow test at production values; CI's first run |
+| [66](#66-statements-the-013-outputs-no-longer-bear-out) | docs | statements the 0.13 outputs no longer bear out | partly done | the old figures, schematic and slides; the audit as a release step |
 
 ## Benchmark, truth and validation
 
@@ -167,6 +165,13 @@ sterilis* and *A. maroccana*.
 chosen to settle entries 1, 3, 4, 5 and 10 (`seq_overruled_*` lists the replaced arrays). Truth carried from a progenitor into a
 subgenome by unique flanks would give provisional truth (v6 `bench/flank_truth.py` reached 13 of 14 per subgenome in a *Cryptococcus*
 hybrid), but centromeres can move after polyploidization.
+**Scored in 0.14** (held out from 0.14's changes; full runs, search included; within 1 Mb; benchmark.md, section 3). *Ae.
+geniculata* from the FASTA: 0 of 14 right, all `low` (its centromeric satellites fail the one-per-chromosome test, 9/14, P 0.67);
+with `tes/`: 13 of 14 right, all `medium` (a decisive CRM signature, cores on 14/14, rejects the FASTA arm's 86-bp family and
+elects a 1,216-bp family of chained CRM pieces inside the cores), 1 confidently wrong (chr05U, 2.1 Mb off, in a 9.3-Mb core whose
+other edge reaches CENH3: #45). *S. verrucosum* (frozen ChIP rule, input from another accession): 5/12 from the FASTA, all `low`;
+8/12 with `tes/` (3 `high`, 4 `medium`, 1 `low`), 1 confidently wrong (chr06, `weak_satellite_beside_core`); `weak_core` cost it 2
+right calls (#36). Still open: the public allopolyploid sets (#35), and progenitor-carried truth for subgenomes.
 **Check.** Score as in the benchmark (the Mb-resolution table needs the 1-Mb tolerance); no rerun of the release needed.
 
 ### 34. The benchmark cannot be rerun from the repository
@@ -196,6 +201,17 @@ running its `cenfuse` command outside the 0.13 checkout uses 0.8 code silently.
 - the cited analysis scripts.
 
 Release scripts should stop when the imported cenfuse is not the code under test.
+**Done in 0.14, in part.** `benchmark/` holds the truth manifest (`truth.tsv`: one row per genome with its rule, tolerance, truth
+files relative to a data root, sources and caveats; the files stay outside, some being unpublished), one paths module, the frozen
+scorer as a tested module (17 tests), and the whole table chain with the doc templates (`benchmark/release.sh`). On 0.13's stored
+runs it reproduces every stored table and both generated docs byte for byte. The negative controls are `cenfuse control`
+(`hic-repair`, `hic-relocate`, `gc-shuffle`, `ltr-shuffle`; 44 tests): with seed 1 the Hi-C controls are byte-identical to the
+benchmark's stored NEG and NEG2 inputs, and each checks its own output's dispersion (1.000 ± 0.002 on real libraries; the withdrawn
+`shuf` controls score 176-1,712). The release scripts stop when the imported cenfuse is not the code under test. Still open: the
+truth-making scripts (`map_chip.sh`, `chip_truth.py`, the fetch scripts) and the analysis scripts the docs cite (`pa1a_age.py`,
+`young_core.py`, `poly_one.py`) are still outside; one fresh, unseeded run of every arm. Done for two (0.14): *N. crassa* and
+*M. sympodialis* run from the FASTA, search included, with an empty seed cache, give every table of the release's replays of
+their stored 0.12 searches (16 of 16 identical; v13 `bench/fresh_env.sh`), so a replay reproduces a fresh run there.
 **Check.** From a clean checkout, regenerate benchmark.md's tables from the stored runs and get the same text. One fresh, unseeded run
 of every arm should reproduce the published counts, or list every difference.
 
@@ -226,6 +242,11 @@ held-out truth:
 **Approach.** Score the two genomes already on disk first (one rerun each). Fetch the rest in table order, confirming each antibody and
 target first: the horse CUT&Tag target and the pig antibody are unconfirmed. Sheep and goat ChIP gives no truth: its antibody (CST
 #2187) recognizes phospho-Ser7 of CENP-A, which those species lack, and enrichment never passes 1.1-1.7×.
+**Done in 0.14 for the two on disk** (#9), **and for 13 tomatoes** (Shi et al. 2026, PRJNA1201608: the published CENH3
+centromeres of 11 accessions, Supp Table 8, and the frozen ChIP rule for 2 more; benchmark.md, held-out tomatoes). The soybean
+pan-centromere (PNAS 2023, Dataset S1, on disk: 27 accessions, each on its own assembly, 0.1-0.5-Mb resolution) needs each
+accession's assembly of the 2020 pan-genome (not fetched in 0.14). The pig ChIP of the assembly's breed (DRR1139646-9) is not served by ENA's portal API;
+it is at GSA (PRJCA032804) and DDBJ only, and its antibody is not stated.
 **Check.** Score each set with the frozen ChIP rule (#37), and add its genomes to the held-out set (#36) before any rule is changed on them.
 
 ### 36. No held-out test of the 0.13 rules
@@ -256,6 +277,16 @@ without truth. The clean-peak guard on Hi-C anchored on LTR cores (0.12) was rec
 
 Write each rule's expected effect on them first, as the release PLAN.md does. Add the three headroom-chosen rules to the
 rules-changed table now.
+**Done in 0.14, in part.** 0.14 named its held-out set before any run (v13 PLAN.md: *Ae. geniculata* and *S. verrucosum*, FASTA and
+`tes/`) and expected its calls to equal 0.13's there; they do. Scored for the first time, the LTR branches that move or overrule a
+call show what the development genomes could not: in *S. verrucosum* `weak_core` replaced 2 right satellite calls with thin CRM
+cores (2 and 4 elements; both `low`, both wrong) and `weak_satellite_beside_core` made a confident error; in *Ae. geniculata* a wide
+core's edge made one (#45). The LTR line still gains: 21 of 26 right with `tes/` against 5 of 26 from the FASTA, 2 confident errors
+in 22 confident calls. The rest of the plan (CRM-plateau genomes, *D. melanogaster* and birds) waits for #35.
+**The 13 tomatoes (0.14; v13 `bench/tom14_detail.py`; benchmark.md, held-out tomatoes).** The branches that move a call to a strong core were right on 33 of 39
+(`satellite_away_from_core` 15 of 20, `satellite_beside_core` 13 of 14, `weak_satellite_beside_core` 5 of 5, against one confident error in *S. verrucosum*), and `weak_core`
+on 3 of 8, all `low`. A call that merely agrees with the core is the least reliable confident kind: 6 wrong of 17 (`te_concordant`). The FASTA arms made no confident
+call. Together: 15 of 69 confident calls wrong, the same rate as the benchmark's tomato (2 of 8). One genus, so this tests one lineage's centromeres.
 **Check.** The held-out scores, reported as written, with the release.
 
 ### 37. Scoring rules and controls to tighten
@@ -298,6 +329,15 @@ rules-changed table now.
 - Settle the CDR attribution with the lab.
 
 **Check.** Report each scorer change beside the old numbers for one release; no README claim may depend on a lenient rule.
+**Done in 0.14, in part.** *Midpoints and widths:* benchmark.md reports, for every right call of the real arms, its width, its
+domain's, the midpoint distance and the share of the call on the domain (`benchmark/precision.py`): animals' right calls are a
+median 3.65 Mb wide against 0.32-Mb CENP-A domains, their midpoints 0.44 Mb apart (90th percentile 1.66 Mb); plants 2.39 Mb
+against 0.90 Mb, 0.34 Mb apart; fungi 30 kb against 12 kb, 3 kb apart. *The truth rule's numbers:* the rule recomputed from the
+stored read positions of the 18 genomes it made truth for (v13 `bench/truth_sensitivity.py`; the frozen setting reproduces all
+18 BEDs exactly) at 3×, 5× and 50-kb bins, and the 60 release runs of those genomes rescored: no outcome changes on the
+chromosome-runs both rules give truth (624, 604 and 624 of them); 3× adds 26 chromosome-runs (21 right), 5× drops 20 (16 right),
+50-kb bins add 10 (7 right) and move 167 of 186 domain ends. Still open: the end-conditioned chance model, the remapped shallow
+controls, the CDR attribution.
 
 ## Satellites
 
@@ -363,17 +403,6 @@ main family on 90 of 3,459 chromosomes and removes dominance in 6 genomes with n
 specific to subgenomes. The floor is one of the engine's absolute priors (#39). Maize's remaining confident miss, chr5, is a different
 problem (#45).
 **Check.** Other knob-rich lines with CENH3 truth.
-
-### 20. The rDNA spacer tag at its threshold
-
-**Evidence.** A family is tagged as an rDNA spacer when 45S genes flank at least half of its 10 largest arrays. *B. rapa*'s 238-bp
-family reaches 5-6 of 10 in 5 accessions (tagged) and 3-4 in 6 (not tagged). In CX1, at 4 of 10, it stays eligible. Since 0.11 the
-two-way period test ([17](#17-knobs-and-the-size-floor)) takes it out of CX1's centromeric class, which puts A05 right and narrows A06,
-but the tag still differs between accessions.
-**Approach.** The code already propagates the tag when the accessions are analyzed together (several FASTAs in one folder): a family
-tagged in one genome of a complex is tagged in all (`sat/classify.py`, `apply_rdna(elsewhere)`; the case it was built on is *Lemna*).
-Nothing new is needed but the joint run.
-**Check.** The 11 accessions run as one complex, scored against CENH3.
 
 ### 38. Which array holds the kinetochore
 
@@ -572,7 +601,7 @@ then what 0.13 shows:
   call: tomato with `tes/` and Hi-C would go from 10 to 12 of 12. This was not built in 0.13, because of the extra machinery, not
   because of a bad result.
 
-**Check.** More genomes with a non-CRM signature and truth (the wild tomatoes of #35); *Arabidopsis* with CEN180 masked must not move
+**Check.** More genomes with a non-CRM signature and truth (the 13 tomatoes of 0.14 are scored: #36, #46; 15 of their 69 confident calls are wrong); *Arabidopsis* with CEN180 masked must not move
 its calls onto the Athila cores; randomized TNEG tomato stays silent.
 
 ### 31. A centromere that left its satellite and its LTR families
@@ -632,6 +661,20 @@ confident call is not moved by one tested line against another. Maize has no Hi-
 agree. A call at the edge of a core much wider than itself agrees little beyond chance, so it should not be raised; or it should meet the
 head-to-head test that a call beside a core meets. Inside an agreeing wide core, the young copies' core (entry 31) is a candidate
 locator, untested.
+**Tested in 0.14, not adopted: agreement at the core's maximum.** Principle, written before the measurement (v13 PLAN.md, C2): two
+estimates agree when the call holds the core's best point, its density maximum, within one TE bin, not merely when it lies within the
+core's width; applied only where an agreement lifts a cap. Measured on 0.13's stored runs with the frozen 0.13 code (cores rebuilt with
+`signature.build` and `te.core`: 0 mismatches over 496 chromosome rows; v13 `results/core_peak/`). In the `tes/`
+arm (all 8 `tes/` arms in brackets): of 37 [84] calls that an agreement lifts from a cap, 30 right and 2 wrong [66, 6] hold the
+maximum within a bin and 3 right and 2 wrong [8, 4] do not; of the 93 [278] not lifted, 86/0 [255/0] and 6/1 [20/3]. The rule
+would lower 2 of the 5 errors (*Ae. tauschii* Chr7, 2.98 bins from the maximum; tomato CM175074.1, 2.37) and 3 right calls
+(potato chr05, 3.6 bins; tomato CM175070.1, 3.3; CM175077.1, 8.7), which fails this entry's check. *Ae. tauschii* Chr5 and potato
+chr08 hold their cores' maximum (0.57 bins; 0), and maize chr5 is `high` without any lift. Variants fare no better: requiring
+overlap with the peak bin lowers 4 right and 3 wrong; counting any tied maximum, 2 right and 1 wrong.
+**Found on the way: the maximum is often tied.** 66 of the 130 profiles have tied maxima (small counts, a 5-bin box filter), 32 of
+them with a tie more than one bin from the bin `np.argmax` takes (the first along the chromosome), so where a core starts can depend
+on which of two equal maxima comes first. A tie-break with a reason (the unsmoothed counts, a smooth kernel, or the tied run holding
+more elements) is worth its own check before any rule reads the maximum.
 **Check.** The five calls fall to `low` or move onto CENH3; none of the 125 right calls drops below `medium`. Held-out CRM-plateau
 genomes (wheat, the soybean lines, *Ae. geniculata*: #35), not these five, decide the rule.
 **Code.** `sat/centromere.py` (`te_concordant`), `sat/te.py` (`agrees`), `linetests.py`.
@@ -652,6 +695,13 @@ lineage, with a floor that excludes that case, and was not retested. Mammalian E
 one.
 **Approach.** Give CRM the same test as other lineages (a fold level, or the decisive test measured in each genome), or keep its
 standing only where its cores pass the one-per-chromosome test. Test on Solanaceae with CENH3 (*S. verrucosum*, tobacco).
+**Measured in 0.14 (13 held-out tomatoes; v13 `bench/tom14_te.py`, `tom14_detail.py`), no rule changed.** The reverse of the case above: a non-CRM lineage held back. A Tekay
+signature (18- to 53-fold) decides in 12 of the 13 accessions, as in tobacco; its cores lie within 1 Mb of CENH3 on 102 of 151 chromosomes, the final calls on 70 of 156. Cores
+replace calls in most accessions, but only where they hold most of the signature's elements on the chromosome (`TE_MAJOR_SHARE`, `signature.significant`; a CRM core always may).
+Where the rule holds a core back and the two lie more than 1 Mb apart (59 chromosomes, all but one call `low`), the core is right on 36 and the kept call on 6. A candidate, post hoc: let
+a decisive lineage replace a `low` te_discordant call and stay `low`, which can add no confident error. It needs a reason beyond these genomes (the majority rule has one: the
+other elements say the locus is not unique), the cost on the benchmark's non-CRM genomes, and new held-out Solanaceae; the six Table 8 accessions without deposited ChIP could
+serve if how their centromeres were found is confirmed.
 **Check.** No right call lost in the CRM-decisive genomes of the benchmark; no tobacco or eggplant CENH3 domain overruled by CRM.
 **Code.** `sat/signature.py` (`seed_of`, `TE_SEED_MIN_CORES`).
 
@@ -684,6 +734,8 @@ which no benchmark annotation used, and the LTRquest version (1.0.1 in v6) is re
 **Approach.** Rerun the thinning on 0.13 with LTRquest only (v6 `bench/td_thin.py` thins elements by hash). Report the depth at which
 each genome's signature stops deciding. Record the LTRquest version and flags in the outputs. Benchmark the README's command with
 `--proteins`, or drop the flag.
+**Found in 0.14.** LTRquest writes no version or command into its GFF3 (only its name in the source column), so cenfuse cannot record
+which LTRquest made a `tes/` file; run_info.json records the file's fingerprint. The README now marks `--proteins` as untested.
 **Check.** The annotation table regenerated from 0.13 code.
 **Code.** `sat/signature.py`, `teline.py`.
 
@@ -697,6 +749,10 @@ about 21,000. The chicken library is a prefix of the data: the first 40 M read p
 **Approach.** First, a one-constant experiment: a per-chromosome cap set by memory rather than by 4,000 bins. Check which readers use the
 dense per-chromosome block (the fold, balancing, the cis profile), because a sparse or banded fold scan lifts the cap only if they all
 can work without it.
+**Measured in 0.14: the cap is not the limit.** With MAX_CHROM_BINS 8,000 (a 512-MB dense block) on chicken SH, 50 kb becomes
+a candidate bin (40 sequences considered instead of 30), but the depth rule still chooses 250 kb: 26.1 M unique pairs give too
+few expected centromere contacts per 50-kb bin. The gate passes on 0/40 (0/30 before) and none of the 40 calls changes. The cap
+stays; what chicken's microchromosomes need is a deeper library.
 **Check.** Chicken with deeper Hi-C; calls on the microchromosomes against the CENP-A windows.
 **Code.** `hic/params.py` (`MAX_CHROM_BINS`), `hic/bins.py`, `fold.py`.
 
@@ -789,6 +845,14 @@ an end (CM175073.1, CM175075.1), while its interior extremes lie on CENH3. Movin
 acrocentric chromosome among metacentric ones, which the line cannot see.
 **Approach.** A second line that can see the ends: the which-end test (the anchored score at the two ends) where it passes, or an LTR
 core.
+**Measured in 0.14: a candidate, waiting for a second case.** The chromosome's own trans peak is such a line. The cis-trans test
+takes each chromosome's trans peak over its whole length (`hicfuse.anchored_on_cores`: the argmax of the anchored score; it counts
+only at the anchor and only when clean, so an end never counts), so where that chromosome's own pair holds, the strongest
+centromere clustering lies at the interior extreme even though chromosome ends attract trans contacts. Both of tomato's wrong
+terminal calls are such pairs (CM175073.1, CM175075.1; calls at 61.06-61.31 and 61.76-62.21 Mb), and their interior extremes lie
+inside CENH3 (27.00-27.25 in 26.1-27.5 Mb, 20.25-20.50 in 19.6-20.9 Mb). An acrocentric chromosome among metacentric ones, its
+trans peak at its centromeric end, has no pair and would keep its call. Tomato is the only genome where `cis_blind` occurs, so
+the rule waits for a second genome (rules for any change, 3).
 **Check.** Tomato moves its 2 calls; the acrocentric mammals (goat, sheep, mouse) keep theirs.
 
 ### 33. Cis and trans at one locus as a confident call
@@ -890,6 +954,10 @@ chromosome's own trans peak meets its extreme.
 
 **Approach.** Let the line act on a chromosome only where its own pair holds (the pairs it already records). Run it as a diagnostic on
 the gate-passing genomes with truth.
+**Tested in 0.14, not adopted.** Read from 0.13's stored Hi-C checkpoints: G1 *C. neoformans* has 12 pairs on 14 chromosomes, and
+its 2 non-pair chromosomes (CP003821.1, CP003826.1) are right calls of the line, while its 2 wrong calls (CP003824.1, CP003829.1)
+are pairs; in tomato without `tes/` the 2 non-pair chromosomes (CM175070.1, CM175077.1) are right too. Acting only at pairs would
+lose 6 right calls (G1 in two arms, tomato) and fix none. The diagnostic on gate-passing genomes is still open.
 **Check.** The off extremes of *N. crassa* and *V. dahliae* do not act; rice, soybean and the apes pass nothing; randomized libraries
 silent.
 **Code.** `hicfuse.py` (`cis_trans_line`), `fuse.py` (the cis rules).
@@ -1006,6 +1074,9 @@ in a genome without a telomere unit (potato, *S. pombe*: #56); 0.9's version als
 unassembled is missed.
 **Approach, still open.** The other edge: large scaffolds kept in the set without a telomere, a centromere-like array or genes (Hi-C
 contacts are another signal). An organelle test from the sequence (the organelle SSU context `rdna.py` already reads is one route).
+**Measured in 0.14: headers do not say.** No chromosome set of the benchmark has a FASTA header that names an organelle: the inputs
+carry accessions only (yeast's mitochondrion is `>NC_001224.1`), so a rule reading header descriptions would find nothing here. The
+organelle test has to come from the sequence (the organelle rRNA context of `rdna.py`, or the sequence's size and copy number).
 **Check.** The 121 lists as truth; *D. melanogaster* and bird karyotypes, with the simulated karyotypes as regression tests; the 383
 assemblies of the rule's evidence as a no-change control.
 **Code.** `inputs.py` (`chromosome_set`, `left_out`), `meth/track.py` (where the length rule lives today).
@@ -1022,6 +1093,12 @@ scan needs 3 motif copies, so a collapsed 2-unit rDNA locus is missed (*Cryptoco
 the truth rule (terminal 10 kb) does not count, and they were never inspected.
 **Approach.** Report telomere recall per genome; find why potato has no unit (assembly ends without repeats, or detection); a 2-copy
 rDNA rule, using the organelle context the 45S scan already reads.
+**Done in 0.14, in part.** benchmark.md (section 9) lists, for every genome, the telomere unit, the ends with an array, the complete
+chromosomes and the 45S arrays (v13 `bench/telomere_recall.py`). No unit is found in potato, *S. pombe* and *C. nigoni* because
+their assemblies' ends hold almost no telomere: in potato's DM assembly one end of 24 holds a TTTAGGG array (378 bp, chr11's
+start; the others at most 35 bp in their terminal 20 kb), and a unit is learned only from arrays at two ends or more
+(`telomere.MIN_ENDS`); the *S. pombe* reference ends hold at most 8 copies of a GGTTAC-like k-mer in 10 kb; one *C. nigoni* end
+holds 40 copies of TTAGGC (240 bp), under `MIN_ARRAY`. Open: a single-end array (potato chr11) is not reported, by that rule.
 **Check.** Telomere and NOR recall in the benchmark tables.
 **Code.** `telomere.py`, `rdna.py` (`MIN_UNITS`).
 
@@ -1079,6 +1156,12 @@ the noise model.
 
 **Approach.** One table of flag → basis phrase, caveat phrase and settling input, read by `basis` and `caveat` and tested flag by flag.
 Write failed sections into the report and `cenfuse_summary.tsv`. Generate the column tables from the code's column lists.
+**Done in 0.14, in part.** A failed report section or figure is recorded (summary column `incomplete`, a placeholder in the report,
+`run_info.json`, a final warning). `hic_near` has a caveat sentence on calls that are not `high`. outputs.md and plants.md document
+every column of every table (loci, feature signatures and contacts, line tests, LTR signature, provenance, plants, plant sites) and
+the 5 Hi-C engine flags, and a test fails on an undocumented column (tests/fuse/test_outputs_documented.py). Still open: one table of
+flag, sentence and settling input; the `tes/` advice where `tes/` cannot act (which needs the lineage, which cenfuse does not know);
+the HOR summary; homolog agreement per run; the replaced call's own confidence.
 **Check.** A test per flag sentence; outputs.md complete, by a test.
 **Code.** `interpret.py`, `output.py`, `sat/hor.py`.
 
@@ -1134,6 +1217,16 @@ identical but gained little (0.65-1.39x). The script was lost (it lived in a ses
 outnumber subjects. `sat/families.py` says the hits are identical and that "MAFFT --threadit 0 and BLAST give the same output at any
 count", but the batching dependence above says otherwise. *Check:* `cluster_seeds` on *Acanthus*' stored seeds at 4 and 16 threads,
 comparing the cluster assignments.
+**Measured in 0.14 (one genome).** The families stage of *S. verrucosum* (0.7 Gb, 36 families) rerun from its stored seeds at 4
+and 16 threads (v13 `bench/exp_threads.py`): `families.tsv`, the consensus FASTA, the HMMs (apart from their DATE line), the
+content of the seed table and the dropped clusters are identical; only BLAST scratch databases and the frame-rotation work
+files differ. **And the heavy case (0.14):** *Acanthus*' families stage (12 BLAST rounds of up to 200 x 200 seeds, thousands of
+HSPs per pair) from its stored seeds at 4 and 16 threads (about 2 h 14 min and 60 min): `families.tsv`, the consensus FASTA, the
+dropped clusters, the HMMs (apart from their DATE line), the seed table's content and the rRNA scan (apart from its comment
+lines) are identical. What differs is BLAST's scratch databases and the work files of frame rotation, some written in one run
+only and with other hit lists (fam040: 12 hits against 8): the parallel family build speculates differently at another thread
+count and keeps the serial result (design.md, Parallel family models). So the thread count changes no family on the heaviest
+genome; the hit lists BLAST reports do depend on it, below what the clustering reads.
 **Approach.** Fewer HSPs to report. A pair already known to match (or not) needs no more HSPs, so a two-pass search would cut the output
 that dominates heavy rounds: first the best HSP per pair, then full tiling only for the pairs the clustering consults.
 **Check.** Identical cluster assignments and representatives on every stored seed set.
@@ -1180,6 +1273,37 @@ must know the FasTAN version (#60).
 
 **Check.** Tests that a code or input change recomputes exactly the stages it should, and that a resume uses its checkpoints. Today's
 resume test would pass if every checkpoint were ignored.
+**Done in 0.14.** One rule for both systems: a checkpoint stands on its code, its parameters and the content of its inputs
+([design.md](design.md#engineering-notes), Checkpoints, Locks).
+- The satellite engine keys its stages from classify on also on the content of `genes/` and `tes/`. A stale classify-onward
+  stage is recomputed, with a warning naming what changed: adding `tes/` to a finished run needs no `--force` (the held-out
+  arms of 0.14 were run this way, from 0.13's stored searches). A stale search stage still stops the run, naming every stale stage.
+- cenfuse's stages key on the syntax trees of their modules, of everything those import inside cenfuse and of their own
+  `Run.stage_*` method (comments and docstrings out), on the package data they read, on the whole FASTA's md5 where they read
+  the sequence (a same-length edit keeps the `.fai`: found by the 0.14 code review), and on content fingerprints of their other
+  inputs (whole files up to 32 MiB, else the size and four 1-MiB samples), not on paths or time stamps: a moved or copied
+  folder resumes. The satellite engine's stamps hold the FASTA's md5 too (a pre-0.14 stamp is trusted only while the FASTA is
+  older than it, then upgraded; both found by the 0.14 code reviews).
+- An unreadable checkpoint (torn, or a library upgrade) is recomputed with a warning; `.done` stamps are written atomically.
+- `--force STAGE` recomputes that stage and `--force all` every stage; a later stage follows when what it reads changed.
+- An output-folder lock (host, pid, start time, a heartbeat each minute); a stale lock (a dead or reused pid on this host, 15
+  minutes without a heartbeat from another host, or unreadable that long) is taken over with a warning, under a guard file so
+  that two runs never both take it; SIGTERM releases it. The seed cache uses the same rules, so no run waits forever.
+- A Hi-C checkpoint whose contact-matrix cache is gone recomputes Hi-C, so the Rabl-axis lines are no longer dropped on resume.
+- Tests: tests/fuse/test_checkpoints.py; the end-to-end resume test now fails if any checkpoint is rewritten.
+
+- Every output and checkpoint of the four engines is written to a temporary file beside it and moved over it, and a stage that
+  recomputes first unlinks the files of its folder that have other hard links (its tools write in place). Found by the 0.14
+  verification replay: the satellite engine rewrote its tables in place, so recomputing a folder copied with `cp -al` changed
+  the original's files (the held-out arms of the replay were such copies). Test: tests/sat/test_sat_e2e.py (a hard-linked copy
+  recomputed from families on leaves every file of the original as it was; the test fails on 0.14's first code). At scale: the
+  final replay recomputed the four held-out arms from classify inside hard-linked copies of the earlier release's satellite
+  folders, and all four originals kept every file (md5), with every table of the four arms unchanged.
+- runtime.py and manifest.py are kept out of every code key (`pipeline.KEYLESS`): the engines import them, so before this an
+  edit to a lock rule recomputed every stage.
+
+**Still open.** After an upgrade that changes a search stage the run still stops for `--force` (by design: the search can take
+hours); checkpoints are still pickles.
 **Code.** `pipeline.py` (`code_key`, `_cached`), `sat/pipeline.py` (STAGE_VERSION, STAGE_PARAMS), `sat/seeds.py` (the lock).
 
 ### 60. Reproducibility across environments
@@ -1202,7 +1326,23 @@ resume test would pass if every checkpoint were ignored.
 package versions, input fingerprints); a lock file per release; the FasTAN version and layout flag in the seed key; a version check on
 `--satellite-dir`; worker log events returned to the parent process.
 **Check.** A fresh run in a rebuilt environment equals the release; the macOS path gives a stated difference.
-**Code.** `output.py`, `sat/seeds.py`, `sat/fastan.py`, `environment.yml`, `pipeline.py` (`stage_satellite`).
+**Done in 0.14.** Every run writes `run_info.json` (cenfuse's version and git commit, the command, host, threads and times,
+Python and package versions, each external tool's path, version line and conda package: FasTAN and TRF print no version of
+their own, so the conda record names them; the inputs' content fingerprints; how the run ended). cenfuse and its engines share
+one version, so the outputs' headers name it (the Hi-C contact-matrix cache keeps its own format version, so 0.13's caches
+stay valid). `--satellite-dir` warns when the imported run's manifest names another version. environment.yml pins major.minor
+versions, and environment.lock.txt is the exact linux-64 environment of the 0.14 benchmark. The seed cache is keyed by FasTAN's
+binaries (md5) and its fixed-layout state, so a FasTAN release or a host without `setarch` never reuses another's seeds (a
+cache named the pre-0.14 way is still reused, with a log line). Thread counts: see #6.
+**Done in 0.14, later.** Under spawn and forkserver, worker processes send their log records to the main process
+(`runtime.process_pool`: the seed pool, the methylation bins, the genotypes; under fork they inherit the handlers, as before),
+tested under all three; a worker killed while sending a record no longer hangs the run (found by the code review). An environment rebuilt from environment.lock.txt (mamba
+2.4, 30 s from the package cache) runs the whole suite with every tool required: 1,121 passed, none skipped; cenfuse installs in
+it with `pip install --no-deps --no-build-isolation .`, and fresh runs of *N. crassa* and *M. sympodialis* there equal those of
+the benchmark's environment and the release, table for table (v13 `bench/fresh_env.sh`). `.github/workflows/tests.yml` runs the same on GitHub (not run yet: the
+repository was not pushed).
+**Still open.** The macOS difference measured and stated.
+**Code.** `manifest.py`, `sat/seeds.py` (`tools_key`), `sat/fastan.py`, `environment.yml`, `pipeline.py` (`stage_satellite`).
 
 ### 61. Memory
 
@@ -1214,6 +1354,9 @@ bins) and is skipped above that size. Rejected in v5 (unrecorded in design.md):
 - model-major job order: 125 GB;
 - `MALLOC_ARENA_MAX=2` and freeing hit rows: no change.
 
+**Measured in 0.14.** Every run now records the peak of all its processes (`run_info.json`, `cost`). The 13 tomatoes of 0.8-1.2 Gb, at 16 threads, peaked at 7-46 GB in the
+largest process, so memory is not set by genome size and threads. A budget built on the search workspaces would promise what it cannot hold (rhesus: 74 GB at 12 threads,
+unexplained), so none was built.
 **Approach.** A `--max-memory` resource option (a resource, not a threshold) that limits concurrent long-model searches, or the expected
 peak logged before the search; a profile of the rhesus peak; the feature-class statistic from the sparse matrix.
 **Check.** A run under a budget finishes with identical outputs.
@@ -1227,6 +1370,26 @@ the feature-class permutations run serially while the bootstrap is threaded. Eac
 `scipy.sparse.load_npz` read the 32-MB members of the Hi-C caches at 20 s each. Hi-C takes minutes on the benchmark, so this matters for
 birds, polyploids with 30-100 chromosomes and many libraries.
 **Approach.** One leave-one-out and null implementation for both callers, mapped over the thread pool with per-replicate seeds.
+**Found in 0.14 (reading the code): both can run in parallel with every number unchanged.** `hicfuse.cis_chance` draws from one
+random stream per chromosome (`default_rng([SEED, k])`), so the chromosomes can be mapped over the pool as they are. `null_all` draws
+each replicate's random partner positions from one stream; drawing all of them first, in the same order (cheap), then scoring the
+replicates in parallel (the cost) keeps every P value. Verifying needs one full Hi-C recompute of the benchmark (about 2 h).
+**Done in 0.14, later: measured first.** A profile of the slowest Hi-C arm (siamang with randomized Hi-C, 999 s of Hi-C at 5
+threads; py-spy, every thread) puts 95% of the stage in two bootstraps of 100 Poisson resamples, the engine's (46%) and cenfuse's
+`bootstrap_all` (49%), both threaded already; the null replicates took 0.06%, the cis-trans line 0.03%, the feature classes
+0.4%. Inside a replicate, resampling took about 50% (the upper triangle, the draws and a sparse transpose and sum), balancing,
+the balanced matrix and the block means about 47%, the partner windows' scores the rest. The two bootstraps drew the same
+resamples (one seed, one matrix), so the engine's bootstrap now scores cenfuse's windows on its own resamples, and each resample
+is written straight into the matrix's symmetric layout (`hic.confidence._Resampler`, checked array by array against
+`poisson_resample`); the null and the cis simulations were mapped over the pool as planned above. Every number unchanged: unit
+tests against the former functions, and the slowest arm's 9 tables identical, its Hi-C stage 369 s instead of 999 s (before the
+resampler change). The final replay (260 runs, every Hi-C stage recomputed): every table identical, the 139 Hi-C stages 4.6 h of
+wall time in all against 8.5 h in the first pass (median 0.54 of the former time per stage of a minute or more; the longest 533 s
+against 999 s; a shared server, so the times are approximate). One leave-one-out for both callers: the engine's
+(`hic.confidence.leave_one_out`) scored every chromosome for every pair, cubic in the partners; it now scores only the chromosome
+left out of, as cenfuse's did, with the same peaks (unit test against the former loop; synthetic genomes: 30 chromosomes 1.7 s ->
+0.07 s, 80 chromosomes 82 s -> 1.0 s). Still open: the Hi-C library loop (each library reruns the stage); a 2n = 80 polyploid
+timed on real data.
 **Check.** Identical tables, faster on chicken and on a 2n = 80 polyploid.
 **Code.** `hic/confidence.py`, `hicfuse.py`.
 
@@ -1250,6 +1413,12 @@ birds, polyploids with 30-100 chromosomes and many libraries.
 
 **Approach.** One function per rule, applied in a declared order and each returning its rule name (a `rule` column, with the order
 documented in design.md); one `stats.py`; a Hi-C engine library call; the LTR line in its own package; one shared CLI helper.
+**Done in 0.14, in part.** `fuse._decide` is one function per rule in a declared order (`CASCADE`: the first rule that applies sets
+the call; `PHASES`: the LTR-core, cis and AT readings act on it in turn; then refinement, support, against, confidence), and every
+call names its rule in a `rule` column (outputs.md) and the calls' GFF3. The split decides exactly as the single function did on
+200,000 random evidence combinations (tests/fuse/test_fuse_equivalence.py, against a frozen copy of 0.14.0's function) and on the
+benchmark. `-t` below 1 stops at the command line; `util.mcnemar_exact` (dead) is gone. Still open: `interpret.genome_section`,
+`caveat` and `basis`; `Run.run`; `hicfuse.py`'s four concerns; one `stats.py`; a Hi-C engine library call; one CLI helper.
 **Check.** Byte-identical outputs on the benchmark before and after; `test_fuse_rules.py` as the per-rule spec.
 **Code.** `fuse.py`, `interpret.py`, `pipeline.py`, `hicfuse.py`.
 
@@ -1272,7 +1441,13 @@ identity with 0.9.
 **Approach.** Generate the Constants table from the code (each params module's reason comments and `sat/params.REASON`), with every
 heuristic and prior marked. Add a test that fails on a module-level numeric constant without a reason, and name the bare literals.
 **Check.** The table regenerated; no constant without a reason.
-**Code.** `params.py`, `sat/params.py`, `hic/params.py`, `meth/params.py`.
+**Done in 0.14, in part.** All 215 module-level numeric constants carry a reason (8 had none: figure layout, two cache versions, a
+seed); a test fails on one without (tests/fuse/test_constants.py); and [constants.md](constants.md) lists every one with the
+51 satellite parameters (sat/params.REASON), generated from the code (`python -m cenfuse.consts docs/constants.md`, checked by the
+test), marking 32 heuristics and priors. The bare literals named in this entry are constants now (`sat/families.UNIT_COVER`,
+a heuristic; `params.FC_LEVEL`, the feature-class level, also in the Hi-C log), values unchanged. Still open: other bare literals
+inside functions, and design.md's Constants table, which stays the curated summary.
+**Code.** `params.py`, `sat/params.py`, `hic/params.py`, `meth/params.py`, `consts.py`.
 
 ### 65. Tests that pass without running
 
@@ -1286,7 +1461,13 @@ is no CI.
 **Approach.** A `CENFUSE_REQUIRE_TOOLS=1` switch that turns tool skips into failures (for CI and releases); unit tests for the checkpoint
 layer, the summary row, each flag's sentences and the CLI parsing; one slow test at production values; CI from the lock file (#60).
 **Check.** CI green with no skips.
-**Code.** `tests/sat/sat_common.py`, `tests/fuse/test_fuse_e2e.py`.
+**Done in 0.14, in part.** `CENFUSE_REQUIRE_TOOLS=1` turns every skip for a missing tool into a failure (tests/conftest.py); unit
+tests cover the checkpoint layer, the locks, the manifest and the constants; the end-to-end resume test checks that no checkpoint
+is rewritten. CI from the lock file: `.github/workflows/tests.yml` (the suite passes in an environment rebuilt from it, #60).
+Unit tests now cover `cli.py`, `linetests.py`, `seqcalls.py` and `teline.py` (tests/fuse/test_cli.py, test_linetests.py,
+test_seqcalls.py, test_teline.py), and some functions of `loci.py`, `methfuse.py` and `provenance.py`
+(test_loci_methfuse_provenance.py). Still open: one slow test at production values; the `frame_rotation` premise as a test.
+**Code.** `tests/conftest.py`, `tests/sat/sat_common.py`, `tests/fuse/test_fuse_e2e.py`.
 
 ### 66. Statements the 0.13 outputs no longer bear out
 
@@ -1329,6 +1510,13 @@ layer, the summary row, each flag's sentences and the CLI parsing; one slow test
 
 **Approach.** A release step that audits the docs against the release outputs, with docstrings citing benchmark sections instead of
 numbers.
+**Done in 0.14, in part.** design.md: the head-to-head test's cases, the swapped element ranges, Pa1A's 0.13 outcome, the gate's
+whole-set majority, the pooled-LTR row's three forms, the end-distance row's own numbers, the not-goal's meaning, `hic_gate_refs`,
+the test count. Code: the docstring numbers (mouse 19/19, soybean, P 1.2e-13, 14 of 63), the stale CRM docstring, the six design.md
+section names, `test_align.py`'s reference, the British spellings (`rdna_neighborhood`). benchmark.md: the scoring section now
+states the scorer's tolerances (the 250-kb rule without Hi-C, 4 bins for four genomes only, overlap or touch for chicken and mouse).
+README: the LTRquest recipe marks `--proteins` as untested, the runtime is from fresh runs, the `--force` row is current. Still
+open: the three 0.10.1 figures, the workflow schematic and the slides; the audit as a release step.
 **Check.** The items above fixed; the audit written into the release PLAN.
 
 ## Leads for biology
@@ -1450,6 +1638,24 @@ truth, all `low`. Hi-C's own call can then stand there: *M. sympodialis* LT67182
 27/33, *S. pombe* FASTA only 1/3 -> 0/3, one right call in sheep. Nothing yet tells a right long-unit array from a wrong one, so the 8
 right calls go with the rest; another line can still keep them. Where centromeres are long-unit arrays of retrotransposon fragments
 (*Coffea*, putatively), this leaves them uncalled from the FASTA.
+
+### 20. The rDNA spacer tag at its threshold
+
+**Evidence.** A family is tagged as an rDNA spacer when 45S genes flank at least half of its 10 largest arrays. *B. rapa*'s 238-bp
+family reaches 5-6 of 10 in 5 accessions (tagged) and 3-4 in 6 (not tagged). In CX1, at 4 of 10, it stays eligible. Since 0.11 the
+two-way period test ([17](#17-knobs-and-the-size-floor)) takes it out of CX1's centromeric class, which puts A05 right and narrows A06,
+but the tag still differs between accessions.
+**Approach.** The code already propagates the tag when the accessions are analyzed together (several FASTAs in one folder): a family
+tagged in one genome of a complex is tagged in all (`sat/classify.py`, `apply_rdna(elsewhere)`; the case it was built on is *Lemna*).
+Nothing new is needed but the joint run.
+**Check.** The 11 accessions run as one complex, scored against CENH3.
+**Done in 0.14.** The 11 accessions as one complex (a fresh run from the FASTAs, search included: 2 h 42 min at 24 threads,
+13.7 GB in its largest process; v13 runs/joint14): the 238-bp family is an rDNA spacer repeat in all 11 genomes (`role`
+rDNA in each; tagged in 10 of 10 arrays everywhere), and the calls are right on 110 of 110 chromosomes, 105 `high` and 5 `low`,
+none confidently wrong, the same per accession as the 11 separate runs (the 5 `low` on the same 4 accessions). 90 of the 110 calls
+move their ends slightly (the families are built from all 11 genomes at once): the midpoints by a median 0 kb, at most 27 kb.
+The tag's dependence on each accession's own arrays is real, but no call depended on it once 0.11's period test held; the joint
+run is the way to analyze several accessions of one species.
 
 ### 21. Moved calls whose sentences disagree
 

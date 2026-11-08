@@ -1,12 +1,15 @@
 # Benchmarks
 
 cenfuse was scored on 55 assemblies (56 genomes and libraries), from T2T mammals to fungi, against centromeres mapped
-functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.13.0 on every
-benchmark arm and on the 40 arms held out from 0.12 (260 runs, 2026-11-07), scored with the rules fixed before each benchmark
-was first run. Each run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`); the engine is
-unchanged since 0.11. What changed from 0.12 is listed in [section 13](#13-what-changed-from-012), and the genomes held out from
-the 0.12 rules in [section 4](#held-out-from-the-012-rules) (0.13 was developed with them in view: none is held out from it). The overview pages of every genome are in the [gallery](gallery.md); how each rule
-works is in [design.md](design.md).
+functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.14.0 on every
+benchmark arm and on the 40 arms held out from 0.12 (260 runs, 2026-11-08), scored with the rules fixed before each benchmark
+was first run; 0.14 changed no rule, and its calls equal 0.13.0's on all 260 runs ([section 13](#13-what-changed-from-013)).
+Each run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`); the engine's rules are
+unchanged since 0.11. Two genomes whose CENH3 truth was on disk but never scored, an allotetraploid among them, are held out
+from 0.14 and run in full, search included ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and so are 13 tomatoes ([section 3](#held-out-from-014-thirteen-tomatoes)); the genomes held
+out from the 0.12 rules are in [section 4](#held-out-from-the-012-rules). The scorer, the truth manifest and this page's tables are
+in the repository ([benchmark/](../benchmark/README.md)). The overview pages of every genome are in the [gallery](gallery.md); how
+each rule works is in [design.md](design.md).
 
 ## How calls are scored
 
@@ -16,14 +19,38 @@ works is in [design.md](design.md).
   on the BTx623 assembly; *Arabidopsis*: Col-0 on Col-CC), CUT&Tag (*Chlamydomonas*), the published centromeres of two
   *B. rapa* accessions whose ChIP is too weak, the CenSat active arrays of HG002, the authors' CENP-A windows of
   chicken, the CENP-A minor-satellite array of mouse, and CEN/CENP-A/CenH3 coordinates of the fungi and *Plasmodium*.
-  ChIP domains were called with one frozen rule (100-kb bins, ChIP/input, half-maximum run, ≥ 4×).
-- **Right.** Mammals: the call overlaps the CENP-A domain. Plants: within 4 Hi-C bins of the CENH3 domain (1 Mb
-  without Hi-C; barley 8 Mb, its Hi-C bin being 2 Mb). Moss, *Chlamydomonas*, *Chlorella*: within 100 kb. Chicken and
-  mouse: overlap. Fungi and *Plasmodium*: within 1 Hi-C bin (10-50 kb). Holocentric genomes have no single centromere,
-  so any confident call there is wrong.
+  ChIP domains were called with one frozen rule (100-kb bins, ChIP/input, half-maximum run, ≥ 4×). The scores do not hang on
+  its two numbers: on the 18 genomes whose truth it made and whose reads are on disk (60 release runs), 3× or 5× instead of 4×,
+  or 50-kb bins (which move 167 of 186 domain ends), change no outcome on the chromosome-runs both rules give truth (604-624);
+  they add or drop chromosomes whose ChIP sits near 4×, scored right less often (3×: 26 more chromosome-runs, 21 right; 5×: 20
+  fewer, 16 of them right; v13 `bench/truth_sensitivity.py`, since 0.14).
+- **Right**, as the frozen scorer rules it ([benchmark/score.py](../benchmark/score.py), manifest
+  [benchmark/truth.tsv](../benchmark/truth.tsv)). Mammals with CENP-A truth, *Arabidopsis* and HG002 (a CenSat active array):
+  the call overlaps the domain by at least 1 bp; the mammals without functional truth are scored by the same overlap with
+  another satellite caller's locus (agreement, not truth). Chicken and mouse: overlap or touch (gap 0). Rice, potato, barley and
+  EquCab3: within 4 Hi-C bins of the run, and without Hi-C 1 Mb (barley 8 Mb). Maize, *Brachypodium* and the CENH3 truths
+  added since 0.8 (*B. rapa*, soybean, sorghum, *Ae. tauschii*, tomato, grape, cucumber; 0.14's *Ae. geniculata* and
+  *S. verrucosum*): 1 Mb whatever the Hi-C bin (*Ae. tauschii*'s 2-Mb bins: half a bin). Moss, *Chlamydomonas*,
+  *Chlorella*: 100 kb. Fungi and *Plasmodium*: 1 Hi-C bin of the run (10-50 kb), and 250 kb in an arm without Hi-C, a
+  lenient rule for genomes whose centromeres span 1-100 kb ([future.md #37](future.md#37-scoring-rules-and-controls-to-tighten)).
+  Holocentric genomes have no single centromere, so any confident call there is wrong.
 - **Confident** = `high` or `medium`; `low` = cenfuse says it is unsure.
 - **Chance.** A chromosome's chance of a right call by luck is (call + truth + 2 × tolerance) / chromosome length; P
   is the Poisson-binomial tail of the right count.
+- **How close a right call is** (since 0.14, [future.md #37](future.md#37-scoring-rules-and-controls-to-tighten)). Overlap
+  and tolerance rule a call right, however wide it is. Every right call of the real arms (the randomized-Hi-C controls left out),
+  against its domain ([benchmark/precision.py](../benchmark/precision.py)). In the animals a call is the satellite array (or
+  a large part of it), about ten times the CENP-A domain inside it: right says where the centromere is, to about half a
+  megabase, not which part of the array holds the kinetochore (the CpG line's `cpg_kt_*` columns do, where it passes).
+
+| truth | calls | right calls | median call width | median domain width | median midpoint distance (90th percentile) | midpoint inside the domain | median share of the call on the domain |
+|---|---|---|---|---|---|---|---|
+| animals: CENP-A, CenSat active array, minor satellite | all right | 768 | 3.65 Mb | 0.32 Mb | 0.44 Mb (1.66 Mb) | 44% | 15% |
+| animals: CENP-A, CenSat active array, minor satellite | `high`, `medium` | 672 | 3.89 Mb | 0.30 Mb | 0.49 Mb (1.73 Mb) | 39% | 11% |
+| plants and algae: CENH3 | all right | 815 | 2.39 Mb | 0.90 Mb | 0.34 Mb (1.56 Mb) | 53% | 26% |
+| plants and algae: CENH3 | `high`, `medium` | 733 | 2.83 Mb | 0.90 Mb | 0.39 Mb (1.59 Mb) | 53% | 26% |
+| fungi and *Plasmodium*: mapped centromeres | all right | 213 | 30 kb | 12 kb | 3 kb (26 kb) | 70% | 50% |
+| fungi and *Plasmodium*: mapped centromeres | `high`, `medium` | 92 | 60 kb | 5 kb | 2 kb (21 kb) | 62% | 51% |
 
 ## Figures
 
@@ -60,7 +87,7 @@ New in 0.12 (from the 0.12 release):
   against the share of cores on CENH3; **G** where the 10-fold level comes from (42 polyploids, no truth). **H** every genome with LTRs
   and truth, held-out ones included.*
 
-From the 0.10.1 release ([what changed since](#13-what-changed-from-012) applies to these, with [0.11 to 0.12](#from-011-to-012)):
+From the 0.10.1 release ([what changed since](#13-what-changed-from-013) applies to these, with [0.11 to 0.12](#from-011-to-012)):
 
 - [Mammals and Hi-C](img/benchmark_overview.pdf) ![benchmark overview](img/benchmark_overview.png)
   *9 T2T mammals with CENP-A truth; rice, barley, potato and horse EquCab3 with ChIP truth. **A** every chromosome
@@ -362,6 +389,122 @@ Right calls with each annotator, and with LTRquest's elements thinned at random 
 Potato's 214 LTRquest CRM elements give exactly a majority of chromosomes; any less sensitive annotation loses the
 gain from `tes/`. Every CRM core short of a majority still lay on CENH3 (24/24 in rice, potato, maize and
 *Brachypodium*).
+
+### Held out from 0.14: an allotetraploid and a wild potato
+
+Two genomes whose CENH3 truth was on disk but scored by no release, held out from 0.14 (its plan named them, and what it expected
+of them, before any of their runs): *Aegilops geniculata* (UUMM allotetraploid, 14 chromosomes, 7.9 Gb, GCA_053567775.1; CENH3 ChIP of
+Yunusbaev et al. 2026 on the same assembly, their Table S2 at Mb resolution; cenrep, cenfuse's predecessor, used it to shape two LTR
+rules, so it is held out from 0.14's changes, not from cenfuse's development) and *Solanum verrucosum* (a diploid wild potato, 12
+chromosomes, 0.7 Gb, GCA_031230405.1; CENH3 ChIP SRR18548893 and SRR18548892 by the frozen rule, with WGS of another accession,
+SRR5349572, standing in for the input that was never deposited). Both were run in full, search included, from the FASTA; the `tes/`
+arm (LTRquest annotations of the cenrep batch) reuses the FASTA arm's search. Scored within 1 Mb. 0.14's calls equal 0.13's on all
+four arms (every table of the four arms is identical, cell by cell).
+
+| genome | inputs | right / chromosomes | right `high` / `medium` / `low` | confidently wrong | chance expected | P |
+|---|---|---|---|---|---|---|
+| *Ae. geniculata* | FASTA | 0/14 | 0 / 0 / 0 | 0 | 0.21 | 1 |
+| *Ae. geniculata* | FASTA, `tes/` | 13/14 | 0 / 13 / 0 | 1 | 0.33 | 7.6e-21 |
+| *S. verrucosum* | FASTA | 5/12 | 0 / 0 / 5 | 0 | 0.73 | 0.00043 |
+| *S. verrucosum* | FASTA, `tes/` | 8/12 | 3 / 4 / 1 | 1 | 0.72 | 6.1e-08 |
+
+- ***Ae. geniculata* from the FASTA:** its centromeric satellites fail the one-per-chromosome test (9 of 14 chromosomes hold the 14
+  largest clusters, null 9, P 0.67), so every call stays `low`, and all 14 are wrong: they lie on other arrays, 6-395 Mb from CENH3.
+  The rule that a failed test leaves no confident call held on a genome it was not made on.
+- ***Ae. geniculata* with `tes/`:** a CRM signature (38.1-fold in its cores, significant cores on 14 of 14 chromosomes) decides and
+  rejects the satellite families that lie away from its cores, the FASTA arm's 86-bp family among them (away on 11 of 12). The
+  centromeric family becomes a 1,216-bp family made of chains of partial copies of a longer repeat (`partial_chain`), whose arrays
+  lie in the cores (`te_concordant`): 13 of 14 right, all `medium` (a chain call is never `high`). The one confident error, chr05U
+  (167.1-175.2 Mb, 2.1 Mb off), lies in the right part of a 9.3-Mb CRM core (164.5-173.9 Mb) whose left edge reaches CENH3
+  (160-165 Mb): the pattern of [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core), on a held-out genome.
+- ***S. verrucosum* from the FASTA:** the test fails too (9/12, P 0.24): 5 of 12 right, all `low`. **With `tes/`** (a CRM signature,
+  42-fold, decisive): 8 of 12 right, 7 of them confident (3 `high`, 4 `medium`), and one confident error, chr06 (`medium`, 1.4 Mb
+  off), where the CRM core replaced a weak satellite array beside it (`weak_satellite_beside_core`). Two right satellite calls were
+  lost to thin CRM cores of 2 and 4 elements (chr10, chr12, `weak_core`, `low`): the 0.12 rule that a thin decisive core takes a
+  chromosome whose satellite failed its test costs right calls on a held-out genome
+  ([future.md #36](future.md#36-no-held-out-test-of-the-013-rules)).
+- **Earlier.** The satellite batch of cenfuse 0.10.1 (development data there, its docs since rewritten) placed 10 of 14 *Ae. geniculata*
+  centromeres and 7 of 11 *S. verrucosum* ones within 1 Mb, with its own processing of the same ChIP; 0.14 with `tes/` places 13 of 14
+  and 8 of 12.
+- **Truth caveats.** *Ae. geniculata*'s domains have Mb resolution. *S. verrucosum*'s input comes from another accession, and its
+  chr04 holds two CENH3 peaks of nearly equal height (28.4 and 27.3-fold in 50-kb bins); the frozen rule takes the one at 23.2-23.5 Mb.
+- **Cost of a fresh run** (search included; GNU time's maximum counts the largest process only): *Ae. geniculata* 64 min at 32
+  threads, 17.5 GB (the search 60 min: seeds 3, families 13, annotate 38); *S. verrucosum* 16 min at 16 threads, 3.2 GB. Adding
+  `tes/` to the finished run (classify onward): 12 and 1.4 min.
+
+### Held out from 0.14: thirteen tomatoes
+
+Thirteen tomatoes held out from 0.14, named with their truth before any of their runs: the telomere-to-telomere assemblies of Shi et al. 2026
+(BioProject PRJNA1201608; 12 chromosomes each, 0.8-1.2 Gb), wild species from every clade of the genus and three cultivated lines. Truth: the CENH3
+centromeres of their Supplementary Table 8 for the 11 accessions with deposited CENH3 ChIP, and for the two with ChIP but no row there (LA2093, TS-9) the
+frozen ChIP rule. Left out when the set was named: Heinz 1706 (the benchmark's own tomato), six accessions whose centromeres were published without
+deposited ChIP, and two without an assembly. Each was run from the FASTA, search included, and with `tes/` (LTRquest, the benchmark tomato's command).
+Scored within 1 Mb. They are one genus, and three are the species of the benchmark's tomato, so they are 13 tests of one lineage's centromeres, not of 13
+lineages.
+
+| accession | truth | FASTA: right | `high` / `medium` / `low` | confidently wrong | P | with `tes/`: right | `high` / `medium` / `low` | confidently wrong | P |
+|---|---|---|---|---|---|---|---|---|---|
+| *S. juglandifolium* LA2134 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.64 | 1/12 | 0 / 0 / 1 | 0 | 0.63 |
+| *S. lycopersicoides* LA2951 | Table 8 | 4/12 | 0 / 0 / 4 | 0 | 0.0051 | 8/12 | 1 / 5 / 2 | 3 | 8.5e-08 |
+| *S. habrochaites* LA1777 | Table 8 | 0/12 | 0 / 0 / 0 | 0 | 1 | 6/12 | 0 / 4 / 2 | 1 | 3.7e-05 |
+| *S. chilense* LA0458 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.21 | 2/12 | 1 / 0 / 1 | 0 | 0.21 |
+| *S. corneliomulleri* LA0103 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 5/12 | 0 / 5 / 0 | 0 | 0.0012 |
+| *S. peruvianum* LA0111 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.5 | 4/12 | 0 / 3 / 1 | 1 | 0.004 |
+| *S. huaylasense* LA1982 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.58 | 8/12 | 0 / 7 / 1 | 0 | 8.8e-08 |
+| *S. chmielewskii* LA1028 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.63 | 1/12 | 0 / 0 / 1 | 0 | 0.63 |
+| *S. galapagense* LA0426 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.22 | 9/12 | 0 / 6 / 3 | 1 | 4.6e-09 |
+| *S. lycopersicum var. cerasiforme* TS-623 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.24 | 7/12 | 0 / 6 / 1 | 2 | 6.2e-06 |
+| *S. lycopersicum* TS-60 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 6/12 | 0 / 5 / 1 | 2 | 3.1e-05 |
+| *S. pimpinellifolium* LA2093 | ChIP (frozen rule) | 1/12 | 0 / 0 / 1 | 0 | 0.57 | 6/12 | 0 / 6 / 0 | 3 | 2.4e-05 |
+| *S. lycopersicum* TS-9 | ChIP (frozen rule) | 3/12 | 0 / 0 / 3 | 0 | 0.048 | 7/12 | 0 / 5 / 2 | 2 | 1.7e-06 |
+
+Pooled, from the FASTA: 13 accessions, 20 of 156 chromosomes right (0 of them `high` or `medium`), 0 confidently wrong of 0 confident calls; 156 calls; with `tes/`: 13 accessions, 70 of 156 chromosomes right (54 of them `high` or `medium`), 15 confidently wrong of 69 confident calls (22%); 156 calls.
+
+- **From the FASTA, no confident call.** The CENH3 domains hold a median of 4.5 kb of annotated satellite (0.25% of the domain; 100 kb or more on 24 of 156), and cenfuse says
+  it is unsure: 20 of 156 right against 11.3 expected by chance, every call `low`. In *S. chilense* the one-per-chromosome test passes (10 of 12 chromosomes, P 0.045) on arrays that are mostly not centromeric, and
+  the calls stay `low` only because no satellite dominates: the two safeguards are not redundant.
+- **With `tes/`, more than three times as many right, and confident errors.** A Tekay signature decides in 12 of the 13 accessions (18- to 53-fold; *S. chmielewskii*'s
+  best is SIRE at 9.5-fold, under the 10-fold level, and flags only). 54 calls are right and confident, but 15 of the 69 confident calls are wrong (22%; 12 of 60 without
+  LA2951, below), as in the benchmark's own tomato (2 of 8). They lie a median 4.0 Mb from CENH3, two of them just past the 1-Mb tolerance. This is the
+  held-out estimate of how far a `medium` call from a Tekay core can be trusted in this genus.
+- **What each branch did** (future.md [#36](future.md#36-no-held-out-test-of-the-013-rules)): the branches that move a call to a strong core are right on 33 of 39, and the
+  thin cores of `weak_core` on 3 of 8, all `low`. Calls that merely agree with the core are the worst confident ones: 6 wrong of 17.
+
+| what the LTR line did (flag) | chromosomes | right | right and confident | confidently wrong | wrong, `low` |
+|---|---|---|---|---|---|
+| the core replaced a satellite call far from it (`satellite_away_from_core`) | 20 | 15 | 15 | 5 | 0 |
+| the core replaced a satellite call beside it (`satellite_beside_core`) | 14 | 13 | 13 | 1 | 0 |
+| the core replaced a weak array beside it (`weak_satellite_beside_core`) | 5 | 5 | 5 | 0 | 0 |
+| a thin core replaced a call that failed the satellite test (`weak_core`) | 8 | 3 | 0 | 0 | 5 |
+| the call stands and agrees with the core (`te_concordant`) | 22 | 15 | 11 | 6 | 1 |
+| the call stands against the core (`te_discordant`) | 65 | 6 | 0 | 0 | 59 |
+
+- **What the line leaves unused.** On 66 chromosomes the final call and the core lie more than 1 Mb apart; 65 of those calls are `low`. The call is right on 7 of them, the core on 37. 59 of these cores come from a decisive Tekay signature and hold under half of its elements on their chromosome, where a lineage other than CRM may not replace a call (`TE_MAJOR_SHARE`): of those 59, the core is right on 36 and the call on 6. That rule (a lineage other than CRM replaces a call only where its core holds most of the signature's elements on the
+  chromosome) has a reason, that the signature's other elements say the locus is not unique; here it costs right calls. Seen on these genomes, it can only be a lead
+  ([future.md #46](future.md#46-crm-decides-by-its-name)): no rule was changed on them.
+
+| accession | lineage (fold in its cores) | decisive | significant cores | cores within 1 Mb of CENH3 | calls right |
+|---|---|---|---|---|---|
+| *S. juglandifolium* LA2134 | Tekay (18.2x) | True | 11/12 | 7/12 | 1/12 |
+| *S. lycopersicoides* LA2951 | Tekay (52.5x) | True | 11/12 | 10/12 | 8/12 |
+| *S. habrochaites* LA1777 | Tekay (35.0x) | True | 10/12 | 8/12 | 6/12 |
+| *S. chilense* LA0458 | Tekay (19.4x) | True | 12/12 | 11/12 | 2/12 |
+| *S. corneliomulleri* LA0103 | Tekay (24.2x) | True | 12/12 | 10/12 | 5/12 |
+| *S. peruvianum* LA0111 | Tekay (30.7x) | True | 11/12 | 8/12 | 4/12 |
+| *S. huaylasense* LA1982 | Tekay (29.8x) | True | 11/12 | 12/12 | 8/12 |
+| *S. chmielewskii* LA1028 | SIRE (9.5x) | False | 7/12 | 1/7 | 1/12 |
+| *S. galapagense* LA0426 | Tekay (27.3x) | True | 12/12 | 10/12 | 9/12 |
+| *S. lycopersicum var. cerasiforme* TS-623 | Tekay (33.7x) | True | 12/12 | 6/12 | 7/12 |
+| *S. lycopersicum* TS-60 | Tekay (34.0x) | True | 12/12 | 7/12 | 6/12 |
+| *S. pimpinellifolium* LA2093 | Tekay (33.8x) | True | 10/12 | 6/12 | 6/12 |
+| *S. lycopersicum* TS-9 | Tekay (34.9x) | True | 12/12 | 6/12 | 7/12 |
+| all | | | 143/156 | 102/151 | 70/156 |
+
+- **Truth caveats.** LA2951: the frozen rule finds a domain >= 4x on 1 of 12 chromosomes; it overlaps Table 8's on 1 of 1, within 1 Mb on 1; LA1777: the frozen rule finds a domain >= 4x on 10 of 12 chromosomes; it overlaps Table 8's on 10 of 10, within 1 Mb on 10. *S. lycopersicoides*' ChIP is weak by the frozen rule (at most 5.2-fold, and the rule's peak inside Table 8's interval on 5 of 12 chromosomes,
+  against 12 of 12 in *S. habrochaites*); Table 8 stayed its truth, as written in advance. Without it the `tes/` arms are 62 of 144 right and 12 confidently wrong. The LTRquest annotations
+  come from the environment as of 2026-11-05, later than the benchmark's (2026-10-27).
+- **Cost of a fresh run** (search included, 16 threads, GNU time's maximum, the largest process only): 13-50 min and 7-46 GB (*S. lycopersicoides*, 1.2 Gb); LTRquest, 12 threads:
+  1.8-4.1 h. Adding `tes/` to the finished run: 1-3 min.
 
 ## 4. Hi-C
 
@@ -806,6 +949,72 @@ Hi-C test failed, so nothing changed.
   they reach most ends: *C. tropicalis*' 23-bp unit, at 12 of 14 ends, and no spurious unit in any other genome. A
   stretch that reaches the end counts down to a tenth of unit copies (the lowest seen at a real end is 0.19): 1,539 -> 1,557
   ends over the benchmark, none lost, interstitial arrays unchanged.
+- **Telomere and 45S recall, every genome** (FASTA-only arms; since 0.14, [future.md #56](future.md#56-telomeres-and-rdna-arrays-the-benchmark-does-not-count)).
+  Ends with a terminal telomere array, of two per chromosome; complete chromosomes (an array at both ends and no gap); 45S arrays and
+  the chromosomes holding them. Where no unit is found, the assembly's ends lack telomere arrays: potato's DM assembly holds one
+  (378 bp of TTTAGGG at the start of chr11) in 24 ends, and a unit is learned only from arrays at two ends or more; the
+  *S. pombe* reference ends hold at most 8 copies of its GGTTAC-like repeat in 10 kb; *C. nigoni* one end 40 copies of TTAGGC
+  (240 bp, below the 300-bp array floor). So the assemblies hold almost no telomere there; the one potato array goes unreported
+  because a unit seen at a single end is not learned (#56):
+
+| genome | chromosomes | telomere unit | ends with an array | complete chromosomes | interstitial arrays | 45S arrays (chromosomes) |
+|---|---|---|---|---|---|---|
+| cnig | 6 | none found | 0/12 | 0/6 | 0 | 2 (2) |
+| potato | 12 | none found | 0/24 | 0/12 | 0 | 1 (1) |
+| spom | 3 | none found | 0/6 | 0/3 | 0 | 0 (0) |
+| scer | 17 | ACACCC | 7/34 | 0/17 | 0 | 0 (0) |
+| barley | 7 | AAACCCT | 3/14 | 0/7 | 1 | 5 (5) |
+| rbrev | 5 | AAACCCT | 3/10 | 0/5 | 0 | 2 (2) |
+| vdah | 8 | AACCCT | 5/16 | 0/8 | 0 | 1 (1) |
+| horse | 32 | AACCCT | 29/64 | 0/32 | 7 | 0 (0) |
+| cneoA | 14 | AACCCCCT | 13/28 | 3/14 | 0 | 0 (0) |
+| cneoG1 | 14 | AACCCCCT | 13/28 | 3/14 | 0 | 0 (0) |
+| aetAL878 | 7 | AAACCCT | 8/14 | 0/7 | 0 | 2 (2) |
+| brachy | 5 | AAACCCT | 6/10 | 3/5 | 2 | 2 (1) |
+| chlamy | 17 | AAAACCCT | 21/34 | 4/17 | 0 | 2 (2) |
+| ztri | 21 | AACCCT | 30/42 | 9/21 | 0 | 0 (0) |
+| ggswu | 40 | AACCCT | 58/80 | 22/40 | 50 | 1 (1) |
+| bmori | 29 | AACCT | 43/58 | 15/29 | 1 | 1 (1) |
+| ppat | 26 | AAACCCT | 39/52 | 14/26 | 3 | 3 (3) |
+| colcc | 5 | AAACCCT | 8/10 | 3/5 | 1 | 2 (2) |
+| tomato | 12 | AAACCCT | 20/24 | 7/12 | 0 | 5 (2) |
+| ctro | 7 | AAGGATGTCACGATCATTGGTGT | 12/14 | 5/7 | 0 | 1 (1) |
+| msym | 8 | AACACTT | 14/16 | 6/8 | 0 | 1 (1) |
+| ncra | 7 | AACCCT | 13/14 | 0/7 | 0 | 0 (0) |
+| pfal | 14 | AAACCCT | 27/28 | 13/14 | 0 | 0 (0) |
+| mPonPyg2 | 25 | AACCCT | 49/50 | 17/25 | 8 | 4 (3) |
+| CC1 | 10 | AAACCCT | 20/20 | 10/10 | 87 | 11 (5) |
+| CC2 | 10 | AAACCCT | 20/20 | 10/10 | 75 | 10 (6) |
+| CC3 | 10 | AAACCCT | 20/20 | 10/10 | 84 | 15 (6) |
+| CCA03 | 10 | AAACCCT | 20/20 | 10/10 | 87 | 13 (6) |
+| CX1 | 10 | AAACCCT | 20/20 | 10/10 | 88 | 14 (6) |
+| MFA8 | 22 | AACCCT | 44/44 | 22/22 | 18 | 1 (1) |
+| MIZ1 | 10 | AAACCCT | 20/20 | 10/10 | 81 | 18 (6) |
+| MMU8 | 22 | AACCCT | 44/44 | 22/22 | 18 | 1 (1) |
+| OI1 | 10 | AAACCCT | 20/20 | 10/10 | 79 | 15 (5) |
+| PC1 | 10 | AAACCCT | 20/20 | 10/10 | 80 | 15 (6) |
+| Sscrofa | 20 | AACCCT | 40/40 | 20/20 | 16 | 2 (2) |
+| TC1 | 10 | AAACCCT | 20/20 | 10/10 | 86 | 12 (5) |
+| TU1 | 10 | AAACCCT | 20/20 | 10/10 | 87 | 15 (6) |
+| WTC1 | 10 | AAACCCT | 20/20 | 10/10 | 83 | 14 (5) |
+| celegans | 6 | AAGCCT | 12/12 | 6/6 | 32 | 1 (1) |
+| chm13 | 24 | AACCCT | 48/48 | 24/24 | 16 | 5 (5) |
+| csNS42 | 12 | AAACCCT | 24/24 | 11/12 | 0 | 1 (1) |
+| gmX26 | 20 | AAACCCT | 40/40 | 20/20 | 62 | 1 (1) |
+| goat1 | 31 | AACCCT | 62/62 | 31/31 | 1 | 3 (3) |
+| hg002 | 46 | AACCCT | 92/92 | 37/46 | 22 | 11 (9) |
+| horse1 | 33 | AACCCT | 66/66 | 33/33 | 6 | 3 (3) |
+| mGirTip1 | 16 | AACCCT | 32/32 | 16/16 | 47 | 7 (3) |
+| mGorGor1 | 25 | AACCCT | 50/50 | 23/25 | 88 | 2 (2) |
+| mPanPan1 | 25 | AACCCT | 50/50 | 20/25 | 30 | 7 (5) |
+| mPanTro3 | 25 | AACCCT | 50/50 | 20/25 | 36 | 4 (4) |
+| mPonAbe1 | 25 | AACCCT | 50/50 | 15/25 | 3 | 12 (8) |
+| mSymSyn1 | 26 | AACCCT | 52/52 | 25/26 | 24 | 2 (2) |
+| mmT2T | 20 | AACCCT | 40/40 | 20/20 | 36 | 5 (5) |
+| mo17 | 10 | AAACCCT | 20/20 | 10/10 | 7 | 1 (1) |
+| rice | 12 | AAACCCT | 24/24 | 12/12 | 0 | 1 (1) |
+| sbBTx623 | 10 | AAACCCT | 20/20 | 10/10 | 1 | 2 (2) |
+| sheep1 | 28 | AACCCT | 56/56 | 28/28 | 6 | 2 (2) |
 - **Interstitial telomeric arrays.** CHM13: 16 arrays ≥ 300 bp, one at the 2q13 fusion site (chr2 114.03 Mb).
   Chicken: 50 arrays, 22 of them on or within 100 kb of a CENP-A window (expected 1.4; binomial P 4e-21), holding
   63% of all interstitial TTAGGG: the telomere-repeat centromere cores described by Huang et al. 2023, genome-wide.
@@ -941,6 +1150,26 @@ test); the call lies at the chromosome's start, the satellome locus 83 Mb inside
   Checked as well, not written beforehand: no call that was right became wrong, and there is no new confident error (0 of 3,676
   chromosome-runs with truth); 4 chromosome-runs without a call got a wrong `low` one (*C. neoformans* G1, 19-20 kb from CENP-A).
 
+- **The 0.14 checks, as written before its runs** (PLAN.md, 2026-11-07, with its amendment before the #45 measurement), with the
+  results:
+
+  1. No call may change on the benchmark (0.14 changed no rule): **met** (260 arms, 2292 tables compared; 11 tables differ, in 19 cells of the column caveat only; the cells that differ are caveat sentences only: the new one for `hic_near`).
+  2. The held-out genomes (*Ae. geniculata*, *S. verrucosum*, each from the FASTA and with `tes/`): calls equal to 0.13's: **met**
+     (every table of the four arms is identical, cell by cell). Their scores, first reported here, are in [section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato).
+  3. Randomized Hi-C controls: no test passes and no call changes; holocentric genomes: no confident call: **met** (57 randomized runs: the gate passes in 0, a call differs from the partner run in 0; holocentric: 0 confident calls of 196 chromosome-runs).
+  4. A code or input change recomputes exactly the stages it should, and a resume uses its checkpoints: **met** (unit and end-to-end
+     tests, tests/fuse/test_checkpoints.py and test_fuse_e2e.py).
+  5. The scorer in the repository equals the frozen one on every 0.13 release arm: **met** (byte for byte, and the whole table chain).
+  6. The one rule considered (#45: agreement at the LTR core's maximum, written down before its measurement), adopted only if none
+     of the 125 right `te_concordant` calls drops below `medium`: **not met** (3 would), so not built.
+  7. Thirteen held-out tomatoes (named before any run; no rule changed on them), expected as the benchmark's tomato: from the FASTA most calls `low` and wrong: **met** (20 of
+     156 right, none confident); with `tes/`, about half right with confident errors: **as expected, and reported as a limit** (70 of 156 right, 15 of 69 confident calls wrong;
+     the benchmark's tomato: 6 of 12, 2 of 8) ([section 3](#held-out-from-014-thirteen-tomatoes)).
+  8. The changes made after the release pass (atomic writes, the merged Hi-C bootstrap and resampler, the fast leave-one-out) change no number: **met** (every table of the 260
+     runs and the four held-out arms, and again of the 138 runs with Hi-C).
+  9. A folder copied with hard links and recomputed leaves the original as it was: **met** (four held-out arms recomputed from classify in such copies: every file of the originals
+     unchanged, md5).
+
 - **Rules changed after a result was seen.** Each change has a reason independent of the case that prompted it, and
   was rechecked on cases not used to make it:
 
@@ -980,7 +1209,36 @@ test); the call lies at the chromosome's start, the satellome locus 83 Mb inside
 | 0.13: that line acts only at pass | randomized soybean Hi-C reached support (6 of 20 dips, P 3e-5) | every randomized library and every mammal: none reaches pass |
 | 0.13: it neither supports, opposes nor moves a call in a terminal eighth | consistency: the line cannot see there | the release: tomato keeps 2 wrong `low` calls there ([future.md #32](future.md#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts)) |
 
-## 13. What changed from 0.12
+## 13. What changed from 0.13
+
+0.14 changed no rule. On all 260 release runs, every table cenfuse writes (calls, summary, loci, feature tables, line tests,
+LTR signature, provenance, plants; and the calls' BED and GFF3) equals 0.13.0's cell by cell, apart from the new columns
+(v13 `bench/cmp_runs.py`: 260 arms, 2292 tables compared; 11 tables differ, in 19 cells of the column caveat only). What changed is how a run can be trusted and repeated:
+
+- **Checkpoints** stand on the code a stage runs (its modules and their imports, without comments or docstrings), its parameters
+  and the content of its inputs. Adding `tes/` or `genes/` to a finished run now recomputes the satellite engine from classify
+  by itself; a moved or copied folder resumes; an unreadable checkpoint is recomputed with a warning; `--force all` exists.
+- **One run per output folder** (a lock with a heartbeat; stale locks are taken over), and the shared seed cache no longer waits
+  forever on a lock left by a job killed on another host.
+- **A run manifest** (`run_info.json`): versions of cenfuse, Python, the packages and every external tool, the inputs'
+  fingerprints, how the run ended, and what it cost (CPU hours and the peak memory of every process the run started). The
+  engines report cenfuse's version; the seed cache knows FasTAN's binary.
+- **Atomic writes:** every output and checkpoint is written beside its target and moved over it, so a folder copied with hard
+  links and recomputed leaves the original untouched (the satellite engine rewrote its tables in place before).
+- **Hi-C faster, same numbers:** the engine's bootstrap scores cenfuse's anchored windows on its own resamples instead of a
+  second bootstrap, and builds each resample straight into the matrix's layout (on this benchmark's 139 Hi-C stages, 4.6 h of wall time in all against 8.5 h, the longest 533 s against 999 s, every table unchanged; a shared server, so times are approximate).
+- **Worker processes** send their log lines to the main process under every start method (spawn on macOS, forkserver in
+  Python 3.14); the suite passes in an environment rebuilt from `environment.lock.txt`, and a CI workflow runs it.
+- **New columns:** `rule` (which integration rule set each call) in the calls table and GFF3; `incomplete` in the summary (a
+  report section or figure that failed, instead of a silent warning). Every column of every table is documented
+  ([outputs.md](outputs.md), [plants.md](plants.md)).
+- **The benchmark in the repository** ([benchmark/](../benchmark/README.md)): the truth manifest, the frozen scorer as a tested
+  module, and the chain that writes this page's tables and fills it from templates, reproducing 0.13's tables byte for byte.
+- **New truth, held out:** *Ae. geniculata* and *S. verrucosum* ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and 13 tomatoes
+  ([section 3](#held-out-from-014-thirteen-tomatoes)).
+- **The benchmark's scoring, measured:** how close a right call is ([How calls are scored](#how-calls-are-scored)), and the truth rule's two numbers changed: no outcome moves.
+
+### From 0.12 to 0.13
 
 Between the two releases, 49 of the 3,676 chromosome calls that have truth changed (48 moved or placed, 1 raised), all from the
 cis signal tested by trans contacts, the AT trough paired with a prior-free Hi-C peak, and the support tier choosing the competing
