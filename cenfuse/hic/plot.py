@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
+from ..runtime import atomic_path  # noqa: E402
 from .output import as_finite  # noqa: E402
 
 BLUE, GREY, INK = "#0072B2", "#8C8C8C", "#1A1A1A"
@@ -53,5 +54,6 @@ def overview(S_ratio, bins, members, rows, sat, rabl, path):
     fig.text(0.01, 0.995, f"Rabl test: {rabl['negative']}/{rabl['n']} chromosomes, P = {rabl['p']:.2g}"
              f"{'' if rabl['passed'] else ' (not passed)'}", fontsize=6, va="top")
     fig.tight_layout(rect=(0, 0, 0.93, 0.98))
-    fig.savefig(path)
+    with atomic_path(path) as tmp:
+        fig.savefig(tmp)
     plt.close(fig)

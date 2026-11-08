@@ -50,7 +50,7 @@ TRACT_MIN_MODEL = 500          # a model's other half (TRACT_MAX_FRAC) must make
 TRACT_MIN_BP = 64              # low-complexity bp in the consensus (one DUST window) to match such stretches of the genome
 TRACT_MAX_FRAC = 0.5           # a model mostly of low complexity stays as it is: little of it would be left to score
 
-# ---- retrotransposon evidence (docs/design.md, 'Satellites and TEs')
+# ---- retrotransposon evidence (docs/design.md, 'LTR retrotransposons')
 TE_BINS = 500                  # density profile resolution: 1/500 of the chromosome
 TE_MIN_BIN = 1_000             # ... but bins of at least 1 kb
 TE_SMOOTH = 5                  # smoothing window, in bins
@@ -76,7 +76,7 @@ TE_RECRUIT_ROUNDS = 5          # recruitment repeats until its significant cores
 TE_CENTROMERIC_CLADE = "CRM"   # CR chromoviruses (CRM maize, CRR rice, CRB Brassica, CRS sugarcane) are
                                # centromere-specific in plants; other clades are often pericentromeric
 
-# ---- what a satellite is, and where acrocentric centromeres sit (docs/design.md, 'Satellites and TEs')
+# ---- what a satellite is, and where acrocentric centromeres sit (docs/design.md, 'Satellites')
 TANDEM_FRAC = 0.5              # a satellite is tandem: a family with neither the majority of its array bp inside de
                                # novo tandem repeats (seeds) nor the majority of its hit bp in whole units is a
                                # dispersed (interspersed) repeat annotated as chains of partial hits (majority rule)

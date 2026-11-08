@@ -1,4 +1,4 @@
-"""Overview PDF: every analysed chromosome to scale, one adjusted CHG track per sample, candidates as boxes
+"""Overview PDF: every analyzed chromosome to scale, one adjusted CHG track per sample, candidates as boxes
 (blue = centromere_like, grey outline = dip), anchors as a light band with a triangle. Several pages when needed."""
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
 
+from ..runtime import atomic_path  # noqa: E402
 from . import params  # noqa: E402
 
 BLUE, GREY, INK, BAND = "#0072B2", "#8C8C8C", "#1A1A1A", "#E3EEF7"
-PER_PAGE = 8
+PER_PAGE = 8            # layout: chromosome panels per page
 log = logging.getLogger("cenfuse-meth")
 
 
@@ -35,7 +36,7 @@ def overview(adj: dict, lengths: dict, cand, anchors: dict, footer: str, path) -
                          "font.size": 6, "pdf.fonttype": 42})
     Lmax = max(lengths.values()) / 1e6
     ns = len(samples)
-    with PdfPages(path) as pdf:
+    with atomic_path(path) as tmp, PdfPages(tmp) as pdf:
         for p0 in range(0, len(chroms), PER_PAGE):
             page = chroms[p0:p0 + PER_PAGE]
             fig, axs = plt.subplots(len(page), 1, figsize=(7.1, 0.16 * ns * len(page) + 0.35 * len(page) + 0.6),

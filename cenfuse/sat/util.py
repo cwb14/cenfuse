@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 
+from ..runtime import atomic_open
+
 log = logging.getLogger("cenfuse-sat")
 
 
@@ -112,7 +114,7 @@ def canonical_rotation(seq: str) -> str:
 
 
 def write_fasta(path, records) -> None:
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         for name, seq in records:
             f.write(f">{name}\n{seq}\n")
 

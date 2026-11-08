@@ -40,10 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _check_names(what: str, names, chroms: list[str], fai: dict) -> None:
-    """Fail when no feature lies on an analysed chromosome; warn about features on other sequences."""
+    """Fail when no feature lies on an analyzed chromosome; warn about features on other sequences."""
     names = set(names)
     if not names & set(chroms):
-        raise io.InputError(f"{what}: no feature on an analysed chromosome (e.g. {', '.join(sorted(names)[:3])} vs "
+        raise io.InputError(f"{what}: no feature on an analyzed chromosome (e.g. {', '.join(sorted(names)[:3])} vs "
                             f".fai {', '.join(chroms[:3])}); same assembly?")
     unknown = names - set(fai)
     if unknown:
@@ -58,7 +58,7 @@ def run(a) -> None:
     fai = io.read_fai(a.fai)
     names, G, D = track.chromosome_set(fai)
     if not names:
-        raise io.InputError(f"no sequence in {a.fai} is long enough to analyse ({params.MIN_LEN_D} x the expected "
+        raise io.InputError(f"no sequence in {a.fai} is long enough to analyze ({params.MIN_LEN_D} x the expected "
                             f"centromere size); chromosome-scale assembly needed")
     chroms = {c: fai[c] for c in names}
     geo = track.geometry(D)
@@ -73,7 +73,7 @@ def run(a) -> None:
         for ctx, f in s.files.items():
             ctg = io.tabix_contigs(f)
             if not set(ctg) & set(names):
-                raise io.InputError(f"sample {s.name} {ctx}: no analysed chromosome in {f} (e.g. "
+                raise io.InputError(f"sample {s.name} {ctx}: no analyzed chromosome in {f} (e.g. "
                                     f"{', '.join(ctg[:3])} vs .fai {', '.join(names[:3])}); same assembly?")
     feats = []
     if a.ltrquest:
@@ -96,7 +96,7 @@ def run(a) -> None:
         anchors = calibrate.anchor_table(adf, chroms)
         log.info("anchors: %d (%s)", len(anchors), src)
         if not anchors:
-            log.warning("no anchor on an analysed chromosome: uncalibrated run (direction down, every candidate "
+            log.warning("no anchor on an analyzed chromosome: uncalibrated run (direction down, every candidate "
                         "labelled 'dip')")
     else:
         log.warning("no anchors: uncalibrated run (direction down, every candidate labelled 'dip')")
@@ -112,7 +112,7 @@ def run(a) -> None:
     cmap = classes.build(feats, names)
     log.info("sequence classes: %d", len(cmap.names))
     ann = [x for x in (a.ltrquest or a.edta, a.satellites, a.genes) if x]
-    key = bins.fingerprint(ann, "|".join(cmap.names))     # same files, other analysed chromosomes -> other classes
+    key = bins.fingerprint(ann, "|".join(cmap.names))     # same files, other analyzed chromosomes -> other classes
     raw = bins.collect(samples, chroms, cmap, key, out.parent / "meth_cache" / key, max(1, a.threads))
     filt, dstats = bins.depth_filter(raw, samples, chroms, excl)
     for d in dstats:
@@ -140,7 +140,7 @@ def run(a) -> None:
     sc = scan(filt, samples, chroms, K, geo, abin, direction)
     for s in samples:
         if not any(np.isfinite(y).any() for y in sc.adj[s.name].values()):
-            log.warning("sample %s: no usable window (>= %d calls) on any analysed chromosome; no track or candidates",
+            log.warning("sample %s: no usable window (>= %d calls) on any analyzed chromosome; no track or candidates",
                         s.name, params.MIN_CALLS)
     cand = candidates.table(sc.picks, sig, cmap.names, anchors, geo, D, chroms)
     if not cand.empty:

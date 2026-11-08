@@ -1,2 +1,2 @@
 """Methylation engine: centromere-like regions from DNA methylation (exploratory)."""
-__version__ = "0.1.0"
+from .. import __version__  # noqa: F401  (one version for cenfuse and its engines)

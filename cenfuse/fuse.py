@@ -1,4 +1,4 @@
-"""Integration rules (docs/design.md, 'Fusion rules').
+"""Integration rules (docs/design.md, 'Integration').
 
 The integrated call is the sequence call unless a validated functional line moves it:
 - Hi-C may act on chromosome x only when its gate passes (hicfuse.gate), and only through a strong anchored peak
@@ -25,7 +25,7 @@ The integrated call is the sequence call unless a validated functional line move
   chromosome without a sequence call where no Rabl-axis line pairs, a clean prior-free Hi-C call (engine level high;
   no hub, rDNA, telomeric, not_converged or cycle_unstable flag) gives a low functional_only call at its core (flag
   hic_denovo_only): the best candidate, untested. Never where a sequence call or a test exists (prior-free high
-  calls were right on 45% of T2T mammal chromosomes; with 10-kb bins on 16/16 yeast and 14/14 Plasmodium ones).
+  calls were right on 14 of 63 T2T mammal chromosomes; with 10-kb bins on 16/16 yeast and 14/14 Plasmodium ones).
   Where such a genome has a sequence call and the clean prior-free peak lies beyond HIC_FAR_BINS of it, the call is
   kept and only flagged (hic_denovo_elsewhere; its caveat says where): nothing validates either line there.
 - A call with a competing cluster whose anchored peak agrees with both (no mappable bin between them) gets no Hi-C
@@ -91,7 +91,7 @@ Confidence uses the satellite engine's levels, changed one step at a time (its t
 - A moved or functional-only call is medium, and high with a second line."""
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 import numpy as np
@@ -104,7 +104,7 @@ from .sat.te import agrees
 from .util import gap, level_shift
 
 FUSED_COLS = ["chrom", "chrom_len", "start", "end", "length", "call_source", "relation", "confidence", "support",
-              "against", "flags", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
+              "against", "flags", "rule", "offset_bp", "seq_start", "seq_end", "seq_evidence", "seq_confidence", "seq_flags",
               "seq_alt_start", "seq_alt_end", "seq_overruled_start", "seq_overruled_end", "seq_rejected_family",
               "seq_rejected_start", "seq_rejected_end", "seq_spacing", "main_family", "te_clade", "te_seed",
               "te_start", "te_end", "te_share", "te_chrom_elements", "te_core_elements", "te_call_elements", "at_gate", "at_start", "at_end",
@@ -291,18 +291,63 @@ def decide(ev: Evidence) -> dict:
     return d
 
 
-def _decide(ev: Evidence) -> dict:
+@dataclass
+class _Ctx:
+    """What the rules read about one chromosome, worked out once from its Evidence (_context)."""
+    ev: Evidence
+    seq_iv: tuple | None       # the sequence call: its competing cluster when Hi-C chose that
+    sconf: str                 # the sequence call's confidence ('none' without one)
+    alt_iv: tuple | None       # the competing cluster
+    h: dict | None             # this chromosome's Hi-C row
+    valid: bool                # Hi-C's test passed here
+    ax: dict | None            # the validated Rabl-axis line's entry (fold or alignment), where the test did not pass
+    axis: str | None           # its name
+    weak: bool                 # the support tier: Hi-C may only support
+    core: tuple | None         # the anchored Hi-C core and peak
+    peak: tuple | None
+    strong: bool               # a strong anchored peak at a validated chromosome
+    agree: bool                # it agrees with the sequence call
+    chose: bool                # Hi-C chose the competing cluster
+    far: bool                  # the strong peak points elsewhere
+    amb: bool                  # no mappable bin between the call and its competing cluster
+    f_core: tuple | None       # the axis line's core
+    dn_peak: tuple | None      # the prior-free peak and core the axis line reads
+    dn_core: tuple | None
+    pair: bool                 # the axis line and the prior-free peak at one locus
+    untested: bool             # Hi-C alone: nothing can test it in this genome, and its prior-free call is clean
+    dn_only: tuple | None      # the prior-free core where Hi-C alone places a call
+    m_seq: dict                # methylation at the sequence call and at Hi-C's peak
+    m_hic: dict
+    at_ok: bool                # the genome's AT troughs are tested
+
+
+@dataclass
+class _Call:
+    """The call as the rules leave it: place, relation, where it came from, the rule that set it, flags, second lines."""
+    call: tuple | None = None
+    relation: str = "sequence_only"
+    source: str = "sequence"
+    rule: str = "sequence"
+    flags: list = field(default_factory=list)
+    second: list = field(default_factory=list)
+    at_pair: bool = False      # the AT trough refined a Hi-C call
+    f_opp: bool = False        # the axis line, the prior-free peak, oppose the kept call
+    d_opp: bool = False
+
+
+def _context(ev: Evidence) -> tuple:
+    """(_Ctx, the _Call it starts from): every quantity the rules share, and Hi-C's choice of the competing cluster."""
     seq_iv = _iv(ev.seq)
     sconf = ev.seq["confidence"] if seq_iv else "none"
     alt_iv = _iv(ev.seq, "alt_start", "alt_end") if seq_iv and "alt_start" in ev.seq else None
     h = ev.hic
     valid = bool(h and h.get("gate_pass"))
-    ax, axis = axis_line(ev) if h and not valid else (None, None)   # the validated Rabl-axis line (fold, alignment)
-    weak = bool(h and not valid and not ax and h.get("gate_support"))   # support tier: Hi-C may only support
+    ax, axis = axis_line(ev) if h and not valid else (None, None)
+    weak = bool(h and not valid and not ax and h.get("gate_support"))
     core, peak = hic_core(ev), hic_peak(ev)
     strong = bool(valid and h.get("anch_strong") and core)
     agree = bool(valid and seq_iv and _peak_agrees(ev, seq_iv))
-    flags, relation, source = [], "sequence_only", "sequence"
+    st = _Call()
     # Hi-C picks the competing cluster, only if mappable bins separate it from the other (it can tell the two apart), and with a
     # strong peak. On the support tier too (0.13): there Hi-C may support what its peak agrees with, and the competing cluster is
     # the sequence line's own second candidate (moss without tes/: 5 calls, all onto CENH3); the call then rises as support does.
@@ -311,203 +356,341 @@ def _decide(ev: Evidence) -> dict:
     if alt_peak and alt_iv and not agree and _peak_agrees(ev, alt_iv) and peak and \
             _vgap(ev, peak, seq_iv, False) > _bins(ev, HIC_TOL_BINS):
         seq_iv, agree = alt_iv, strong
-        flags.append("hic_chose_alt")
+        st.flags.append("hic_chose_alt")
+    chose = "hic_chose_alt" in st.flags
     far = bool(seq_iv and _peak_far(ev, seq_iv))
     # where no mappable bin separates the call from its competing cluster, Hi-C cannot tell the two apart (the
     # principle of hic_chose_alt, which needs mappable bins between them to choose): an agreement with the call is
     # no evidence for it over the competitor, so Hi-C neither raises nor supports the call (mouse: the minor- and
     # major-satellite arrays at each chromosome's start, the peak at the inner edge of the blind block)
-    amb = bool(h and alt_iv and seq_iv and "hic_chose_alt" not in flags and _vgap(ev, seq_iv, alt_iv, False) == 0)
-    fo = ax
-    f_core = (fo["core_start"], fo["core_end"]) if fo else None
+    amb = bool(h and alt_iv and seq_iv and not chose and _vgap(ev, seq_iv, alt_iv, False) == 0)
+    f_core = (ax["core_start"], ax["core_end"]) if ax else None
     # the alignment (newer, conditional on the prior-free positions) pairs and opposes only through a clean prior-free
     # peak (no hub, rDNA, telomeric, not_converged, cycle_unstable flag); the fold keeps 0.10's rule (barley: its 6
     # moves, one at an rDNA-flagged peak, were right)
     dn_ok = axis != "align" or _clean_flags(h)
-    dn_peak = _iv(h, "denovo_peak_start", "denovo_peak_end") if fo and dn_ok else None
-    dn_core = _iv(h, "denovo_core_start", "denovo_core_end") if fo and dn_ok else None
-    pair = bool(fo and fo.get("agrees") and dn_peak and dn_core)
+    dn_peak = _iv(h, "denovo_peak_start", "denovo_peak_end") if ax and dn_ok else None
+    dn_core = _iv(h, "denovo_core_start", "denovo_core_end") if ax and dn_ok else None
+    pair = bool(ax and ax.get("agrees") and dn_peak and dn_core)
     untested = bool(h and h.get("gate_genome_untested") and not valid and _clean_denovo(h))
     # Hi-C alone: also where a passed axis line does not pair on this chromosome (0.10: no call there)
     dn_only = _iv(h, "denovo_core_start", "denovo_core_end") if untested and not pair and seq_iv is None else None
     m_seq, m_hic = _meth(ev, "sequence_call"), _meth(ev, "hic_peak")
-    at_ok = bool(ev.at and (ev.at.get("status") == "pass" or ev.at.get("validated")))   # the genome's troughs are tested
-    second = []
-    if strong:
+    at_ok = bool(ev.at and (ev.at.get("status") == "pass" or ev.at.get("validated")))
+    if strong:                   # a second line at the strong peak and not at the call: what lets Hi-C move a high call
         if _te_decides(ev) and _te_near(ev, peak, HIC_FAR_BINS) and not (seq_iv and _te_near(ev, seq_iv, HIC_FAR_BINS)):
-            second.append("te")
+            st.second.append("te")
         if m_hic["label"] == "centromere_like" and (seq_iv is None or m_seq["label"] == "dip"):
-            second.append("meth")
+            st.second.append("meth")
         if seq_iv and ev.age and float(ev.age.get("p", np.nan)) <= AGE_ALPHA and \
                 float(ev.age.get("premise", np.nan)) <= AGE_ALPHA:     # younger centromeric copies at the peak than at the call,
-            second.append("age")                                         # in a genome where young copies mark the cores (#31)
-    if pair and (seq_iv is None or (_fold_far(ev, f_core, seq_iv) and _denovo_far(ev, dn_peak, dn_core, seq_iv))):
-        call, source = dn_core, "hic"                              # two validated 3D lines at one locus, the
-        relation = "functional_only" if seq_iv is None else "offset"   # sequence call at neither
-        flags.append(f"{axis}_pair")
-        if sconf == "high":
-            flags.append(f"moved_with_{axis}")
-    elif seq_iv is None and strong:
-        call, relation, source = core, "functional_only", "hic"
-    elif seq_iv is None and valid and core and _clean_medium(h):
-        call, relation, source = core, "functional_only", "hic"
-        flags.append("hic_medium_peak")
-    elif seq_iv is None and dn_only:
-        call, relation, source = dn_only, "functional_only", "hic"
-        flags.append("hic_denovo_only")
-    elif seq_iv is None:
-        call, relation = None, "none"
-    elif agree and amb:
-        call = seq_iv
-        flags.append("hic_alt_ambiguous")
-    elif agree:
-        call, relation = seq_iv, "concordant"
-    elif weak and _peak_agrees(ev, seq_iv) and h.get("anch_level") in SUPPORT_LEVELS:
-        call = seq_iv
-        if amb:
-            flags.append("hic_alt_ambiguous")
-        else:
-            relation = "concordant"
-            flags.append("hic_support")
-    elif not valid and not ax and h and h.get("end_pass") and h.get("end_higher") and not amb:
-        call, relation = seq_iv, "concordant"          # Hi-C tells the call's end from the other, in a genome where it does so
-        flags.append("hic_end")
-    elif strong and far and (sconf != "high" or second):
-        call, relation, source = core, "offset", "hic"
-        if sconf == "high":
-            flags.append("moved_with_" + "+".join(second))
-    elif strong and far:
-        call, relation = seq_iv, "contested"
-        flags.append("hic_offset")
+            st.second.append("age")                                      # in a genome where young copies mark the cores (#31)
+    c = _Ctx(ev, seq_iv, sconf, alt_iv, h, valid, ax, axis, weak, core, peak, strong, agree, chose, far, amb, f_core, dn_peak,
+             dn_core, pair, untested, dn_only, m_seq, m_hic, at_ok)
+    return c, st
+
+
+# ---- the cascade: the first rule that applies sets the call (each returns whether it applied)
+def _axis_pair(c: _Ctx, s: _Call) -> bool:
+    """Two validated 3D lines at one locus (the axis line's core holds the prior-free peak), the sequence call at neither."""
+    if not (c.pair and (c.seq_iv is None or (_fold_far(c.ev, c.f_core, c.seq_iv) and
+                                             _denovo_far(c.ev, c.dn_peak, c.dn_core, c.seq_iv)))):
+        return False
+    s.call, s.source = c.dn_core, "hic"
+    s.relation = "functional_only" if c.seq_iv is None else "offset"
+    s.flags.append(f"{c.axis}_pair")
+    s.rule = f"{c.axis}_pair"
+    if c.sconf == "high":
+        s.flags.append(f"moved_with_{c.axis}")
+    return True
+
+
+def _hic_strong_peak(c: _Ctx, s: _Call) -> bool:
+    """No sequence call: a strong validated peak places one at its core."""
+    if not (c.seq_iv is None and c.strong):
+        return False
+    s.call, s.relation, s.source, s.rule = c.core, "functional_only", "hic", "hic_strong_peak"
+    return True
+
+
+def _hic_medium_peak(c: _Ctx, s: _Call) -> bool:
+    """No sequence call, the test passed: a clean medium peak places a low call."""
+    if not (c.seq_iv is None and c.valid and c.core and _clean_medium(c.h)):
+        return False
+    s.call, s.relation, s.source, s.rule = c.core, "functional_only", "hic", "hic_medium_peak"
+    s.flags.append("hic_medium_peak")
+    return True
+
+
+def _hic_denovo_only(c: _Ctx, s: _Call) -> bool:
+    """Hi-C alone, in a genome where nothing can test it: its clean prior-free core."""
+    if not (c.seq_iv is None and c.dn_only):
+        return False
+    s.call, s.relation, s.source, s.rule = c.dn_only, "functional_only", "hic", "hic_denovo_only"
+    s.flags.append("hic_denovo_only")
+    return True
+
+
+def _no_call(c: _Ctx, s: _Call) -> bool:
+    if c.seq_iv is not None:
+        return False
+    s.call, s.relation, s.rule = None, "none", "none"
+    return True
+
+
+def _hic_agrees_ambiguous(c: _Ctx, s: _Call) -> bool:
+    """Validated Hi-C agrees, but no mappable bin separates the call from its competing cluster: no support."""
+    if not (c.agree and c.amb):
+        return False
+    s.call, s.rule = c.seq_iv, "hic_chose_alt" if c.chose else "sequence"
+    s.flags.append("hic_alt_ambiguous")
+    return True
+
+
+def _hic_agrees(c: _Ctx, s: _Call) -> bool:
+    if not c.agree:
+        return False
+    s.call, s.relation, s.rule = c.seq_iv, "concordant", "hic_chose_alt" if c.chose else "hic_agrees"
+    return True
+
+
+def _hic_support(c: _Ctx, s: _Call) -> bool:
+    """The support tier: the call's own significant peak agrees."""
+    if not (c.weak and _peak_agrees(c.ev, c.seq_iv) and c.h.get("anch_level") in SUPPORT_LEVELS):
+        return False
+    s.call, s.rule = c.seq_iv, "hic_chose_alt" if c.chose else "sequence"
+    if c.amb:
+        s.flags.append("hic_alt_ambiguous")
     else:
-        call = seq_iv
-        if valid and peak:
-            flags.append("hic_near" if not far else "hic_disagrees_weak")
-    pair = (h or {}).get("te_pair")      # Hi-C's peak at this chromosome's LTR core, the two lines tested genome-wide
-    # both readings run where the gate fails on most chromosomes; a chromosome whose own gate passed keeps what validated Hi-C said
-    if pair and not valid and source == "sequence" and call is not None and relation != "contested":
-        if gap(*call, *pair["core"]) == 0:                                           # both at the call: Hi-C supports it
-            if not amb:                                                              # no mappable bin between it and its competitor
-                relation = "concordant"
-                flags.append("te_hic_pair")
-            elif "hic_alt_ambiguous" not in flags:
-                flags.append("hic_alt_ambiguous")
-        elif sconf == "low" or pair["status"] == "pass":     # two lines at one locus against one line, unsure or on a minority
-            call, relation, source = pair["core"], "offset", "hic"
-            flags.append("te_hic_pair")
-            if sconf == "high":
-                second.append("te")
-                flags.append("moved_with_te")
-    elif pair and call is None:
-        call, relation, source = pair["core"], "functional_only", "hic"
-        flags.append("te_hic_pair")
-    cis = (h or {}).get("cis")           # the cis signal's extreme, its sign and level tested against the LTR cores or trans contacts
-    # a line read outside the terminal eighths (cis_trans_line) has no say on a call inside one: it cannot see there
-    blind = bool(cis and cis.get("interior") and call is not None and in_end_zone(ev, call))
-    if cis and not valid and not blind and "te_hic_pair" not in flags and source == "sequence" and call is not None and \
-            relation != "contested":
-        if _vgap(ev, cis["peak"], call, True) <= _bins(ev, HIC_TOL_BINS):              # at the call: an independent line agrees
-            if not amb:
-                relation = "concordant"
-                flags.append("cis_agrees")
-            elif "hic_alt_ambiguous" not in flags:
-                flags.append("hic_alt_ambiguous")
-        elif _vgap(ev, cis["peak"], call, False) <= _bins(ev, HIC_FAR_BINS):           # within Hi-C's resolution: neither way
-            flags.append("cis_near")
-        elif sconf == "low":                 # elsewhere, the call unsure: the better candidate, still unsure
-            call, relation, source = cis["peak"], "offset", "hic"
-            flags.append("cis_only")
+        s.relation = "concordant"
+        s.flags.append("hic_support")
+        s.rule = "hic_chose_alt" if c.chose else "hic_support"
+    return True
+
+
+def _hic_end(c: _Ctx, s: _Call) -> bool:
+    """Hi-C tells the call's end from the other, in a genome where it does so on most chromosomes."""
+    if not (not c.valid and not c.ax and c.h and c.h.get("end_pass") and c.h.get("end_higher") and not c.amb):
+        return False
+    s.call, s.relation, s.rule = c.seq_iv, "concordant", "hic_end"
+    s.flags.append("hic_end")
+    return True
+
+
+def _hic_moved(c: _Ctx, s: _Call) -> bool:
+    """A strong validated peak elsewhere moves a low or medium call, and a high one with a second line there."""
+    if not (c.strong and c.far and (c.sconf != "high" or s.second)):
+        return False
+    s.call, s.relation, s.source, s.rule = c.core, "offset", "hic", "hic_moved"
+    if c.sconf == "high":
+        s.flags.append("moved_with_" + "+".join(s.second))
+    return True
+
+
+def _hic_offset(c: _Ctx, s: _Call) -> bool:
+    """A strong validated peak elsewhere, no second line: a high call is kept and contested."""
+    if not (c.strong and c.far):
+        return False
+    s.call, s.relation, s.rule = c.seq_iv, "contested", "hic_offset"
+    s.flags.append("hic_offset")
+    return True
+
+
+def _kept(c: _Ctx, s: _Call) -> bool:
+    """The sequence call as it is (a validated peak beside it or too weak to oppose is said in the flags)."""
+    s.call, s.rule = c.seq_iv, "hic_chose_alt" if c.chose else "sequence"
+    if c.valid and c.peak:
+        s.flags.append("hic_near" if not c.far else "hic_disagrees_weak")
+    return True
+
+
+CASCADE = (_axis_pair, _hic_strong_peak, _hic_medium_peak, _hic_denovo_only, _no_call, _hic_agrees_ambiguous, _hic_agrees,
+           _hic_support, _hic_end, _hic_moved, _hic_offset, _kept)
+
+
+# ---- the phases: readings that act where the gate fails, in this order, each on the call the earlier ones left
+def _te_hic_pair(c: _Ctx, s: _Call) -> None:
+    """Hi-C's peak at this chromosome's LTR core, the two lines tested genome-wide (hicfuse.anchored_on_cores). Both readings run
+    where the gate fails on most chromosomes; a chromosome whose own gate passed keeps what validated Hi-C said."""
+    pair = (c.h or {}).get("te_pair")
+    if pair and not c.valid and s.source == "sequence" and s.call is not None and s.relation != "contested":
+        if gap(*s.call, *pair["core"]) == 0:                                      # both at the call: Hi-C supports it
+            if not c.amb:                                                         # no mappable bin between it and its competitor
+                s.relation, s.rule = "concordant", "te_hic_pair"
+                s.flags.append("te_hic_pair")
+            elif "hic_alt_ambiguous" not in s.flags:
+                s.flags.append("hic_alt_ambiguous")
+        elif c.sconf == "low" or pair["status"] == "pass":  # two lines at one locus against one line, unsure or on a minority
+            s.call, s.relation, s.source, s.rule = pair["core"], "offset", "hic", "te_hic_pair"
+            s.flags.append("te_hic_pair")
+            if c.sconf == "high":
+                s.second.append("te")
+                s.flags.append("moved_with_te")
+    elif pair and s.call is None:
+        s.call, s.relation, s.source, s.rule = pair["core"], "functional_only", "hic", "te_hic_pair"
+        s.flags.append("te_hic_pair")
+
+
+def _cis(c: _Ctx, s: _Call) -> None:
+    """The cis signal's extreme, its sign and level tested against the LTR cores or trans contacts. A line read outside the
+    terminal eighths (cis_trans_line) has no say on a call inside one: it cannot see there."""
+    cis = (c.h or {}).get("cis")
+    blind = bool(cis and cis.get("interior") and s.call is not None and in_end_zone(c.ev, s.call))
+    ev = c.ev
+    if cis and not c.valid and not blind and "te_hic_pair" not in s.flags and s.source == "sequence" and s.call is not None \
+            and s.relation != "contested":
+        if _vgap(ev, cis["peak"], s.call, True) <= _bins(ev, HIC_TOL_BINS):            # at the call: an independent line agrees
+            if not c.amb:
+                s.relation, s.rule = "concordant", "cis_agrees"
+                s.flags.append("cis_agrees")
+            elif "hic_alt_ambiguous" not in s.flags:
+                s.flags.append("hic_alt_ambiguous")
+        elif _vgap(ev, cis["peak"], s.call, False) <= _bins(ev, HIC_FAR_BINS):         # within Hi-C's resolution: neither way
+            s.flags.append("cis_near")
+        elif c.sconf == "low":               # elsewhere, the call unsure: the better candidate, still unsure
+            s.call, s.relation, s.source, s.rule = cis["peak"], "offset", "hic", "cis_only"
+            s.flags.append("cis_only")
         else:
-            flags.append("cis_elsewhere")
+            s.flags.append("cis_elsewhere")
             if cis["status"] == "pass":      # a line at the LTR cores on most chromosomes lies elsewhere: one line against one
-                relation = "contested"
-    elif cis and call is None:
-        call, relation, source = cis["peak"], "functional_only", "hic"
-        flags.append("cis_only")
-    elif blind and not valid and source == "sequence" and _vgap(ev, cis["peak"], call, False) > _bins(ev, HIC_FAR_BINS):
-        flags.append("cis_blind")            # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
-    # two lines at a chromosome nothing else places (0.13): the trough and a clean prior-free Hi-C peak that placed no call of its
-    # own agree here, in a genome where the two agree beyond chance (atline.validate: support); C. neoformans in anaphase: 3
+                s.relation, s.rule = "contested", "cis_elsewhere"
+    elif cis and s.call is None:
+        s.call, s.relation, s.source, s.rule = cis["peak"], "functional_only", "hic", "cis_only"
+        s.flags.append("cis_only")
+    elif blind and not c.valid and s.source == "sequence" and _vgap(ev, cis["peak"], s.call, False) > _bins(ev, HIC_FAR_BINS):
+        s.flags.append("cis_blind")          # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
+
+
+def _at_places(c: _Ctx, s: _Call) -> None:
+    """A chromosome nothing else places takes its AT trough: where the genome's troughs passed their test (at_only), or where
+    the trough and a clean prior-free Hi-C peak that placed no call of its own agree, in a genome where the two agree beyond
+    chance (0.13, at_denovo_pair; C. neoformans in anaphase: 3)."""
+    ev, h = c.ev, c.h
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
                   and h.get("denovo_confidence", "none") != "none")
-    if call is None and (at_ok or at_two):           # nothing else places this chromosome
-        call, relation, source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
-        flags.append("at_only" if at_ok else "at_denovo_pair")
-    if call is None:
-        return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
-                    flags=flags, second=second, meth_call={"label": "", "score": np.nan})
-    if seq_iv is None and source == "hic" and ev.at:
+    if s.call is None and (c.at_ok or at_two):
+        s.call, s.relation, s.source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
+        s.flags.append("at_only" if c.at_ok else "at_denovo_pair")
+        s.rule = s.flags[-1]
+
+
+PHASES = (_te_hic_pair, _cis, _at_places)
+
+
+# ---- after a call is placed: what refines or contests it, then its support, what is against it, and its confidence
+def _refine(c: _Ctx, s: _Call) -> None:
+    """The AT trough's finer interval for a Hi-C call it agrees with (at_pair) or a flag where it lies elsewhere; Hi-C alone's
+    prior-free peak elsewhere (said); the Rabl-axis line and the prior-free peak opposing a kept call (contested)."""
+    ev, h = c.ev, c.h
+    if c.seq_iv is None and s.source == "hic" and ev.at:
         trough = (ev.at["start"], ev.at["end"])
-        at_near = _vgap(ev, trough, call, True) <= _bins(ev, HIC_TOL_BINS)
+        at_near = _vgap(ev, trough, s.call, True) <= _bins(ev, HIC_TOL_BINS)
     else:
         trough, at_near = None, False
-    at_pair = bool(at_near and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")))
-    if at_pair:                  # two independent lines on a chromosome without a sequence call: the trough is the finer
-        call = trough                                                # (a window of 1-500 kb, a Hi-C bin of 10-250 kb)
-        flags.append("at_pair")
+    s.at_pair = bool(at_near and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")))
+    if s.at_pair:              # two independent lines on a chromosome without a sequence call: the trough is the finer
+        s.call, s.rule = trough, "at_pair"                           # (a window of 1-500 kb, a Hi-C bin of 10-250 kb)
+        s.flags.append("at_pair")
     elif trough and not at_near and ev.at.get("validated"):
-        flags.append("at_elsewhere")      # said in the caveat; a Hi-C call stands against a trough of the same standing
-    if untested and not fo and source == "sequence":
+        s.flags.append("at_elsewhere")    # said in the caveat; a Hi-C call stands against a trough of the same standing
+    if c.untested and not c.ax and s.source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
-        if dpk and dco and _denovo_far(ev, dpk, dco, call):
-            flags.append("hic_denovo_elsewhere")
-    f_opp = d_opp = False
-    if fo and source == "sequence":
-        f_opp, d_opp = _fold_far(ev, f_core, call), bool(dn_peak and _denovo_far(ev, dn_peak, dn_core, call))
-        if f_opp or d_opp:
-            relation = "contested"
-            flags += [x for x, y in ((f"{axis}_offset", f_opp), ("hic_denovo_offset", d_opp)) if y]
-    elif fo and "hic_denovo_only" in flags and _fold_far(ev, f_core, call):
-        f_opp = True                                       # the axis line passed genome-wide but points elsewhere
-        flags.append(f"{axis}_offset")                     # here: said, not hidden (the call is low already)
-    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags)   # the call sits at the prior-free
-    m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # core: its own item
-    support = ["at"] if at_pair or {"at_only", "at_denovo_pair"} & set(flags) else []
-    if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
+        if dpk and dco and _denovo_far(ev, dpk, dco, s.call):
+            s.flags.append("hic_denovo_elsewhere")
+    if c.ax and s.source == "sequence":
+        s.f_opp = _fold_far(ev, c.f_core, s.call)
+        s.d_opp = bool(c.dn_peak and c.dn_core and _denovo_far(ev, c.dn_peak, c.dn_core, s.call))
+        if s.f_opp or s.d_opp:
+            s.relation, s.rule = "contested", f"{c.axis}_offset" if s.f_opp else "hic_denovo_offset"
+            s.flags += [x for x, y in ((f"{c.axis}_offset", s.f_opp), ("hic_denovo_offset", s.d_opp)) if y]
+    elif c.ax and "hic_denovo_only" in s.flags and _fold_far(ev, c.f_core, s.call):
+        s.f_opp = True                                     # the axis line passed genome-wide but points elsewhere
+        s.flags.append(f"{c.axis}_offset")                 # here: said, not hidden (the call is low already)
+
+
+def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
+    """The lines that agree with the call."""
+    ev, flags = c.ev, s.flags
+    support = ["at"] if s.at_pair or {"at_only", "at_denovo_pair"} & set(flags) else []
+    if ev.sat_bp and ev.sat_bp(*s.call) >= SAT_SUPPORT_BP:
         support.append("satellite")
-    if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second) or "te_hic_pair" in flags:
+    if (s.source == "sequence" and _te_agrees(ev, s.call)) or (s.source == "hic" and "te" in s.second) or "te_hic_pair" in flags:
         support.append("te")
-    if source == "hic" and "age" in second:
+    if s.source == "hic" and "age" in s.second:
         support.append("age")
-    if valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, call) or
-                                                       (source == "hic" and h.get("anch_level") != "none")):
+    if c.valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, s.call) or
+                                                         (s.source == "hic" and c.h.get("anch_level") != "none")):
         support.append("hic")
     elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only", "at_denovo_pair"} & set(flags):
         support.append("hic")
-    if axis and f"{axis}_pair" in flags:
-        support += ["hic", axis]
-    elif fo and source == "sequence" and gap(*call, *f_core) == 0:
-        support.append(axis)
+    if c.axis and f"{c.axis}_pair" in flags:
+        support += ["hic", c.axis]
+    elif c.ax and s.source == "sequence" and gap(*s.call, *c.f_core) == 0:
+        support.append(c.axis)
     if m_call["label"] == "centromere_like":
         support.append("meth")
+    return support
+
+
+def _against(c: _Ctx, s: _Call) -> list:
+    """The lines that point elsewhere."""
+    ev, flags = c.ev, s.flags
     against = []
-    if valid and strong and _peak_far(ev, call):
+    if c.valid and c.strong and _peak_far(ev, s.call):
         against.append("hic")
-    if _te_decides(ev) and not (_te_agrees(ev, call) if source == "sequence" else "te" in second or "te_hic_pair" in flags):
+    if _te_decides(ev) and not (_te_agrees(ev, s.call) if s.source == "sequence" else "te" in s.second or "te_hic_pair" in flags):
         against.append("te")
     if "at_elsewhere" in flags:
         against.append("at")
     if "cis_elsewhere" in flags:
         against.append("hic")
-    against += [x for x, y in ((axis, f_opp), ("hic", d_opp)) if y]
-    if source == "sequence":
-        if relation == "contested":
-            conf = level_shift(sconf, -max(1, int(f_opp) + int(d_opp)) + int("meth" in support))
+    against += [x for x, y in ((c.axis, s.f_opp), ("hic", s.d_opp)) if y]
+    return against
+
+
+def _confidence(c: _Ctx, s: _Call, support: list) -> str:
+    """One level up per agreeing tested line (at most MAX_RAISE), down for a contest; a moved or functional-only call is
+    medium, high with a second line; a trough alone low, medium where Hi-C validated the troughs."""
+    if s.source == "sequence":
+        if s.relation == "contested":
+            conf = level_shift(c.sconf, -max(1, int(s.f_opp) + int(s.d_opp)) + int("meth" in support))
         else:
-            raise_by = int("hic" in support) + int("meth" in support)
-            conf = level_shift(sconf, min(MAX_RAISE, raise_by))
-        if relation == "sequence_only" and "meth" in support:
-            relation = "concordant"
-    elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
-        conf = "medium" if ev.at.get("validated") else "low"
-    elif "cis_only" in flags:
-        conf = "low"
-    elif "hic_medium_peak" in flags or "hic_denovo_only" in flags:
-        conf = "medium" if at_pair else "low"
-    else:
-        conf = "high" if second or at_pair else "medium"
-    return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,
-                flags=flags, second=second, meth_call=m_call)
+            conf = level_shift(c.sconf, min(MAX_RAISE, int("hic" in support) + int("meth" in support)))
+        if s.relation == "sequence_only" and "meth" in support:
+            s.relation = "concordant"
+        return conf
+    if s.source == "composition":
+        return "medium" if c.ev.at.get("validated") else "low"
+    if "cis_only" in s.flags:
+        return "low"
+    if "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
+        return "medium" if s.at_pair else "low"
+    return "high" if s.second or s.at_pair else "medium"
+
+
+def _decide(ev: Evidence) -> dict:
+    """The rules in their declared order: the first rule of CASCADE that applies sets the call; the PHASES then act on it in
+    turn; then the call is refined or contested (_refine), and its support, what is against it and its confidence follow. The
+    order is the specification (design.md, Integration): a later reading may override an earlier one, as the LTR-core and cis
+    readings override a plain sequence call, and the AT trough places only what nothing else did. `rule` names the last rule
+    that set the call's place or relation."""
+    c, s = _context(ev)
+    next(r for r in CASCADE if r(c, s))
+    for phase in PHASES:
+        phase(c, s)
+    if s.call is None:
+        return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
+                    flags=s.flags, rule="none", second=s.second, meth_call={"label": "", "score": np.nan})
+    _refine(c, s)
+    at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags)   # the call sits at the prior-free
+    m_call = _meth(ev, "provisional") if at_core else c.m_hic if s.source == "hic" else c.m_seq   # core: its own item
+    support = _support(c, s, m_call)
+    against = _against(c, s)
+    conf = _confidence(c, s, support)
+    if s.rule == "sequence" and s.source == "sequence" and "meth" in support and s.relation == "concordant":
+        s.rule = "meth_support"                # methylation alone raised or confirmed a kept call
+    return dict(call=s.call, relation=s.relation, confidence=conf, source=s.source, support=support, against=against,
+                flags=s.flags, rule=s.rule, second=s.second, meth_call=m_call)
 
 
 def row(ev: Evidence, d: dict) -> dict:
@@ -527,7 +710,7 @@ def row(ev: Evidence, d: dict) -> dict:
         chrom=ev.chrom, chrom_len=ev.chrom_len, start=one(call[0]) if call else na, end=end(call[1]) if call else na,
         length=call[1] - call[0] if call else na, call_source=d["source"], relation=d["relation"],
         confidence=d["confidence"], support=",".join(d["support"]) or na, against=",".join(d["against"]) or na,
-        flags=",".join(d["flags"]) or na, offset_bp=off,
+        flags=",".join(d["flags"]) or na, rule=d.get("rule", na), offset_bp=off,
         seq_start=one(seq_iv[0]) if seq_iv else na, seq_end=end(seq_iv[1]) if seq_iv else na,
         seq_evidence=ev.seq["evidence"], seq_confidence=ev.seq["confidence"], seq_flags=ev.seq["flags"],
         seq_alt_start=one(alt_iv[0]) if alt_iv else na, seq_alt_end=end(alt_iv[1]) if alt_iv else na,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..runtime import atomic_csv, atomic_open
 from . import __version__
 
 CALL_COLS = ["chrom", "length", "callable", "bin_size", "peak_start", "peak_end", "core_start", "core_end",
@@ -39,7 +40,7 @@ def _stat_text(v):
 
 
 def write_bed(rows, path, bin_size):
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         f.write(f"#cenfuse-hic {__version__} bin_size={bin_size}\n")
         for r in rows:
             label = r["confidence"]
@@ -61,11 +62,11 @@ def write_tsv(rows, path):
         df[c] = df[c].map(_int_text)
     for c in STAT_COLS:
         df[c] = df[c].map(_stat_text)
-    df.to_csv(path, sep="\t", index=False)
+    atomic_csv(df, path, sep="\t", index=False)
 
 
 def write_bedgraph(values, bins, members, path, name):
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         f.write(f'track type=bedGraph name="{name}"\n')
         for k in np.where(members)[0]:
             sl = bins.sl(int(k))
@@ -75,7 +76,7 @@ def write_bedgraph(values, bins, members, path, name):
 
 
 def write_qc(sections, path):
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         for name, df in sections.items():
             f.write(f"# {name}\n")
             df.to_csv(f, sep="\t", index=False, float_format="%.4g")

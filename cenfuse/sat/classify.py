@@ -400,7 +400,7 @@ def choose_centromeric(fams: pd.DataFrame, mains: dict, chroms: dict, p, fam_inf
 
 
 def apply_rdna(fams: pd.DataFrame, rdna: dict, p, elsewhere: dict = None) -> pd.DataFrame:
-    """Families whose largest arrays sit among 45S rRNA genes (rdna_neighbourhood) are rDNA spacer repeats (NORs):
+    """Families whose largest arrays sit among 45S rRNA genes (rdna_neighborhood) are rDNA spacer repeats (NORs):
     never centromeric. elsewhere: {fam: (genome, k, n)} tagged so in another genome of the complex. rRNA genes are
     often missing from assemblies, so their presence next to the arrays in one genome is the evidence, and their
     absence in another is not (Lemna: one family flanked by 45S genes at 5/9 and 6/10 arrays in two genomes, 1/6 in a

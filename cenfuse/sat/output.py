@@ -9,6 +9,7 @@ import pandas as pd
 import pyhmmer
 
 from . import __version__
+from ..runtime import atomic_csv, atomic_open
 from .util import clipped_bp, overlap, parse_fasta_text, union_bp, write_fasta
 
 SUMMARY_COLS = ["chrom", "chrom_len", "cen_start", "cen_end", "cen_len", "evidence", "confidence", "flags",
@@ -187,7 +188,7 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
         feats.append((c, s, e, "tandem_repeat", ".", ".", a_))
     feats.sort(key=lambda f: (order[f[0]], f[1], LEVEL[f[3]], -f[2]))
 
-    with open(outdir / f"{g.name}_centromeric_repeat.gff", "w") as f:
+    with atomic_open(outdir / f"{g.name}_centromeric_repeat.gff") as f:
         f.write("##gff-version 3\n")
         for c, L in g.chroms.items():
             f.write(f"##sequence-region {c} 1 {L}\n")
@@ -234,10 +235,10 @@ def write_genome(d: dict, names: dict, outdir, p) -> None:
                          rejected_start=int(rg["rejected_start"]) + 1
                          if rg.get("rejected_start", ".") not in (".", "") else ".",
                          rejected_end=rg.get("rejected_end", ".") or ".", main_spacing=st["main_spacing"]))
-    pd.DataFrame(rows, columns=SUMMARY_COLS).to_csv(outdir / f"{g.name}_centromere_summary.tsv", sep="\t", index=False)
+    atomic_csv(pd.DataFrame(rows, columns=SUMMARY_COLS), outdir / f"{g.name}_centromere_summary.tsv", sep="\t", index=False)
     hu = d["hor_units"].copy()
     hu["family"] = hu.family.map(nm)
-    hu.to_csv(outdir / f"{g.name}_hor_units.tsv", sep="\t", index=False)
+    atomic_csv(hu, outdir / f"{g.name}_hor_units.tsv", sep="\t", index=False)
 
 
 def write_arrays(g, arrays: pd.DataFrame, fams: pd.DataFrame, fam_info, nm, order: dict, outdir) -> None:
@@ -248,7 +249,7 @@ def write_arrays(g, arrays: pd.DataFrame, fams: pd.DataFrame, fam_info, nm, orde
     tag = dict(zip(fams.family, fams.rdna_tag)) if "rdna_tag" in fams else {}
     a = arrays.assign(ci=arrays.chrom.map(order)).sort_values(["ci", "start", "end"])
     k = a.groupby("chrom").cumcount() + 1
-    with open(Path(outdir) / f"{g.name}_satellite_arrays.gff", "w") as f:
+    with atomic_open(Path(outdir) / f"{g.name}_satellite_arrays.gff") as f:
         f.write("##gff-version 3\n")
         for c, L in g.chroms.items():
             f.write(f"##sequence-region {c} 1 {L}\n")
@@ -290,8 +291,8 @@ def write_families(fam: pd.DataFrame, data: dict, names: dict, hmm_path, fa_path
                 row.update({"class": "absent", "role": "absent", "bp": 0, "n_arrays": 0,
                             "reason": "no arrays in this genome"})
             rows.append(row)
-    pd.DataFrame(rows, columns=FAMTAB_COLS).to_csv(outdir / "satellite_families.tsv", sep="\t", index=False,
-                                                   float_format="%.3f", na_rep=".")
+    atomic_csv(pd.DataFrame(rows, columns=FAMTAB_COLS), outdir / "satellite_families.tsv", sep="\t", index=False,
+               float_format="%.3f", na_rep=".")
     cons = dict(parse_fasta_text(Path(fa_path).read_text())) if Path(fa_path).exists() else {}
     write_fasta(outdir / "satellite_families.fa",
                 ((f"{names[i]} fam_id={i} hmm={m}", cons.get(i, "")) for i, m in zip(fam.fam_id, fam.hmm_mode)))
@@ -299,7 +300,7 @@ def write_families(fam: pd.DataFrame, data: dict, names: dict, hmm_path, fa_path
     if len(fam):
         with pyhmmer.plan7.HMMFile(hmm_path) as hf:
             hmms = list(hf)
-    with open(outdir / "satellite_families.hmm", "wb") as fh:
+    with atomic_open(outdir / "satellite_families.hmm", "wb") as fh:
         for h in hmms:
             h.name = names[h.name]
             h.write(fh)

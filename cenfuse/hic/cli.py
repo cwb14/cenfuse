@@ -14,7 +14,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, params, plot, qc
+from ..runtime import atomic_path, atomic_write_text
+from . import CACHE_VERSION, __version__, params, plot, qc
 from .balance import balanced, ice
 from .bins import Bins, candidate_sizes, choose_bin_size, coarsen, fits_memory, matrix_from_pairs
 from .confidence import bootstrap, leave_one_out, level, null_test
@@ -39,7 +40,7 @@ def fast_checksum(*paths, sizes=params.BIN_LADDER) -> str:
     """Cache key: a fast fingerprint (version, candidate bin sizes, name, size, mtime, first and last MiB of each
     input), not a checksum of the whole file."""
     n = params.CACHE_FP_BYTES
-    h = hashlib.md5(f"{__version__}:{tuple(sizes)}:{params.MAPQ}".encode())
+    h = hashlib.md5(f"{CACHE_VERSION}:{tuple(sizes)}:{params.MAPQ}".encode())
     for p in paths:
         p = Path(p)
         st = p.stat()
@@ -154,8 +155,9 @@ def _base_matrix(args, seqs, sizes):
     if M.nnz == 0:
         raise InputError(f"no contacts on the .fai sequences (name mismatch?); .fai has e.g. {list(seqs)[:3]}")
     cache.mkdir(parents=True, exist_ok=True)
-    sp.save_npz(npz, M)
-    meta.write_text(json.dumps(stats))
+    with atomic_path(npz) as tmp:                     # the npz first: a cache is read only with its meta beside it
+        sp.save_npz(tmp, M)
+    atomic_write_text(meta, json.dumps(stats))
     log.info(f"contact matrix built in {time.time() - t0:.0f} s")
     return M, base, stats, npz
 
@@ -275,7 +277,11 @@ def run_call(args) -> dict:
     pcs = {k: v for k, v in pcs.items() if v is not None}
     est = {k: loc.est[k] for k in pcs}
     log.debug("bootstrap")
-    boot = bootstrap(M, bins, members, est, threads=args.t)
+    extra = args.extra_windows(bins, members, good) if getattr(args, "extra_windows", None) else None
+    if extra:      # cenfuse's anchored windows, scored on the same resamples (bootstrap: extra)
+        boot, boot_extra = bootstrap(M, bins, members, est, threads=args.t, extra=extra)
+    else:
+        boot, boot_extra = bootstrap(M, bins, members, est, threads=args.t), {}
     lopo = leave_one_out(loc.oe, bins, good, members, est)
     log.debug("null")
     pnull = null_test(W, bins, good, mean, members, est, {k: v["peak"] for k, v in pcs.items()},
@@ -336,7 +342,8 @@ def run_call(args) -> dict:
     # the in-memory state, so cenfuse scores anchored partner windows on the same matrix, balancing and bins
     # without rebuilding them
     state = dict(M=M, W=W, bias=bias, bins=bins, good=good, mean=mean, members=members, loc=loc, pcs=pcs, hub=hub, rdna=rdna,
-                 sat=sat, size=size, T=T, base_size=base.size, matrix_cache=None if cool else str(npz))
+                 sat=sat, size=size, T=T, base_size=base.size, matrix_cache=None if cool else str(npz),
+                 boot_extra=boot_extra, extra_windows=extra or {})
     return dict(rows=rows, rabl=rabl, bin_table=bin_table, stats=stats, state=state)
 
 

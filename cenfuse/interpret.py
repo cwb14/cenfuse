@@ -17,7 +17,8 @@ import pandas as pd
 
 from . import __version__
 from .morphology import levan
-from .params import AXIS_LEAN_P
+from .params import AXIS_LEAN_P, FC_LEVEL
+from .runtime import atomic_write_text
 from .sat.params import LEN_TOL
 from .seqcalls import bp_by_role
 
@@ -301,6 +302,9 @@ def caveat(r, ctx: dict) -> str:
         hint = hint or "CENP-A/CENH3 data would decide"
     if "hic_disagrees_weak" in flags:
         out.append(f"Hi-C's peak lies elsewhere{peak} but is not strong enough to oppose")
+    if "hic_near" in flags and r.confidence != "high":
+        out.append(f"validated Hi-C's peak{peak} lies beside the call, within Hi-C's resolution, so it neither supports nor "
+                   f"opposes it")
     if "te" in against and not ("te_discordant" in sflags and r.call_source == "sequence") and not te_in_alt:
         out.append(f"the {r.te_clade} core lies elsewhere" + (f" ({interval(r.te_start, r.te_end)})"
                                                               if _int(r.te_start) is not None else ""))
@@ -345,9 +349,9 @@ def _pval(x) -> float:
 
 
 def _ends_sig(s: str) -> bool:
-    """'2.14x P=0.000999' -> P <= 0.01 (the feature-class test's level)."""
+    """'2.14x P=0.000999' -> P <= FC_LEVEL (the feature-class test's level)."""
     try:
-        return float(str(s).split("P=")[1]) <= 0.01
+        return float(str(s).split("P=")[1]) <= FC_LEVEL
     except (IndexError, ValueError):
         return False
 
@@ -424,9 +428,9 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
                  telomere_both=int((t.telomeres == "both").sum()))
     if fc is not None and len(fc):                    # the centromeres always (the positive control), others when
         f["contacts"] = [(r.feature_class, float(r.fold), float(r.p_enriched)) for r in fc.itertuples(index=False)
-                         if r.kind == "centromere" or (float(r.p_enriched) <= 0.01 and r.kind in
+                         if r.kind == "centromere" or (float(r.p_enriched) <= FC_LEVEL and r.kind in
                                                        ("ends", "telomere", "nor", "interstitial", "subtelomeric",
-                                                        "rDNA", "te_core"))]   # self-associated (P <= 0.01)
+                                                        "rDNA", "te_core"))]   # self-associated
     return f
 
 
@@ -662,5 +666,5 @@ def write_report(sections: list, out: Path, genome_dir: Path) -> Path:
             f"`<genome>.loci.tsv`; figure: `cenfuse_overview.pdf`. Confidence: `high`, `medium`, `low` = "
             f"uncertain.\n\n")
     p = Path(out) / "cenfuse_report.md"
-    p.write_text(head + "\n".join(sections))
+    atomic_write_text(p, head + "\n".join(sections))
     return p

@@ -123,8 +123,11 @@ def test_outputs_and_resume(full):
     assert s.meth_signature == "CHG:LTR:CRM:down" and s.hic_gate_pass == 10 and s.offset == 2
     assert s.meth_deciding == "P1" and s.hic_library == "hic" and s.plants_shifted == "P3:chr3"
     before = {f: (out / f).read_text() for f in ("Syn.centromeres.tsv", "Syn.plants.tsv", "Syn.provenance.tsv")}
+    stamps = {f: f.stat().st_mtime_ns for f in (out / "work").glob("*/*.pkl")}
+    assert len(stamps) >= 5
     Run(truth["dir"], out, 4, satellite_dir=truth["sat"]).run()          # resumes from every checkpoint
     assert all((out / f).read_text() == v for f, v in before.items())
+    assert {f: f.stat().st_mtime_ns for f in (out / "work").glob("*/*.pkl")} == stamps   # no stage was recomputed (#59)
     sites = pd.read_csv(out / "Syn.plant_sites.tsv", sep="\t")
     assert set(sites["sample"]) == set(fuse_synth.SAMPLES) and sites.groupby("site")["sample"].nunique().eq(3).all()
 
@@ -209,3 +212,42 @@ def test_full_pipeline_with_the_satellite_engine(tmp_path):
     assert (called.seq_start == summ.loc[called.index, "cen_start"]).all()
     assert (out / "Pa_A.loci.tsv").exists() and (out / "cenfuse_summary.tsv").exists()
     assert (t.hic_gate == ".").all()                        # Hi-C skipped with a warning; the run completed
+
+
+def test_a_resume_without_the_hic_matrix_cache_recomputes_hic(full, tmp_path, caplog):
+    """Deleting the Hi-C engine's contact-matrix cache must not drop the arm fold and the alignment from a resumed run
+    (future.md #59): the Hi-C stage is recomputed, the cache comes back, and the calls are those of the first run."""
+    truth, out = full
+    copy = tmp_path / "out"
+    shutil.copytree(out, copy)
+    caches = list((copy / "hic").glob("*.cache/*.npz"))
+    assert caches
+    for f in caches:
+        f.unlink()
+    with caplog.at_level("WARNING", logger="cenfuse"):
+        Run(truth["dir"], copy, 4, satellite_dir=truth["sat"]).run()
+    assert "contact-matrix cache is gone" in caplog.text and "arm fold skipped" not in caplog.text
+    assert all(f.exists() for f in caches)
+    a, b = _calls(out), _calls(copy)
+    assert (a[["start", "end", "confidence", "flags"]] == b[["start", "end", "confidence", "flags"]]).all().all()
+
+
+def test_a_failed_figure_is_recorded_not_silent(full, tmp_path, monkeypatch, caplog):
+    """A figure that fails costs neither the tables nor the report, and is recorded (summary `incomplete`, run_info.json,
+    a final warning) instead of one log line (future.md #58)."""
+    import json
+    from cenfuse import plot
+    truth, out = full
+    copy = tmp_path / "out"
+    shutil.copytree(out, copy)
+
+    def boom(*a, **k):
+        raise RuntimeError("no display")
+    monkeypatch.setattr(plot, "overview", boom)
+    with caplog.at_level("WARNING", logger="cenfuse"):
+        Run(truth["dir"], copy, 4, satellite_dir=truth["sat"]).run()
+    s = pd.read_csv(copy / "cenfuse_summary.tsv", sep="\t", dtype=str).iloc[0]
+    assert s["incomplete"] == "figure" and "incomplete outputs" in caplog.text
+    info = json.loads((copy / "run_info.json").read_text())
+    assert info["status"] == "done" and info["incomplete"] == ["Syn: figure"]
+    assert (copy / "cenfuse_report.md").exists() and _calls(copy).equals(_calls(out))

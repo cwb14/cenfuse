@@ -154,7 +154,7 @@ def test_calibration_messages(syn, tmp_path, capsys):
     scaf.write_text("scaf1\t100000\t200000\tsc\n")            # in the .fai but too short to analyse
     assert cli.main(_args(syn, o / "a", "--anchors", str(scaf))) == 0
     err = capsys.readouterr().err
-    assert "no anchor on an analysed chromosome: uncalibrated run" in err
+    assert "no anchor on an analyzed chromosome: uncalibrated run" in err
     two = tmp_path / "two.bed"
     two.write_text("chr1\t19750000\t20250000\tc1\nchr2\t27750000\t28250000\tc2\n")
     assert cli.main(_args(syn, o / "b", "--anchors", str(two))) == 0

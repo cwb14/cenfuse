@@ -162,7 +162,7 @@ def test_hic_alone_medium_where_the_alignment_pairs_low_where_not():
 
 
 def test_calls_at_the_prior_free_core_take_the_provisional_methylation_item():
-    """future.md 17: a call placed at the prior-free core (axis pair) reads methylation at that core."""
+    """0.10.1's future.md entry 17 (closed): a call placed at the prior-free core (axis pair) reads methylation at that core."""
     e = ev(seq=None, untested=True)
     e.meth = {"provisional": dict(label="centromere_like", score=0.9), "hic_peak": dict(label="dip", score=0.1)}
     d = fuse.decide(e)

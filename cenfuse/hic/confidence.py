@@ -18,35 +18,89 @@ def poisson_resample(M, rng):
     return symmetrize(R)
 
 
-def _score_fixed(M, bins, members, est):
-    bias, good, _, _ = ice(M)
-    W = balanced(M, bias, good)
-    mean = block_means(W, bins, good, members)
-    return cluster_score(partner_oe(W, bins, good, mean, window_bins(bins, good, est)), bins, good, members)
+class _Resampler:
+    """poisson_resample(M, rng) for one M, many times: the upper triangle and the symmetric layout are made once, and each
+    replicate's draws (the same, in the same order) are written straight into that layout, zeros dropped as the sparse sum
+    drops them, instead of a transpose and two sparse sums per replicate (0.14, future.md #62). The layout is checked against
+    the sparse sum's once; if they ever differ, poisson_resample itself runs."""
+
+    def __init__(self, M):
+        self.M, U = M, sp.triu(M).tocsr()
+        n = U.shape[0]
+        rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(U.indptr))
+        cols = U.indices.astype(np.int64)
+        off = rows != cols
+        r_all, c_all = np.concatenate([rows, cols[off]]), np.concatenate([cols, rows[off]])
+        order = np.lexsort((c_all, r_all))
+        ref = symmetrize(sp.csr_matrix((np.ones_like(U.data), U.indices, U.indptr), shape=U.shape))
+        self.U, self.shape = U, U.shape
+        self.src = np.concatenate([np.arange(len(rows)), np.flatnonzero(off)])[order]
+        self.indices = c_all[order].astype(ref.indices.dtype)
+        self.indptr = np.concatenate([[0], np.cumsum(np.bincount(r_all, minlength=n))]).astype(ref.indptr.dtype)
+        self.exact = bool(np.array_equal(self.indices, ref.indices) and np.array_equal(self.indptr, ref.indptr))
+
+    def __call__(self, rng):
+        if not self.exact:
+            return poisson_resample(self.M, rng)
+        R = sp.csr_matrix((rng.poisson(self.U.data).astype(np.float64)[self.src], self.indices.copy(), self.indptr.copy()),
+                          shape=self.shape)
+        R.eliminate_zeros()
+        return R
 
 
-def bootstrap(M, bins, members, est, n=params.N_BOOT, seed=params.SEED, threads=1):
-    """Peak bin of every chromosome in n Poisson resamples (re-balanced, re-scored; partner windows fixed at est)."""
+def _peaks(S, bins, keys) -> dict:
+    return {k: int(np.nanargmax(S[bins.sl(k)])) if np.isfinite(S[bins.sl(k)]).any() else -1 for k in keys}
+
+
+def bootstrap(M, bins, members, est, n=params.N_BOOT, seed=params.SEED, threads=1, extra=None):
+    """Peak bin of every chromosome in n Poisson resamples (re-balanced, re-scored; partner windows fixed at est).
+    extra: {name: {chromosome: partner window bins}}, other fixed windows scored on the same resamples (cenfuse's anchored
+    test, whose resamples, from the same seed and matrix, are these): then returns (peaks, {name: peak bins of every callable
+    chromosome}). A resample, its balancing and its block means are about 97% of a replicate's cost, so the windows share
+    them; the resamples are built by _Resampler (0.14, future.md #62; every number unchanged)."""
     seeds = np.random.SeedSequence(seed).spawn(n)
+    resample = _Resampler(M)
+    ks = [int(k) for k in np.where(members)[0]]
 
     def one(ss):
-        S = _score_fixed(poisson_resample(M, np.random.default_rng(ss)), bins, members, est)
-        return {k: int(np.nanargmax(S[bins.sl(k)])) if np.isfinite(S[bins.sl(k)]).any() else -1 for k in est}
+        R = resample(np.random.default_rng(ss))
+        bias, good, _, _ = ice(R)
+        W = balanced(R, bias, good)
+        mean = block_means(W, bins, good, members)
+        S = cluster_score(partner_oe(W, bins, good, mean, window_bins(bins, good, est)), bins, good, members)
+        ext = {name: _peaks(cluster_score(partner_oe(W, bins, good, mean, {y: w[good[w]] for y, w in win.items()}), bins, good,
+                                          members), bins, ks) for name, win in (extra or {}).items()}
+        return _peaks(S, bins, est), ext
 
     with ThreadPoolExecutor(max(threads, 1)) as ex:
         reps = list(ex.map(one, seeds))
-    return {k: np.array([r[k] for r in reps]) for k in est}
+    out = {k: np.array([r[0][k] for r in reps]) for k in est}
+    if extra is None:
+        return out
+    return out, {name: {k: np.array([r[1][name][k] for r in reps]) for k in ks} for name in extra}
 
 
 def leave_one_out(oe, bins, good, members, est):
-    """Peak bin of each chromosome with each partner left out in turn."""
+    """Peak bin of each chromosome with each partner left out in turn: the arithmetic of cluster_score(exclude={x: {y}}) on x's
+    own bins only. Scoring every chromosome for every pair, as before 0.14, is cubic in the partners: 80 chromosomes took 81 s
+    against 1 s now, with the same peaks (future.md #62; cenfuse's anchored test uses this function too, hicfuse.lopo_all)."""
     out = {}
     for x in est:
+        sl = bins.sl(x)
+        g = good[sl]
+        ys = [y for y in oe if y != x]
         peaks = []
-        for y in oe:
-            if y == x:
+        for y in ys:
+            rest = [z for z in ys if z != y]
+            if not members[x] or not rest:              # cluster_score scores members only, and needs a partner
+                peaks.append(-1)
                 continue
-            v = cluster_score(oe, bins, good, members, exclude={x: {y}})[bins.sl(x)]
+            A = np.vstack([oe[z][sl] for z in rest])
+            ok = ~np.isnan(A)
+            n = ok.sum(axis=0)
+            v = np.full(A.shape[1], np.nan)
+            np.divide(np.where(ok, A, 0.0).sum(axis=0), n, out=v, where=n > 0)
+            v[~g] = np.nan
             peaks.append(int(np.nanargmax(v)) if np.isfinite(v).any() else -1)
         out[x] = np.array(peaks)
     return out

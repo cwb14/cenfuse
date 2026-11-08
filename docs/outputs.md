@@ -11,15 +11,17 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `asm.centromeres.bed`, `.gff3` | the calls; the GFF3 also holds each CpG kinetochore (`regional_centromere_central_core`, Name=kinetochore) |
 | `cenfuse_report.md` | per genome, in words: each line's result and test, what the centromeres are made of, the calls that are not `high` with what would settle them, morphology and completeness, the other features and their 3D association, notes on the inputs |
 | `cenfuse_summary.tsv` | one row per genome (columns below); warnings are in the log and the report |
+| `run_info.json` | the run manifest: cenfuse's version and git commit, the command, host, threads and times, Python and package versions, every external tool's path, version and conda package, a content fingerprint of every input, how the run ended (`status`: `running`, `done`, `failed` with the error; `incomplete` outputs), and what it cost (`cost`: `wall_minutes`, `cpu_hours` of cenfuse and every process it started, `peak_memory_gb` of the whole process tree, sampled every 30 s, and `memory`, what that measured; also the run's last log line) |
+| `.cenfuse.lock` | present while a run uses the folder (host, pid, start, command); removed at the end |
 | `cenfuse_overview.pdf`, `asm.overview.png` | the overview figure with its legend pages; its first page at 300 dpi |
 | `asm.loci.tsv`, `asm.features.gff3` | every feature cenfuse found (below), with each line's signal there |
-| `asm.feature_signatures.tsv` | per kind of feature, each line's median signal |
-| `asm.feature_contacts.tsv` | with Hi-C: how strongly each kind of feature contacts itself in 3D, against chance |
+| `asm.feature_signatures.tsv` | per kind of feature, each line's median signal (columns below) |
+| `asm.feature_contacts.tsv` | with Hi-C: how strongly each kind of feature contacts itself in 3D, against chance (columns below) |
 | `asm.hic_anchored.bedgraph` | the anchored Hi-C centromere score per bin, for a genome browser |
-| `asm.line_tests.tsv` | do the lines agree with each other? One row per pair of lines: chromosomes where both have a locus, how many agree, how many chance would give, P, a verdict. It changes no call |
-| `asm.te_signature.tsv` | with `tes/` from LTRquest: the LTR signature per chromosome: the lineage, the seed (lineage or family) and its fold enrichment, the verdict, the core, its elements, the families recruited for this chromosome, and the age of the signature's elements inside and outside the cores |
-| `asm.provenance.tsv` | which plant each input comes from, and whether it decides ([plants.md](plants.md)) |
-| `asm.plants.tsv`, `asm.plant_sites.tsv`, `asm.plants.png` | with several plants: each plant's verdict per chromosome and per site ([plants.md](plants.md)) |
+| `asm.line_tests.tsv` | do the lines agree with each other? One row per pair of lines: chromosomes where both have a locus, how many agree, how many chance would give, P, a verdict (columns below). It changes no call |
+| `asm.te_signature.tsv` | with `tes/` from LTRquest: the LTR signature per chromosome: the lineage, the seed (lineage or family) and its fold enrichment, the verdict, the core, its elements, the families recruited for this chromosome, and the age of the signature's elements inside and outside the cores (columns below) |
+| `asm.provenance.tsv` | which plant each input comes from, and whether it decides ([plants.md](plants.md); [columns](plants.md#asmprovenancetsv-one-row-per-input)) |
+| `asm.plants.tsv`, `asm.plant_sites.tsv`, `asm.plants.png` | with several plants: each plant's verdict per chromosome and per site ([plants.md](plants.md); columns: [plants](plants.md#asmplantstsv-one-row-per-plant-and-chromosome), [sites](plants.md#asmplant_sitestsv-one-row-per-plant-and-site)) |
 | `satellite/` | the satellite engine: families (`satellite_families.tsv`, `.fa`, `.hmm`), arrays (`asm_satellite_arrays.gff`), its own calls (`asm_centromere_summary.tsv`), higher-order repeats, its overview, and `dropped_clusters.tsv`: the seed clusters of ≥ 20 kb left out by the cap of 40 families (largest first; span, period, seeds, chromosomes, the largest seed and its consensus) |
 | `hic/`, `methylation/` | the Hi-C and methylation engines' tables and plots |
 | `work/` | checkpoints (a rerun resumes from them) |
@@ -37,6 +39,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `confidence` | `high`, `medium`, `low` (unsure) or `none` |
 | `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call) |
 | `flags` | the integration's flags (below) |
+| `rule` | the rule of the integration that set the call's place or relation (below); `sequence` = the sequence line's call as it is |
 | `offset_bp` | distance between the final and the sequence call (0 when they overlap) |
 | `basis` | what the call stands on, in words |
 | `caveat` | why it may be wrong, with where the other evidence points; after `->`, the input that would settle it. `.` = nothing known against it |
@@ -75,7 +78,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `age_peak`, `age_call`, `age_p`, `age_premise_p` | with `tes/` (LTRquest K2P_T) and Hi-C, only where age can break a tie (a `high` sequence call and a strong peak of validated Hi-C more than a bin from it): the median insertion age in years (and the number of copies) of the chromosome's signature families at Hi-C's anchored core and at the sequence call, each widened by 4 bins; the one-sided Mann-Whitney P that the copies at the peak are younger; and the one-sided Fisher P that, on the other chromosomes, the signature's younger copies lie in the cores more often than its older ones (the premise; both must be ≤ 0.01 for `moved_with_age`) |
 | `hic_anch_peak_*`, `hic_anch_core_*`, `hic_anch_level`, `hic_anch_flags` | the anchored Hi-C peak (contacts with the other chromosomes' calls): position, core, strength (`high`, `medium`, `low`) and flags (`hub`, `rDNA`, `telomeric`) |
 | `hic_anch_agrees_seq` | whether the anchored peak agrees with the sequence call |
-| `hic_denovo_peak_*`, `hic_denovo_confidence`, `hic_denovo_flags` | Hi-C's own prior-free peak (no sequence call used) |
+| `hic_denovo_peak_*`, `hic_denovo_confidence`, `hic_denovo_flags` | Hi-C's own prior-free peak (no sequence call used), its level and the Hi-C engine's flags: `hub` (2× coverage and 2× trans contacts: a contact hub, not a centromere), `rDNA` (at a 45S array or an rDNA-tagged satellite: NORs meet in the nucleolus), `telomeric` (in an end window: ends cluster too), `no_rabl` (the library shows no Rabl polarity, the engine's premise), `null_untestable` (too few chromosomes for the engine's null: judged on its other two tests, at most `medium`), `not_converged` (the iterative estimate did not settle), `cycle_unstable` (it moves by more than a bin within its cycle), `no_contacts` (the chromosome has no contact with the others' calls). A prior-free peak with `hub`, `rDNA`, `telomeric`, `not_converged` or `cycle_unstable` is not clean, so it never places a call alone |
 | `fold_gate`, `fold_point`, `fold_core_*` | the arm fold (the chromosome's own contact map folding at the centromere): the genome's test result, and this chromosome's fold point and core |
 | `align_gate`, `align_point`, `align_core_*` | the trans arm alignment (arms of different chromosomes aligned by distance from their centromeres): the same |
 
@@ -120,6 +123,14 @@ The reference for every file, column and flag cenfuse writes, and for running it
 The satellite engine sets the starting confidence. Each agreeing tested line raises a kept call one level (two at
 most); each opposing line lowers it one. A call that Hi-C moved or placed is `medium`, `high` with a second line.
 
+**`rule`.** `sequence` (kept as the sequence line made it); `hic_agrees` (validated Hi-C agrees: concordant); `hic_support` (the
+support tier agrees); `hic_end` (the which-end test); `hic_chose_alt` (Hi-C chose the competing cluster); `hic_moved` (a strong
+validated peak moved the call); `hic_offset` (it points elsewhere and cannot move a `high` call: contested); `hic_strong_peak`,
+`hic_medium_peak`, `hic_denovo_only` (Hi-C placed a call where the sequence has none); `fold_pair`, `align_pair` (the Rabl-axis
+line and the prior-free peak at one locus); `fold_offset`, `align_offset`, `hic_denovo_offset` (they oppose a kept call:
+contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis_elsewhere` (the cis signal); `at_only`,
+`at_denovo_pair`, `at_pair` (the AT trough); `meth_support` (methylation alone confirms the call); `none` (no call).
+
 ## Flags
 
 | flag | meaning |
@@ -157,6 +168,7 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 
 | columns | meaning |
 |---|---|
+| `genome` | the genome, by the name of its FASTA (`asm`) |
 | `chromosomes`, `lines`, `called`, `high`, `medium`, `low` | chromosomes analyzed, the lines given, calls by confidence |
 | `concordant` ... `none`, `seq_called`, `partial_chain_calls` | calls by relation; chromosomes with a sequence call; of those, calls on chains of partial hits |
 | `sat_one_per_chromosome` | do the N largest clusters of the centromeric families fall one per chromosome? |
@@ -175,6 +187,7 @@ most); each opposing line lowers it one. A call that Hi-C moved or placed is `me
 | `hic_3d_centromeres`, `hic_3d_ends`, `hic_architecture` | how strongly the calls and the chromosome ends contact each other in 3D; what the library showed: `rabl_axis`, `centromere_clustering` (test passed), `weak_centromere_clustering` (support tier), `untested`, `not_detected` |
 | `meth_*`, `cpg_*` | the CHG line (samples, anchors, signature, deciding samples) and the CpG line (chromosomes passing, dips, kinetochores) |
 | `inputs_reference`, `inputs_other`, `inputs_unknown`, `hic_library`, `plants*` | the inputs by provenance verdict, the deciding Hi-C library, the plants' verdicts ([plants.md](plants.md)) |
+| `incomplete` | outputs that failed for this genome (`report`, `figure`), or `.`: the tables are complete either way, the report says what is missing, and the log ends with a warning |
 
 ## Other features (`asm.loci.tsv`, `asm.features.gff3`)
 
@@ -187,6 +200,108 @@ fits: `centromere` > `sequence_centromere` (where a call moved from) > `telomere
 types are Sequence Ontology terms (`gt gff3validator
 -typecheck so` passes); cenfuse's kind is the `kind=` attribute, and each member names its locus (`locus=`) and type
 (`member=`).
+
+`asm.loci.tsv` has one row per locus:
+
+| column | meaning |
+|---|---|
+| `locus` | the locus: `asm:chrom:L<n>`, numbered along the chromosome |
+| `chrom`, `start`, `end`, `length` | its span, from the first member's start to the last member's end |
+| `kind` | the first kind that fits (above) |
+| `lines`, `n_lines` | the lines with a member in the locus, and how many: `satellite` (satellite clusters, rDNA arrays and the sequence call), `te`, `hic`, `meth`, `telomere`; the final call is not a line |
+| `members` | every member, `;`-separated, as `type:label:start-end`: `integrated_call` (the final call; label: its relation), `sequence_call` (its evidence), `long_unit_array`, `satellite_cluster` (family[role]), `rdna_array` and `rdna5s_array` (`45S xN`, `5S xN`: N units), `telomere_array` and `telomere_interstitial` (the telomere unit), `te_core` (the lineage, starred for the marker), `hic_anchored_core` (`anchored:` and its level; `:strong` when `high` without a `hub`, `rDNA` or `telomeric` flag), `hic_denovo_core` (`denovo:` and its level), `hic_hub`, `meth_candidate` (sample:label; `:specific` when plant-specific) |
+| `sat_bp_centromeric`, `sat_bp_cen_associated`, `sat_bp_interstitial`, `sat_bp_subtelomeric`, `sat_bp_dispersed`, `sat_bp_other` | bp of satellite arrays inside the locus, by the role of their family ([design.md](design.md#satellites-cenfusesat), step 4); `sat_bp_other`: the `rDNA`, `minor` and `unassessed` families |
+| `rdna` | the rDNA there: the satellite engine's rDNA tags of its families (the Rfam rRNA model a family's consensus holds, such as `5S_rRNA`, or `45S_spacer` for arrays among 45S genes) and the 45S and 5S arrays (`45S_array:NxU`, `5S_array:NxU`: N units, U bp apart) |
+| `telomere_bp` | bp of telomere-unit copies in its telomere arrays |
+| `te_clades` | the LTR lineages whose core on this chromosome lies in the locus: the lineages with a significant core on most chromosomes, and the signature's lineage with the signature's core |
+| `te_marker_elements` | elements of the chromosome's LTR signature (without one, of the marker lineage) in the bins the locus overlaps (bins of 1/500 of the chromosome, at least 1 kb) |
+| `te_elements`, `te_top_clades` | LTR retrotransposons classified to a lineage whose midpoint lies in the locus, and the three most common lineages (`lineage:count`) |
+| `hic_anch_max`, `hic_denovo_max`, `hic_telomere_max` | the highest Hi-C score in the locus' bins, over the chromosome's median: anchored (contacts with the other chromosomes' calls), prior-free, and telomere pole (contacts with the other chromosomes' end windows) |
+| `hic_hub` | `True` when the locus holds a run of Hi-C hub bins (coverage and trans contacts both ≥ 2× the genome's median) |
+| `meth_pooled_extreme` | the most extreme value, in the direction of the genome's centromeres (the lowest where they lose methylation), of the composition-adjusted CHG track in the locus' 50-kb bins, all samples pooled: the methylated share above or below each sequence class's own share in the flanks (1.5 to 4 expected centromere widths away) |
+| `meth_raw_chg` | the share of methylated CHG calls in the locus' 50-kb bins, all samples pooled, not adjusted |
+| `meth_samples_centromere_like`, `meth_samples_specific` | the samples with a methylation candidate in the locus that is `centromere_like` by the chromosome's leave-one-out signature, and that is plant-specific (with 3 or more samples: its value minus the other samples' median ranks among the most extreme 5% of the chromosome's windows); 0 without methylation |
+| `gene_ratio` | with `genes/`: genes per bp in the locus over genes per bp on its chromosome (protein-coding genes, by midpoint) |
+| `gap_bp` | N bases in the locus |
+| `dist_to_call` | bp between the locus and its chromosome's final call, 0 when they overlap; `.` without a call |
+
+## `asm.feature_signatures.tsv` (one row per kind of locus)
+
+What each kind of locus in `asm.loci.tsv` looks like to every line: the median of its loci's values (`.` where none has
+one), and, with Hi-C, the 3D self-association of the matching feature class (`asm.feature_contacts.tsv`). Kinds without
+a locus have no row.
+
+| column | meaning |
+|---|---|
+| `kind` | the kind, in the order of the kinds above |
+| `loci`, `chromosomes` | how many loci are of this kind, and on how many chromosomes |
+| `median_length` | their median length (bp) |
+| `sat_bp_centromeric`, `sat_bp_interstitial`, `sat_bp_subtelomeric`, `telomere_bp` | the median of the loci's column of that name |
+| `te_elements_per_mb`, `te_marker_per_mb` | the median per Mb of the loci's `te_elements` and `te_marker_elements` |
+| `common_te_clade` | the lineage most often first in the loci's `te_top_clades` |
+| `hic_anch_max`, `hic_telomere_max` | the median of the loci's column of that name |
+| `hic_hub_share` | the share of the loci that hold Hi-C hub bins |
+| `meth_pooled_extreme`, `meth_raw_chg`, `gene_ratio` | the median of the loci's column of that name |
+| `gap_share` | the median share of N bases in the loci |
+| `hic_3d_class`, `hic_3d_fold`, `hic_3d_p` | the feature class of `asm.feature_contacts.tsv` that matches the kind, with its `fold` and `p_enriched`: the sequence calls for `centromere` and `sequence_centromere`, the telomere arrays for `telomere`, the pooled blocks of all families for `rDNA`, `subtelomeric_block` and `interstitial_block`; `.` for the other kinds, where that class was not tested, and without Hi-C |
+
+## `asm.feature_contacts.tsv` (with Hi-C: one row per feature class)
+
+Does a class of features contact itself across chromosomes more than as many places drawn at random on the same
+chromosomes? The sequence calls are the positive control: centromeres cluster in Rabl nuclei. Each instance stands as
+one bin, the bin at its midpoint or the nearest usable bin inside it. The deciding library tests every class with at
+least 3 instances on 2 or more chromosomes; in a genome of more than 15,000 bins nothing is tested (a warning says so).
+
+| column | meaning |
+|---|---|
+| `feature_class` | the class: `centromeres (sequence calls)`; `chromosome ends` (the outermost usable bin at each end); `telomere arrays` (at the ends); `45S rDNA arrays (NORs)`; the satellite clusters of all families by role (`interstitial blocks (all families)`, `subtelomeric blocks (all families)`, `rDNA arrays (all families)`: role `rDNA` or an rDNA tag); each family's clusters of ≥ 20 kb (`satellite <family>`); each concentrated LTR lineage's cores (`LTR <lineage> cores`) |
+| `kind`, `label` | the class's kind (`centromere`, `ends`, `telomere`, `nor`, `interstitial`, `subtelomeric`, `rDNA`, `satellite:<role>`, `te_core`) and label (`sequence calls`, `outermost bins`, the telomere unit, `18S motif`, `pooled`, the family or the lineage) |
+| `instances`, `chromosomes` | how many instances have a usable bin, and on how many chromosomes the tested ones lie |
+| `trans_pairs` | the pairs of tested instances on different chromosomes; a class of more than 400 instances is tested on a fixed random 400 |
+| `observed_oe` | the mean trans observed/expected contact of those pairs: the balanced contacts of their two bins over the mean of their chromosome pair, smoothed over 3 × 3 bins |
+| `null_median_oe` | the median of that mean over 1,000 draws that put each instance at a random usable bin of its own chromosome |
+| `fold` | `observed_oe` / `null_median_oe` |
+| `p_enriched` | one-sided: (1 + the draws at least as high as observed) / (1 + the draws), so at least 1/1,001 |
+
+## `asm.line_tests.tsv` (one row per pair of lines)
+
+Each line places the centromere on its own, so two lines that agree on most chromosomes beyond chance validate each
+other without any truth, and two that do not show that at least one of them is wrong in this genome. The rules test
+some pairs for themselves (the Hi-C test, the arm fold); this table reports every pair the same way and changes no
+call. A pair is listed when both lines place a locus on at least one chromosome.
+
+| column | meaning |
+|---|---|
+| `line_a`, `line_b` | the two lines, in alphabetical order: `satellite` (the sequence call on a `satellite` or `weak_satellite` array, or the array a decisive LTR core replaced, `seq_overruled_start`-`seq_overruled_end`), `ltr` (the LTR core, `te_start`-`te_end`), `hic_anchored` and `hic_prior_free` (the anchored and prior-free Hi-C peaks), `fold` and `alignment` (the cores of the arm fold and of the trans arm alignment), `at_trough` (the AT trough), `cis` (the cis extreme, `cis_peak_start`-`cis_peak_end`). `cis` with `ltr` is not listed: the LTR cores chose the cis signal's sign, and its own test is against them |
+| `chromosomes` | the chromosomes where both lines place a locus |
+| `agree` | of those, where the two loci overlap, or lie within one Hi-C bin when either line reads Hi-C (`hic_anchored`, `hic_prior_free`, `fold`, `alignment`, `cis`) |
+| `expected` | the agreements chance would give: over those chromosomes, the sum of the share of placements of the two widths that would agree, (the two widths + twice the distance `agree` allows) / the chromosome length, at most 1 each |
+| `p` | the Poisson-binomial P of at least `agree` agreements, with those shares |
+| `verdict` | `agree on most, beyond chance` (P ≤ 0.01, on more than half), `agree beyond chance, on a minority` (P ≤ 0.01, on at least 3), `no agreement beyond chance`, or `too few chromosomes` (under 3) |
+
+## `asm.te_signature.tsv` (with `tes/` from LTRquest: one row per chromosome with a core)
+
+The LTR signature ([design.md](design.md#ltr-retrotransposons-tes-satsignaturepy)): the lineage or family that seeds
+it and, on each chromosome, the families recruited on the other chromosomes and their densest region there (the core).
+Without a signature (most elements lack `family=`, or no lineage or family qualifies as a seed) there is no table. The
+seed, `decisive`, `why` and the ages are genome-wide: the same on every row.
+
+| column | meaning |
+|---|---|
+| `chrom` | the chromosome |
+| `marker_lineage` | the seed's lineage: the LTR marker |
+| `seed_level`, `seed` | the seed: a `lineage` or a `family`, and its name |
+| `seed_specificity` | the seed's fold enrichment in its cores: the share of its elements inside them over the share of those chromosomes they cover |
+| `decisive` | `True` when the signature decides: a CRM seed with significant cores on most chromosomes; another lineage needs them too, at 10-fold or more, and no dominant satellite that passes the one-per-chromosome test (or that too few chromosomes leave untested) |
+| `core_start`, `core_end` | the core: the densest region of the chromosome's signature elements (full width at half maximum) |
+| `core_elements`, `chrom_elements` | the signature's elements in the core, and on the chromosome |
+| `core_p`, `significant` | the binomial P of at least that many of the chromosome's signature elements in a core of that width, times the chromosome length over the core width (Bonferroni over its possible places), at most 1; significant at P < 0.001 |
+| `source` | `signature` (the core of the families recruited on the other chromosomes) or `seed` (the seed's own core, where those families give no significant core) |
+| `n_families`, `families` | the families recruited for this chromosome: how many, and the first 20; with `source` `seed`, the seed |
+| `why` | the verdict on the signature, in words |
+| `age_in_cores`, `age_outside` | with LTRquest's `K2P_T` (insertion time from the divergence of an element's two LTRs, years): the median age of the signature's elements inside the significant cores and outside them, on the chromosomes with one |
+| `young_old` | the share of the younger half of those elements that lies inside the cores, over that of the older half: above 1, young copies mark the cores |
+| `core_fold` | the core's own fold enrichment: the share of the chromosome's signature elements inside it over the share of the chromosome it covers |
 
 ## Which sequences are analyzed
 
@@ -211,23 +326,55 @@ keep the plain tenfold rule unless listed.
 |---|---|
 | `-o DIR` | output folder [`GENOME_DIR/cenfuse`] |
 | `-t N` | threads [8] |
-| `--satellite-dir DIR` | take the satellite outputs of an earlier run (`satellite/`) as they are, instead of running the satellite engine; cenfuse only warns if their chromosomes differ |
+| `--satellite-dir DIR` | take the satellite outputs of an earlier run (`satellite/`) as they are, instead of running the satellite engine; cenfuse warns if their chromosomes differ, or if that run's `run_info.json` names another cenfuse version (its satellite rules are kept) |
 | `--seed-engine fastan\|trf` | the tandem-repeat finder that seeds the satellite families [fastan] |
 | `--seed-cache DIR` | a folder of tandem-repeat results shared between runs |
 | `--classify-from T=S[+S2]` | genome T (e.g. a contig assembly) takes the centromeric families of genome(s) S |
-| `--force STAGE` | recompute STAGE and every later one: `satellite` (the whole satellite engine), `telomere`, `rdna`, `rdna5s`, `gaps`, `attrough`, `genotype`, `hic`, `fold`, `karyotype`, `meth`, `cpg`, or a satellite-engine stage (`seeds`, `families`, `annotate`, `classify`, `centromeres`, `hor`, `output`, `plot`) |
+| `--force STAGE` | recompute STAGE: `all` (every stage), `satellite` (the whole satellite engine), `telomere`, `rdna`, `rdna5s`, `gaps`, `attrough`, `genotype`, `hic`, `fold`, `karyotype`, `meth`, `cpg`, or a satellite-engine stage (`seeds`, `families`, `annotate`, `classify`, `centromeres`, `hor`, `output`, `plot`: the engine from there on). A later stage reruns when what it reads changed, as on any rerun |
 | `-v` | per-step progress and sanity checks |
 
-`--force` is needed when the run stops and names a stage (after an upgrade that changed it), after adding or changing
-`genes/` or `tes/` in an earlier run's folder (`--force classify`: the satellite engine tracks its code and
-parameters, not its input files), and when the chromosome set changed (below).
+`--force` is needed when the run stops and names a stage: a search stage of the satellite engine (seeds, families,
+annotate) after an upgrade or a parameter change that affects it, or a changed chromosome set (below). Adding or changing
+`genes/` or `tes/` in an earlier run's folder needs nothing: the satellite engine's stages from classify on are keyed on
+those files' content and are recomputed (with a warning that names what changed), and so is every later stage that reads
+their result.
+
+## Negative controls (`cenfuse control`)
+
+`cenfuse control KIND IN OUT [--seed N] [--fai FAI] [-v]` writes a copy of one input with the signal one line reads destroyed
+and the rest kept. Run cenfuse on a copy of GENOME_DIR with the control in place of the input: no test should pass and no call
+should change against the run without it. The output is deterministic given `--seed` [1]; for a given seed the Hi-C controls
+write the same bytes as the benchmark's (NEG, NEG2).
+
+| KIND | randomized | kept |
+|---|---|---|
+| `hic-repair` (NEG2) | the partners of all read ends | each end's chromosome, position, strand and MAPQ, so every bin's coverage (about 40 bytes per pair in memory) |
+| `hic-relocate` (NEG) | each end's position on its chromosome | each contact's chromosome pair |
+| `gc-shuffle` | the order of 100-kb blocks across the chromosomes (laid end to end, shuffled, cut again at their lengths) | each chromosome's length, the set's base composition, other sequences; writes OUT's `.fai` |
+| `ltr-shuffle --fai G.fai` | each LTR retrotransposon's position, with its LTRs and domains | lengths, clade, family, age |
+
+The Hi-C controls check their own output for clumped contacts: the dispersion of contacts per pair of genome bins against what a
+random matching (repair) or random placement (relocate) gives is about 1; above 1 + 10 standard deviations of that null the
+command stops and leaves `OUT.part` (a shuffle once used in the benchmark's development made clumped controls that scored
+176-1,712).
 
 ## Running
 
-**Resuming.** A rerun in the same output folder resumes from checkpoints. Each stage is keyed on its inputs and code,
-so an upgrade recomputes only the stages it changed. The satellite engine's checkpoints also stand on the chromosome
-set, recorded in `satellite/work/chromosome_set.json`: a rerun whose set changed (a genome added or removed, a new or
-edited `chromosomes.txt`) stops, names the genomes, and says to rerun with `--force satellite`.
+**Resuming.** A rerun in the same output folder resumes from checkpoints. Each of cenfuse's stages is keyed on the code
+it runs (its modules and everything they import inside cenfuse, read without comments or docstrings), on cenfuse's
+version, and on the content of every input it reads (not on file names or time stamps: a folder moved or copied with
+`cp -r` keeps its checkpoints), including the results of the stages it reads, so an upgrade or a changed input recomputes
+only what it changes. A checkpoint that cannot be read (a torn file, a library upgrade) is recomputed with a warning;
+checkpoint stamps are written atomically. The satellite engine keys its stages on its results versions and parameters,
+and from classify on also on `genes/` and `tes/` (above). Its checkpoints also stand on the chromosome set, recorded in
+`satellite/work/chromosome_set.json`: a rerun whose set changed (a genome added or removed, a new or edited
+`chromosomes.txt`) stops, names the genomes, and says to rerun with `--force satellite`.
+
+**One run per folder.** A run locks its output folder (`.cenfuse.lock`: host, pid, start, command; touched every minute).
+A second run on the same folder stops and names the first. A lock left by a run that died is taken over with a warning:
+on this host when its pid is gone, from another host (a shared filesystem, cluster nodes) once it has not been touched
+for 15 minutes. A shared seed cache (`--seed-cache`) is locked per genome by the same rules, so a run never waits on the
+lock of a job killed elsewhere.
 
 **The log.** Without `-v` the log reports the start, milestones, warnings and the end. The genome-wide satellite
 search logs the share of its work done and a rough estimate of the time left at every 10%, and after an hour without
@@ -235,7 +382,9 @@ a line; when it ends, it names the three families that cost the most CPU (all fa
 `satellite/work/annotate/<genome>.search_cost.tsv`) and, before it starts, how many models are searched with their
 low-complexity positions neutral.
 
-**Reproducibility.** On Linux, fresh runs give identical results apart from the dates and commands in file headers
+**Reproducibility.** Every run writes `run_info.json` (above): the versions of cenfuse, Python, the packages and every
+external tool, and the fingerprints of the inputs, so two runs can be compared. On Linux, fresh runs give identical
+results apart from the dates and commands in file headers
 (FasTAN runs with address-space randomization off, `setarch -R`). Two kinds of work files can differ: the search
 cost table (CPU times), and the families stage's BLAST scratch under `satellite/work/families/`. Without `setarch`
 (e.g. macOS) cenfuse warns, and about 1% of FasTAN's array cuts can differ between runs.

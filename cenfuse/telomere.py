@@ -41,7 +41,7 @@ MIN_DENSITY_END = 0.1      # ... or, once the unit is known, a tenth for a stret
 MIN_ENDS = 2               # a telomere unit forms arrays at two or more chromosome ends ...
 END_ENRICH = 10            # ... and is >= 10-fold denser in tandem at the ends than inside the chromosomes
 INTERIOR = 5               # interior windows (TERM_SCAN bp each) sampled per chromosome for that comparison
-SEED = 7
+SEED = 7                   # fixed: the interior sample is the same on every rerun
 
 
 def canonical(u: str) -> str:

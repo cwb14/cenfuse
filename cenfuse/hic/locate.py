@@ -49,7 +49,7 @@ def locate(W, bins, good, mean, members, start):
     """Iterate: partner windows = estimates +/- HALF_WIN; each estimate = top bin of the cluster score. Stops at a
     fixed point, or when a state repeats (a cycle of states): then the cycle state with the highest summed peak
     height (max of S per chromosome) is kept (converged, cycle = its length). In a cycle most chromosomes usually
-    alternate between neighbouring bins of a flat-topped peak, but a chromosome without a clear cluster can jump
+    alternate between neighboring bins of a flat-topped peak, but a chromosome without a clear cluster can jump
     between distant bins; `spread` records, per chromosome, how far its estimate moves within the cycle."""
     est = dict(start)
     seen, states = {}, []

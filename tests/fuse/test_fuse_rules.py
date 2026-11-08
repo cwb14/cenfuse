@@ -733,3 +733,17 @@ def test_a_pair_places_a_call_where_there_is_none():
     e.seq = dict(e.seq, start=-1, end=-1, evidence="none", confidence="none")
     d = fuse.decide(e)
     assert d["call"] == (30_000_000, 31_000_000) and d["relation"] == "functional_only" and d["confidence"] == "medium"
+
+
+def test_rule_names_the_rule_that_set_the_call():
+    """The `rule` column (future.md #63): which rule of the cascade set the final call's place or relation."""
+    assert fuse.decide(ev())["rule"] == "sequence"
+    assert fuse.decide(ev(conf="low", peak=1_500_000))["rule"] == "hic_agrees"
+    assert fuse.decide(ev(conf="low", peak=30_000_000, core=(29_500_000, 30_750_000)))["rule"] == "hic_moved"
+    assert fuse.decide(ev(peak=30_000_000))["rule"] == "hic_offset"
+    assert fuse.decide(ev(seq=None, peak=30_000_000))["rule"] == "hic_strong_peak"
+    assert fuse.decide(ev(seq=None))["rule"] == "none"
+    m = {"sequence_call": dict(label="centromere_like", score=0.9)}
+    assert fuse.decide(ev(conf="low", meth=m))["rule"] == "meth_support"
+    row = fuse.row(ev(), fuse.decide(ev()))
+    assert row["rule"] == "sequence" and list(fuse.FUSED_COLS).index("rule") == list(fuse.FUSED_COLS).index("flags") + 1

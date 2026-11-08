@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 
+from ..cli import _threads
 from . import __version__
 from .params import Params
 from .util import SatelliteError, log, setup_logging
@@ -24,7 +25,7 @@ def main(argv=None) -> int:
                         "GENOME_DIR/tes/<genome>.gff3|.gff[.gz] (LTR retrotransposons with clade=, or DANTE_LTR)")
     r.add_argument("--complex-dir", dest="complex_dir", type=Path, help=argparse.SUPPRESS)   # alias of GENOME_DIR
     r.add_argument("-o", "--outdir", type=Path, help="output dir [GENOME_DIR/centromere]")
-    r.add_argument("-t", "--threads", type=int, default=8, help="threads [8]")
+    r.add_argument("-t", "--threads", type=_threads, default=8, help="threads [8]")
     r.add_argument("--seed-engine", choices=list(ENGINES), default=Params.seed_engine,
                    help="tandem-repeat finder for the family seeds [fastan]")
     r.add_argument("--seed-cache", type=Path, metavar="DIR",

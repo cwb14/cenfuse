@@ -209,7 +209,38 @@ def test_seed_lock_records_host_and_pid(tmp_path):
     import socket
     import cenfuse.sat.seeds as seeds
     lock = tmp_path / "x.lock"
-    assert seeds._acquire(lock) and lock.read_text() == f"{socket.gethostname()} {os.getpid()}"
+    assert seeds._acquire(lock) and lock.read_text().split()[:2] == [socket.gethostname(), str(os.getpid())]
+
+
+def test_seed_lock_of_another_host_without_heartbeat_is_taken_over(tmp_path):
+    """A lock written on another host cannot be checked by its pid; once its owner has not touched it for STALE_AFTER
+    seconds (owners touch their locks every HEARTBEAT seconds while they compute) it is stale, instead of a wait forever."""
+    import os
+    import time
+    import cenfuse.sat.seeds as seeds
+    from cenfuse import runtime as util
+    lock = tmp_path / "x.lock"
+    lock.write_text("some-other-node 999999999")
+    assert not seeds._acquire(lock)                                   # fresh: its owner may be computing
+    old = time.time() - util.STALE_AFTER - 60
+    os.utime(lock, (old, old))
+    assert seeds._acquire(lock) and lock.read_text().split()[1] == str(os.getpid())
+
+
+def test_heartbeat_touches_held_locks(tmp_path, monkeypatch):
+    import os
+    import time
+    from cenfuse import runtime as util
+    monkeypatch.setattr(util, "HEARTBEAT", 0.05)
+    lock = tmp_path / "x.lock"
+    assert util.try_lock(lock)
+    old = time.time() - 3600
+    os.utime(lock, (old, old))
+    with util.Heartbeat(lock):
+        time.sleep(0.3)
+    assert time.time() - lock.stat().st_mtime < 60
+    util.release_lock(lock)
+    assert not lock.exists()
 
 
 @pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview"), reason="FasTAN tools missing")
@@ -380,3 +411,15 @@ def test_stage_seeds_links_the_crash_table_only_when_there_is_one(tmp_path, monk
     assert (pl.work / "seeds" / "a.fastan_crashes.tsv").resolve() == seeds.crash_path(paths["a"]).resolve()
     assert not (pl.work / "seeds" / "b.fastan_crashes.tsv").is_symlink()
     assert (pl.work / "seeds" / "b.seeds.tsv.gz").resolve() == paths["b"].resolve()   # the seed table link is unchanged
+
+
+def test_fastan_cache_key_knows_the_binary_and_layout(tmp_path, monkeypatch):
+    """A FasTAN cache is keyed by the binaries' md5 and the fixed-layout state (future.md #60); a cache named the pre-0.14 way
+    (no such key) is still reused, with a log line."""
+    import cenfuse.sat.seeds as seeds
+    a = cache_path(tmp_path, "abc", Params())
+    monkeypatch.setitem(seeds._TOOLS_KEY, "fastan", [["FasTAN", "0123456789ab"], ["fixed_layout", False]])
+    b = cache_path(tmp_path, "abc", Params())
+    assert a != b and b.name.endswith(".fastan.tsv.gz")
+    assert cache_path(tmp_path, "abc", Params(), legacy=True) == cache_path(tmp_path, "abc", Params(), legacy=True)
+    assert cache_path(tmp_path, "abc", Params(seed_engine="trf")).name == "abc.25429390.trf.tsv.gz"   # TRF unchanged

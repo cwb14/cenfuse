@@ -1,6 +1,6 @@
 """Stage orchestration. Checkpoints: <complex>/centromere/work/<stage>.done; a rerun resumes by default."""
 import json
-import shutil
+import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -10,7 +10,8 @@ import pysam
 import pyhmmer
 
 from . import __version__, annotate, centromere, classify, families, hor, karyotype, output, plot, seeds, signature, te
-from .genomes import discover_genomes, load_genes
+from ..runtime import atomic_copy, atomic_csv, atomic_write_text, fasta_md5, file_fingerprint, unshare_tree
+from .genomes import discover_genomes, gene_gff, load_genes
 from .params import MAX_CHROMOSOMES, TE_DERIVED_FRAC, Params, format_borrow, parse_borrow, to_dict
 from .util import SatelliteError, log, require_tools
 
@@ -73,6 +74,10 @@ STAGE_PARAMS = {
     "plot": [],
 }
 TOOLS = ["makeblastdb", "blastn", "dustmasker", "mafft", "cd-hit-est", "minimap2", "cmsearch"]        # + the seed engine's
+# the first stage that reads the optional inputs genes/ (the gene veto) and tes/ (the LTR signature): from it on, a checkpoint is
+# keyed also by those files' content, and the stages from it on are cheap next to the search, so a stale one is recomputed
+# (adding tes/ to a finished run is the commonest reason) where a stale search stage stops the run
+INPUT_STAGE = "classify"
 
 
 class Pipeline:
@@ -98,15 +103,23 @@ class Pipeline:
                             f"(prevalence = share of sequences). Use a chromosome-level FASTA, or --classify-from "
                             f"for a contig assembly")
         self.work.mkdir(parents=True, exist_ok=True)
+        self._inputs = None
+        stale = [st for st in STAGES if self._done(st) and not self._same(st)]
+        if stale and (force is None or STAGES.index(force) > STAGES.index(stale[0])):
+            why = "; ".join(f"{st}: {self._why(st)}" for st in stale)
+            if STAGES.index(stale[0]) < STAGES.index(INPUT_STAGE):
+                raise SatelliteError(f"changed since checkpointed in {self.work} ({why}); the search stages are not redone "
+                                     f"unasked: rerun with --force {stale[0]} (or an earlier stage)")
+            log.warning(f"changed since checkpointed in {self.work} ({why}): recomputing from {stale[0]}")
+            force = stale[0]
         self.force = force
-        stale = next((st for st in STAGES if self._done(st) and self._stored(st) != self.fingerprint(st)), None)
-        if stale and (force is None or STAGES.index(force) > STAGES.index(stale)):
-            raise SatelliteError(f"code version or parameters changed since stage '{stale}' was checkpointed in "
-                              f"{self.work}; rerun with --force {stale} (or an earlier stage)")
         if force:
             for st in STAGES[STAGES.index(force):]:
                 (self.work / f"{st}.done").unlink(missing_ok=True)
-        (self.work / "params.json").write_text(json.dumps(to_dict(p), indent=1))
+        for st in STAGES:                  # an accepted stamp of before 0.14 gets the full key: a later FASTA edit is then seen
+            if self._done(st) and "fasta" not in self._stored(st) and self._same(st):
+                atomic_write_text(self.work / f"{st}.done", json.dumps(self.fingerprint(st)))
+        atomic_write_text(self.work / "params.json", json.dumps(to_dict(p), indent=1))
         self._genes, self._te, self._sig = {}, {}, {}
 
     @staticmethod
@@ -123,11 +136,72 @@ class Pipeline:
         return borrow
 
     def fingerprint(self, stage: str) -> dict:
+        """A stage's checkpoint key: the highest results version up to it, the parameters of it and earlier stages, and from
+        INPUT_STAGE on the content fingerprints of every genome's genes/ and tes/ files (None when absent)."""
         cur = to_dict(self.p)
         keys = [k for st in STAGES[:STAGES.index(stage) + 1] for k in STAGE_PARAMS[st]]
         upto = STAGES[:STAGES.index(stage) + 1]
         version = max((STAGE_VERSION[st] for st in upto), key=lambda v: tuple(int(x) for x in v.split(".")))
-        return {"version": version, "params": {k: cur[k] for k in keys}}
+        fp = {"version": version, "params": {k: cur[k] for k in keys},
+              "fasta": {g.name: fasta_md5(g.fasta) for g in self.genomes}}
+        if STAGES.index(stage) >= STAGES.index(INPUT_STAGE):
+            fp["inputs"] = self.inputs_fp()
+        return fp
+
+    def _same(self, stage: str) -> bool:
+        """The stage's stamp matches its key. A stamp made before 0.14 holds no FASTA md5: it is judged on the rest, and only
+        while every genome's FASTA is older than the stamp (a FASTA written since may have been edited, and its content cannot
+        be checked against the stamp); __init__ then rewrites such a stamp with the full key, so a later edit is caught by its
+        md5. A stamp made since 0.14 must match the md5 too: a same-length edit (hard-masking, polishing) is never resumed on."""
+        old, new = self._stored(stage), self.fingerprint(stage)
+        if "fasta" not in old:
+            new = {k: v for k, v in new.items() if k != "fasta"}
+            if old == new and not self._fasta_older(stage):
+                return False
+        return old == new
+
+    def _fasta_older(self, stage: str) -> bool:
+        """Every genome's FASTA (the file a link points to) was last written before the stage's stamp."""
+        try:
+            t = (self.work / f"{stage}.done").stat().st_mtime
+            return all(Path(os.path.realpath(g.fasta)).stat().st_mtime <= t for g in self.genomes)
+        except OSError:
+            return False
+
+    def inputs_fp(self) -> dict:
+        """{genome: {'genes': fingerprint or None, 'tes': fingerprint or None}} of the optional inputs classify onward read."""
+        if self._inputs is None:
+            out = {}
+            for g in self.genomes:
+                gg, tt = gene_gff(self.cdir, g.name), te.te_gff(self.cdir, g.name)
+                out[g.name] = dict(genes=fasta_md5(gg) if gg else None, tes=fasta_md5(tt) if tt else None)   # whole files: edited by hand
+            self._inputs = out
+        return self._inputs
+
+    def _why(self, stage: str) -> str:
+        """What differs between a stage's checkpoint key and the current one, in words."""
+        old, new = self._stored(stage), self.fingerprint(stage)
+        out = []
+        if old.get("version") != new.get("version"):
+            out.append(f"results version {old.get('version')} -> {new.get('version')}")
+        op, np_ = old.get("params") or {}, new.get("params") or {}
+        ch = sorted(k for k in set(op) | set(np_) if op.get(k) != np_.get(k))
+        if ch:
+            out.append("parameters " + ", ".join(ch))
+        if "fasta" not in old and not self._fasta_older(stage):
+            out.append("the FASTA is newer than this checkpoint, made before cenfuse 0.14 keyed the FASTA's content")
+        if "fasta" in old and old["fasta"] != new.get("fasta"):
+            out.append("FASTA content (" + ", ".join(sorted(g for g in set(old["fasta"]) | set(new.get("fasta") or {})
+                                                            if old["fasta"].get(g) != (new.get("fasta") or {}).get(g))) + ")")
+        if old.get("inputs") != new.get("inputs"):
+            oi = old.get("inputs")
+            if oi is None:
+                out.append("made before inputs were keyed")
+            else:
+                diff = sorted(f"{g} {k}" for g in set(oi) | set(new.get("inputs") or {})
+                              for k in ("genes", "tes") if (oi.get(g) or {}).get(k) != ((new.get("inputs") or {}).get(g) or {}).get(k))
+                out.append("inputs " + ", ".join(diff))
+        return "; ".join(out) or "key differs"
 
     def _done(self, stage: str) -> bool:
         return (self.work / f"{stage}.done").exists()
@@ -191,8 +265,11 @@ class Pipeline:
             t = time.time()
             log.info(f"{s}: start")
             (self.work / s).mkdir(exist_ok=True)
+            n = unshare_tree(self.work / s)               # a hard-linked copy's files are not rewritten
+            if n:
+                log.debug(f"{s}: {n} files shared with another folder (hard links) unlinked before recomputing")
             getattr(self, f"stage_{s}")()
-            (self.work / f"{s}.done").write_text(json.dumps(self.fingerprint(s)))
+            atomic_write_text(self.work / f"{s}.done", json.dumps(self.fingerprint(s)))
             log.info(f"{s}: done ({time.time() - t:.0f} s)")
         log.info(f"all stages done ({(time.time() - t0) / 60:.1f} min); outputs in {self.out}")
 
@@ -252,7 +329,7 @@ class Pipeline:
             if g.name not in self.borrow:
                 fams = metrics[g.name][0]
                 elig = list(fams.family[fams.eligible.astype(bool)])
-                rds[g.name] = rd = families.rdna_neighbourhood(g.fasta, g.chroms, self.arrays(g), elig,
+                rds[g.name] = rd = families.rdna_neighborhood(g.fasta, g.chroms, self.arrays(g), elig,
                                                                self._p("classify", f"rdna_{g.name}"), self.threads,
                                                                self.p.rdna_flank, self.p.rdna_arrays)
                 for f, (n, k) in rd.items():
@@ -285,7 +362,7 @@ class Pipeline:
                 ov = te.ltr_overlap(self.arrays(g), iv, longest)
                 fams["in_ltr"] = [round(ov.get(f, (float("nan"), "."))[0], 3) for f in fams.family]
                 fams["ltr_clade"] = [ov.get(f, (0, "."))[1] for f in fams.family]
-            fams.to_csv(self._p("classify", f"{g.name}.families.tsv"), sep="\t", index=False)
+            atomic_csv(fams, self._p("classify", f"{g.name}.families.tsv"), sep="\t", index=False)
             prim = fams[fams.cls == "centromeric"]
             log.info(f"classify: {g.name}: centromeric{how} = {', '.join(prim.family) or 'none'}; "
                      f"{len(per_chrom)}/{len(g.chroms)} sequences have one")
@@ -367,7 +444,7 @@ class Pipeline:
 
             test = dict(n=len(g.chroms), features=0, covered=0, null_median=float("nan"), p=1.0, best_possible=1.0, status="none") \
                 if borrowed else karyotype.satellite_test(arrays, primary, g.chroms, self.p)     # a contig is no chromosome
-            self._p("centromeres", f"{g.name}.satellite_test.json").write_text(json.dumps(test))
+            atomic_write_text(self._p("centromeres", f"{g.name}.satellite_test.json"), json.dumps(test))
             log.info(f"centromeres: {g.name}: centromeric satellites: {karyotype.sentence(test)}")
 
             def call_with(prim):
@@ -408,8 +485,8 @@ class Pipeline:
             log.info(f"centromeres: {g.name}: family roles: "
                      + (", ".join(f"{r} {n[r]}" for r in classify.ROLES + ["unassessed"] if r in n) or "none (no families)"))
             centromere.write_regions(rows, self._p("centromeres", f"{g.name}.regions.tsv"))
-            lu.to_csv(self._p("centromeres", f"{g.name}.longunit.tsv"), sep="\t", index=False)
-            fams.to_csv(self._p("centromeres", f"{g.name}.families.tsv"), sep="\t", index=False)
+            atomic_csv(lu, self._p("centromeres", f"{g.name}.longunit.tsv"), sep="\t", index=False)
+            atomic_csv(fams, self._p("centromeres", f"{g.name}.families.tsv"), sep="\t", index=False)
             conf = pd.Series([r["confidence"] for r in rows.values()]).value_counts().to_dict()
             log.info(f"centromeres: {g.name}: {conf}; {len(lu)} long-unit arrays")
 
@@ -419,9 +496,9 @@ class Pipeline:
             primary = set(fams.family[fams.cls == "centromeric"])
             mh, occ, units = hor.run_hor(g, self.monomers(g), self.arrays(g), self.regions(g), primary,
                                          self.work / "hor" / f"tmp_{g.name}", self.threads, self.p)
-            mh.to_csv(self._p("hor", f"{g.name}.monomer_hor.tsv.gz"), sep="\t", index=False)
-            occ.to_csv(self._p("hor", f"{g.name}.hor_occ.tsv"), sep="\t", index=False)
-            units.to_csv(self._p("hor", f"{g.name}.hor_units.tsv"), sep="\t", index=False)
+            atomic_csv(mh, self._p("hor", f"{g.name}.monomer_hor.tsv.gz"), sep="\t", index=False)
+            atomic_csv(occ, self._p("hor", f"{g.name}.hor_occ.tsv"), sep="\t", index=False)
+            atomic_csv(units, self._p("hor", f"{g.name}.hor_units.tsv"), sep="\t", index=False)
             log.info(f"hor: {g.name}: {len(units)} HOR units, {len(occ)} occurrences, "
                      f"{(mh.hor_unit != '.').sum()}/{len(mh)} classed monomers in HORs")
 
@@ -439,8 +516,8 @@ class Pipeline:
         fam = self.fam_table()
         data = {g.name: self.genome_data(g) for g in self.genomes}
         names = output.final_names(fam, {k: d["arrays"] for k, d in data.items()}, self.name)
-        pd.DataFrame(sorted(names.items()), columns=["fam_id", "name"]).to_csv(
-            self._p("output", "names.tsv"), sep="\t", index=False)
+        atomic_csv(pd.DataFrame(sorted(names.items()), columns=["fam_id", "name"]), self._p("output", "names.tsv"), sep="\t",
+                   index=False)
         for g in self.genomes:
             output.write_genome(data[g.name], names, self.out, self.p)
         output.write_families(fam, data, names, self._p("families", "families.hmm"),
@@ -449,10 +526,10 @@ class Pipeline:
             for src, name in ((self._p("classify", f"{g.name}.te_signature.tsv"), f"{g.name}_te_signature.tsv"),
                               (self._p("centromeres", f"{g.name}.satellite_test.json"), f"{g.name}_satellite_test.json")):
                 if src.exists():
-                    shutil.copyfile(src, self.out / name)
+                    atomic_copy(src, self.out / name)
         dropped = self._p("families", "dropped_clusters.tsv")       # absent in a folder of an earlier version
         if dropped.exists():
-            shutil.copyfile(dropped, self.out / "dropped_clusters.tsv")
+            atomic_copy(dropped, self.out / "dropped_clusters.tsv")
         for g in self.genomes:
             self._log_costliest(g, data[g.name]["fams"], names)
 

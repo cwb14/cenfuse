@@ -1,4 +1,5 @@
-"""Shared helpers: errors, logging, intervals, the Poisson-binomial tail, fingerprints."""
+"""Shared helpers: errors, logging, intervals, the Poisson-binomial tail, object fingerprints. (File fingerprints, atomic
+writes and locks are in runtime.py: this module is part of every stage's code key, and they change no result.)"""
 from __future__ import annotations
 
 import hashlib
@@ -46,26 +47,6 @@ def poisson_binomial_sf(k: int, p) -> float:
         dist[1:] = dist[1:] * (1 - q) + dist[:-1] * q
         dist[0] *= 1 - q
     return float(min(1.0, dist[k:].sum()))
-
-
-def mcnemar_exact(b: int, c: int) -> float:
-    """Two-sided exact McNemar P for discordant pair counts b and c (binomial, p = 0.5)."""
-    from scipy.stats import binomtest
-    n = b + c
-    return 1.0 if n == 0 else float(binomtest(min(b, c), n, 0.5).pvalue)
-
-
-def file_fingerprint(path, nbytes: int = 1 << 20) -> str:
-    """Fast fingerprint (name, size, mtime, first and last MiB), as the engines use for their caches."""
-    p = Path(path)
-    st = p.stat()
-    h = hashlib.md5(f"{p.resolve()}:{st.st_size}:{st.st_mtime_ns}".encode())
-    with open(p, "rb") as f:
-        h.update(f.read(nbytes))
-        if st.st_size > 2 * nbytes:
-            f.seek(-nbytes, 2)
-            h.update(f.read())
-    return h.hexdigest()[:16]
 
 
 def obj_fingerprint(obj) -> str:

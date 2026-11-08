@@ -13,8 +13,13 @@ another plant, or cannot be told. Only reference and unknown inputs decide the r
 scored on its own (plants.py)."""
 from __future__ import annotations
 
+import ast
+import functools
 import json
+import os
 import pickle
+import socket
+import sys
 import time
 from pathlib import Path
 
@@ -22,8 +27,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, ageline, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, methfuse, \
-    morphology, output, plants, provenance, rdna, seqcalls, telomere, teline
+from . import __version__, ageline, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, manifest, \
+    methfuse, morphology, output, plants, provenance, rdna, seqcalls, telomere, teline
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
@@ -37,21 +42,100 @@ from .sat.karyotype import MAX_SEQUENCES
 from .sat.genomes import load_gene_gff
 from .sat.params import Params, parse_borrow
 from .sat.util import SatelliteError
-from .util import CenfuseError, file_fingerprint, log, obj_fingerprint
+from .runtime import Heartbeat, Usage, atomic_open, atomic_write_text, fasta_md5, file_fingerprint, release_lock, try_lock
+from .util import CenfuseError, log, obj_fingerprint
 
 STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "attrough", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 CHROM_RECORD = "chromosome_set.json"      # in satellite/work: {genome: sorted names} the checkpoints stand on
+LOCK = ".cenfuse.lock"                    # in OUT: 'host pid start command' of the run using the folder (runtime.try_lock)
 _PKG = Path(__file__).parent
 
 
-def code_key(*modules, packages=()) -> str:
-    """Hash of the source a stage runs: its cenfuse modules, every module of the engine packages it calls, and
-    cenfuse's params and util. Any code change recomputes the stage."""
-    files = [_PKG / m for m in (*modules, "params.py", "util.py")]
+def _module_file(name: str) -> Path | None:
+    """The file of cenfuse module 'a.b' (a/b.py, or a/b/__init__.py for a package), or None outside the package."""
+    base = _PKG.joinpath(*name.split(".")) if name else _PKG
+    for f in (base.with_suffix(".py"), base / "__init__.py"):
+        if f.is_file():
+            return f
+    return None
+
+
+def _imports(f: Path) -> set:
+    """The cenfuse modules a file imports, at any depth of its code (lazy imports in functions included), resolved to files:
+    'from . import x', 'from .sat import te', 'from ..util import gap', 'import cenfuse.x'."""
+    pkg = ".".join(f.relative_to(_PKG).with_suffix("").parts[:-1]) if f.name != "__init__.py" else \
+        ".".join(f.relative_to(_PKG).parent.parts)
+    out = set()
+    for node in ast.walk(ast.parse(f.read_text())):
+        names = []
+        if isinstance(node, ast.ImportFrom):
+            if node.level:
+                parts = pkg.split(".") if pkg else []
+                parts = parts[:len(parts) - (node.level - 1)] if node.level > 1 else parts
+                base = ".".join(parts + ([node.module] if node.module else []))
+            elif node.module and (node.module == "cenfuse" or node.module.startswith("cenfuse.")):
+                base = node.module[len("cenfuse."):] if node.module != "cenfuse" else ""
+            else:
+                continue
+            names = [base] + [f"{base}.{a.name}" if base else a.name for a in node.names]
+        elif isinstance(node, ast.Import):
+            names = [a.name[len("cenfuse."):] for a in node.names if a.name.startswith("cenfuse.")]
+        for n in names:
+            m = _module_file(n)
+            if m is not None:
+                out.add(m)
+    return out
+
+
+def _normalized(f: Path) -> str:
+    """What a module does, without comments, docstrings or layout: the dump of its syntax tree, docstrings removed. Editing
+    a comment or a docstring recomputes nothing."""
+    tree = ast.parse(f.read_text())
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and body and \
+                isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.dump(tree, include_attributes=False)
+
+
+@functools.lru_cache(maxsize=None)
+def _stage_method(stage: str) -> str:
+    """The syntax tree of Run.stage_<stage> in this module, docstring stripped: the stage's own orchestration (what it reads,
+    in which order it calls the engines) is code that can change its result."""
+    tree = ast.parse((_PKG / "pipeline.py").read_text())
+    run = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Run")
+    fn = next(n for n in run.body if isinstance(n, ast.FunctionDef) and n.name == f"stage_{stage}")
+    if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant):
+        fn.body = fn.body[1:] or [ast.Pass()]
+    return ast.dump(fn, include_attributes=False)
+
+
+# modules that change no result, kept out of every code key: how files are fingerprinted, written and locked, and what a run
+# records (runtime.py: an atomic write or a lock rule edited there recomputes nothing; manifest.py: run_info.json)
+KEYLESS = {"runtime.py", "manifest.py"}
+
+
+@functools.lru_cache(maxsize=None)
+def code_key(*modules, packages=(), stage: str | None = None, data=()) -> str:
+    """Key of the code a stage runs: its cenfuse modules, every module of the engine packages it calls, cenfuse's params and
+    util, and everything those import inside cenfuse (the import closure), each as its syntax tree without comments or
+    docstrings; the stage's own method of Run (stage); and the content of the package data files it reads (data, relative to
+    the package). A change to what that code does recomputes the stage; a comment or a docstring does not."""
+    todo = [_PKG / m for m in (*modules, "params.py", "util.py")]
     for pk in packages:
-        files += sorted((_PKG / pk).glob("*.py"))
-    return obj_fingerprint([f.read_text() for f in files])
+        todo += sorted((_PKG / pk).glob("*.py"))
+    seen = set()
+    while todo:
+        f = todo.pop()
+        if f in seen or f.relative_to(_PKG).as_posix() in KEYLESS:
+            continue
+        seen.add(f)
+        todo += [x for x in _imports(f) if x not in seen]
+    return obj_fingerprint([[str(f.relative_to(_PKG)), _normalized(f)] for f in sorted(seen)] +
+                           [["stage", _stage_method(stage) if stage else None],
+                            ["data", [file_fingerprint(_PKG / d) for d in data]]])
 
 
 def feature_classes(seq: seqcalls.SeqLine, tel: dict, telo: dict, nors=()) -> dict:
@@ -184,16 +268,27 @@ class Run:
             raise CenfuseError(f"--satellite-dir {self.sat_import}: not a directory")
 
     # ------------------------------------------------------------------ checkpoints
+    @staticmethod
+    def _assembly(g) -> str:
+        """Key of the assembly a stage reads: its index and the whole FASTA's md5 (runtime.fasta_md5). A same-length edit
+        (hard-masking, polishing) keeps the .fai byte for byte, and must still recompute what reads the sequence."""
+        return obj_fingerprint([file_fingerprint(f"{g.fasta}.fai"), fasta_md5(g.fasta)])
+
     def _cached(self, stage: str, name: str, fp: dict):
+        """The checkpoint of stage for name, or None when it must be computed: forced (--force STAGE or all), absent, made
+        by other code or on other inputs (its key differs), or unreadable (a torn or foreign pickle: said, then recomputed).
+        A stage that reads another's result has that result in its key, so it reruns when the result changed."""
         done, pk = self.work / stage / f"{name}.done", self.work / stage / f"{name}.pkl"
         if self.force in (stage, "all") or not (done.exists() and pk.exists()):
             return None
         try:
             if json.loads(done.read_text()) != fp:
+                log.debug(f"{stage}: {name}: checkpoint made by other code or on other inputs; recomputed")
                 return None
             with open(pk, "rb") as f:
                 return pickle.load(f)
-        except (OSError, ValueError, pickle.UnpicklingError, EOFError):
+        except Exception as e:                   # OSError, a torn pickle, a library upgrade (ModuleNotFoundError, ...)
+            log.warning(f"{stage}: {name}: checkpoint {pk.name} unreadable ({type(e).__name__}: {e}); recomputed")
             return None
 
     def _store(self, stage: str, name: str, fp: dict, obj) -> None:
@@ -203,7 +298,7 @@ class Run:
         with open(tmp, "wb") as f:
             pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
         tmp.replace(d / f"{name}.pkl")
-        (d / f"{name}.done").write_text(json.dumps(fp))
+        atomic_write_text(d / f"{name}.done", json.dumps(fp))
 
     def _meth_prep(self, g, sat_dir: Path):
         """The methylation engine's inputs for genome g, built once per run (the class bins are also cached on disk)."""
@@ -218,7 +313,7 @@ class Run:
         files = sorted(str(Path(v) if Path(v).is_absolute() else g.meth.parent / v)
                        for col in ("CHG", "CG", "CHH") if col in samples for v in samples[col] if v)
         return dict(samples=file_fingerprint(g.meth), files=[file_fingerprint(f) for f in files if Path(f).exists()],
-                    ann=[file_fingerprint(x) for x in (g.tes, arrays, g.genes, g.exclude) if x])
+                    ann=[fasta_md5(x) for x in (g.tes, arrays, g.genes, g.exclude) if x])      # whole files: annotations are edited
 
     # ------------------------------------------------------------------ satellite chromosome set
     def _check_chromosome_set(self, sat_work: Path) -> None:
@@ -292,6 +387,17 @@ class Run:
     def stage_satellite(self) -> Path:
         if self.sat_import:
             log.info(f"satellite: reading earlier satellite outputs from {self.sat_import} (--satellite-dir)")
+            imported = manifest.read(self.sat_import) or {}
+            made = imported.get("cenfuse")
+            if imported and imported.get("status") != "done":
+                log.warning(f"satellite: the run that made {self.sat_import} did not finish ({manifest.NAME}: status "
+                            f"{imported.get('status')}): its outputs may be incomplete")
+            if made and made != __version__:
+                log.warning(f"satellite: the outputs in {self.sat_import} were made by cenfuse {made} ({manifest.NAME}); "
+                            f"this is {__version__}: they keep {made}'s satellite rules")
+            elif not made:
+                log.info(f"satellite: no {manifest.NAME} beside the imported outputs: the cenfuse version that made them "
+                         f"is unknown, and they keep its satellite rules")
             self._warn_imported_set(self.sat_import)
             return self.sat_import
         from .sat.pipeline import STAGES as SAT_STAGES, Pipeline
@@ -313,7 +419,7 @@ class Run:
     def stage_telomere(self, g) -> dict:
         """Telomere unit, end arrays and interstitial arrays (telomere.py), checkpointed by the assembly index and the
         code (the interstitial scan reads the whole genome: about a minute per 3 Gb)."""
-        fp = dict(code=code_key("telomere.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("telomere.py", stage="telomere"), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("telomere", g.name, fp)
         if hit is None:
@@ -323,7 +429,7 @@ class Run:
 
     def stage_rdna(self, g) -> list:
         """45S arrays (NORs) from the universal 18S motif (rdna.py), checkpointed by the assembly index and the code."""
-        fp = dict(code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("rdna.py", stage="rdna"), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("rdna", g.name, fp)
         if hit is None:
@@ -335,7 +441,7 @@ class Run:
     def stage_rdna5s(self, g) -> list:
         """5S rDNA arrays from the Rfam 5S model (rdna.detect_5s), checkpointed by the assembly index and the code. They
         are features only: unlike NORs, 5S arrays do not gather in the nucleolus, so Hi-C does not use them."""
-        fp = dict(code=code_key("rdna.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("rdna.py", stage="rdna5s", data=("sat/data/rfam_rrna.cm",)), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("rdna5s", g.name, fp)
         if hit is None:
@@ -346,7 +452,7 @@ class Run:
     def stage_gaps(self, g) -> dict:
         """Assembly gaps (runs of >= GAP_MIN_N N) per chromosome (morphology.scan_gaps), checkpointed by the assembly
         index and the code: one pass over the chromosomes, seconds per Gb."""
-        fp = dict(code=code_key("morphology.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(code=code_key("morphology.py", stage="gaps"), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("gaps", g.name, fp)
         if hit is None:
@@ -363,7 +469,7 @@ class Run:
         missing = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem")
         if 2 * int(missing.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
             return None
-        fp = dict(version=__version__, code=code_key("atline.py", "sat/karyotype.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(version=__version__, code=code_key("atline.py", "sat/karyotype.py", stage="attrough"), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
         hit = self._cached("attrough", g.name, fp)
         if hit is None:
@@ -376,7 +482,7 @@ class Run:
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
         """Fixed differences of every methylation sample and the private-difference tests (provenance)."""
         files = sorted(str(f) for s in samples for f in s.files.values())
-        fp = dict(version=__version__, code=code_key("provenance.py"), fai=file_fingerprint(f"{g.fasta}.fai"),
+        fp = dict(version=__version__, code=code_key("provenance.py", stage="genotype"), fai=self._assembly(g),
                   files=[file_fingerprint(f) for f in files], names=[s.name for s in samples],
                   windows=obj_fingerprint(windows))
         hit = self._cached("genotype", g.name, fp)
@@ -399,7 +505,7 @@ class Run:
         calls = {r.chrom: (int(r.start), int(r.end), r.confidence) for r in seq.calls.itertuples(index=False)}
         gff = self.work / "hic" / f"{g.name}.sequence_calls.gff3"
         gff.parent.mkdir(parents=True, exist_ok=True)
-        with open(gff, "w") as f:                     # Hi-C engine --satellites: centromere features for its sat_mid
+        with atomic_open(gff) as f:                   # Hi-C engine --satellites: centromere features for its sat_mid
             f.write("##gff-version 3\n")
             for c, (s, e, _) in calls.items():
                 if s >= 0:
@@ -409,16 +515,23 @@ class Run:
         fai.parent.mkdir(parents=True, exist_ok=True)
         txt = "".join(f"{c}\t{L}\t0\t0\t0\n" for c, L in g.chroms.items())
         if not fai.exists() or fai.read_text() != txt:     # the Hi-C engine's matrix cache is keyed by the file's mtime
-            fai.write_text(txt)
-        fp = dict(version=__version__, code=code_key("hicfuse.py", packages=("hic",)),
+            atomic_write_text(fai, txt)
+        fp = dict(version=__version__, code=code_key("hicfuse.py", packages=("hic",), stage="hic"),
                   pairs=file_fingerprint(lib.path) if not lib.more else obj_fingerprint(
                       [file_fingerprint(f) for f in lib.files]), chroms=obj_fingerprint(g.chroms),
                   calls=obj_fingerprint(calls), arrays=file_fingerprint(arrays), classes=obj_fingerprint(classes),
                   nors=obj_fingerprint(self._nors.get(g.name, [])), te=obj_fingerprint(te_cores))
         hit = self._cached("hic", name, fp)
         if hit is not None:
-            log.info(f"hic: {name} checkpoint found")
-            return hit
+            mc = hit.get("matrix_cache")
+            if mc and not (Path(f"{self.out / 'hic' / name}.cache") / Path(mc).name).exists():
+                # the arm fold and the alignment read the engine's contact matrix (stage_fold): without it they would be
+                # dropped from a resumed run, so its results would differ from the first one's
+                log.warning(f"hic: {name}: checkpoint found but its contact-matrix cache is gone; Hi-C is recomputed so the "
+                            f"Rabl-axis lines can read it")
+            else:
+                log.info(f"hic: {name} checkpoint found")
+                return hit
         t0 = time.time()
         (self.out / "hic").mkdir(parents=True, exist_ok=True)
         res = hicfuse.run(lib.path if not lib.more else lib.files, fai, self.out / "hic" / name, [gff, arrays], calls,
@@ -441,7 +554,7 @@ class Run:
             return None
         den = t[["chrom", "callable", "denovo_peak_start", "denovo_peak_end", "denovo_core_start", "denovo_core_end",
                  "denovo_confidence"]].values.tolist()
-        fp = dict(version=__version__, code=code_key("fold.py", packages=("hic",)),
+        fp = dict(version=__version__, code=code_key("fold.py", packages=("hic",), stage="fold"),
                   matrix=(obj_fingerprint([file_fingerprint(f) for f in lib.files]) if lib.more else
                           file_fingerprint(lib.path)) if cool else file_fingerprint(npz),
                   size=int(b.size), chroms=obj_fingerprint(seqs), members=obj_fingerprint(hic["members"].tolist()),
@@ -474,8 +587,8 @@ class Run:
         for r in seq.calls.itertuples(index=False):
             if r.start >= 0:
                 calls.setdefault(r.chrom, []).append((int(r.start), int(r.end)))
-        fp = dict(version=__version__, code=code_key("provenance.py", "methfuse.py", packages=("meth",)),
-                  fai=file_fingerprint(f"{g.fasta}.fai"), w=w, calls=obj_fingerprint(calls),
+        fp = dict(version=__version__, code=code_key("provenance.py", "methfuse.py", packages=("meth",), stage="karyotype"),
+                  fai=self._assembly(g), w=w, calls=obj_fingerprint(calls),
                   arrays=obj_fingerprint(seq.arrays[["chrom", "start", "end"]].values.tolist()),
                   meth=self._meth_inputs_fp(g, sat_dir) if g.meth else None)
         hit = self._cached("karyotype", g.name, fp)
@@ -497,8 +610,8 @@ class Run:
 
     def stage_meth(self, g, sat_dir: Path, anchors: dict, items: dict, width_min: int, deciders: list,
                    sites: dict):
-        fp = dict(version=__version__, code=code_key("methfuse.py", packages=("meth",)),
-                  assembly=file_fingerprint(f"{g.fasta}.fai"), width_min=width_min, chroms=obj_fingerprint(g.chroms),
+        fp = dict(version=__version__, code=code_key("methfuse.py", packages=("meth",), stage="meth"),
+                  assembly=self._assembly(g), width_min=width_min, chroms=obj_fingerprint(g.chroms),
                   anchors=obj_fingerprint(anchors), items=obj_fingerprint(items), deciders=list(deciders),
                   sites=obj_fingerprint(sites), **self._meth_inputs_fp(g, sat_dir))
         hit = self._cached("meth", g.name, fp)
@@ -520,7 +633,7 @@ class Run:
         """The CpG line (cdr.py): a kinetochore inside each final call where CpG dips are validated genome-wide.
         Checkpointed by its CG files, the final calls and the arrays."""
         arr = seq.arrays[["chrom", "start", "end", "role"]]
-        fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py", "meth/io.py"),
+        fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py", "meth/io.py", stage="cpg"),
                   files=[file_fingerprint(f) for f in files], calls=obj_fingerprint(calls),
                   arrays=obj_fingerprint(arr.values.tolist()))
         hit = self._cached("cpg", g.name, fp)
@@ -677,15 +790,46 @@ class Run:
 
     # ------------------------------------------------------------------ driver
     def run(self) -> None:
+        """Lock the output folder (a second run on it stops; a stale lock is taken over), write the run manifest
+        (run_info.json), run, and record how the run ended in the manifest, also when it fails."""
         t0 = time.time()
         self.out.mkdir(parents=True, exist_ok=True)
+        lock = self.out / LOCK
+        if not try_lock(lock, f"cenfuse run {self.gdir}"):
+            try:
+                owner = lock.read_text().strip()
+            except OSError:
+                owner = "unknown"
+            raise CenfuseError(f"{self.out} is in use by another cenfuse run ({owner}); wait for it to end, or delete "
+                               f"{lock} if no run is active")
+        try:
+            info = manifest.start(self.out, self)
+            use = Usage()
+            try:
+                with Heartbeat(lock), use:
+                    incomplete = self._run(t0)
+            except BaseException as e:
+                manifest.finish(self.out, info, "failed", t0, error=f"{type(e).__name__}: {e}", cost=use.cost())
+                raise
+            cost = use.cost()
+            manifest.finish(self.out, info, "done", t0, incomplete=incomplete, cost=cost)
+            log.info(f"cost: {cost['cpu_hours']:.2f} CPU h"
+                     + (f", peak memory {cost['peak_memory_gb']:.1f} GB ({cost['memory']})"
+                        if cost["peak_memory_gb"] is not None else "") + f" ({manifest.NAME})")
+        finally:
+            release_lock(lock)
+
+    def _run(self, t0: float) -> list:
+        """The stages and outputs of every genome; returns the outputs that failed ('<genome>: report', 'figure'), which
+        are also in cenfuse_summary.tsv (incomplete) and the report: a failed report or figure never costs the tables, and
+        is never silent."""
         log.info(f"cenfuse {__version__}: {self.gdir.name}: " + "; ".join(
             f"{g.name} ({len(g.chroms)} chromosomes; {', '.join(g.lines)})" for g in self.genomes))
         for g in self.genomes:
             for n in g.notes:
                 log.info(f"{g.name}: {n}")
         sat_dir = self.stage_satellite()
-        summary, figs, sections = [], [], []
+        summary, figs, sections, failed = [], [], [], {}
         for g in self.genomes:
             seq = seqcalls.read(sat_dir, g.name, g.chroms)
             tel = teline.te_line(g.tes, g.chroms, sat_dir, g.name)
@@ -825,8 +969,11 @@ class Run:
             summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s, at, seq.test))
             try:
                 sections.append(interpret.genome_section(g.name, g, t, summary[-1], lt, fc, ictx, lines))
-            except Exception as e:                   # the report never costs the results
-                log.warning(f"{g.name}: report section failed ({type(e).__name__}: {e}); results are complete")
+            except Exception as e:                   # the report never costs the results, and says what is missing
+                log.warning(f"{g.name}: report section failed ({type(e).__name__}: {e}); the tables are complete")
+                sections.append(f"## {g.name}\n\nThis section could not be written ({type(e).__name__}: {e}). The tables "
+                                f"(`{g.name}.centromeres.tsv`, `{g.name}.loci.tsv`) are complete.\n")
+                failed.setdefault(g.name, []).append("report")
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
                              plants=ptab, psites=psites, verdicts=verdicts, libraries=others,
                              rdna=dict(nors=list(nors or ()), five_s=list(five_s or ()))))
@@ -837,12 +984,27 @@ class Run:
                 sh = ptab[ptab.verdict.isin(["shifted", "call_absent"])]
                 log.info(f"{g.name}: plants: {ptab.plant.nunique()} scored; "
                          + ("; ".join(f"{r.plant} {r.chrom} {r.verdict}" for r in sh.itertuples()) or "no shift"))
-        output.write_tsv(pd.DataFrame(summary), self.out / "cenfuse_summary.tsv")
         if sections:
-            interpret.write_report(sections, self.out, self.gdir)
+            try:
+                interpret.write_report(sections, self.out, self.gdir)
+            except Exception as e:                   # the report never costs the results
+                log.warning(f"report failed ({type(e).__name__}: {e}); the tables are complete")
+                for g in self.genomes:
+                    failed.setdefault(g.name, []).append("report")
         try:
             from . import plot
             plot.overview(figs, self.out)
         except Exception as e:                       # a figure never costs the results
-            log.warning(f"overview figure failed ({type(e).__name__}: {e}); results are complete")
-        log.info(f"done ({(time.time() - t0) / 60:.1f} min); outputs in {self.out}")
+            log.warning(f"overview figure failed ({type(e).__name__}: {e}); the tables are complete")
+            for g in self.genomes:
+                failed.setdefault(g.name, []).append("figure")
+        for row in summary:
+            row["incomplete"] = ",".join(dict.fromkeys(failed.get(row["genome"], []))) or "."
+        output.write_tsv(pd.DataFrame(summary), self.out / "cenfuse_summary.tsv")
+        lost = [f"{n}: {x}" for n, xs in failed.items() for x in dict.fromkeys(xs)]
+        if lost:
+            log.warning(f"done ({(time.time() - t0) / 60:.1f} min) with incomplete outputs ({'; '.join(lost)}); the tables "
+                        f"are complete; outputs in {self.out}")
+        else:
+            log.info(f"done ({(time.time() - t0) / 60:.1f} min); outputs in {self.out}")
+        return lost

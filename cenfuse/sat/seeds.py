@@ -6,16 +6,15 @@ import hashlib
 import json
 import os
 import shutil
-import socket
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
 import pysam
 
 from . import fastan, trf
+from ..runtime import Heartbeat, fasta_md5, process_pool, release_lock, try_lock
 from .util import SatelliteError, log, md5_file, union_bp
 
 ENGINES = {"fastan": fastan, "trf": trf}
@@ -85,7 +84,7 @@ def genome_key(g) -> str:
     cache entry. The real file's own .fai lists its sequences; without one (the user's FASTA is a link and its .fai
     sits beside the link) the set cannot be checked against them, so it always counts: else a changed set would
     reuse the old set's seeds."""
-    md5 = md5_file(g.fasta)
+    md5 = fasta_md5(g.fasta)                     # runtime.fasta_md5: shared with the stage keys, computed once per run
     own = Path(os.path.realpath(g.fasta) + ".fai")
     if own.exists():
         with open(own) as f:
@@ -98,9 +97,33 @@ def genome_key(g) -> str:
     return md5
 
 
-def cache_path(cache_dir, md5: str, p) -> Path:
-    """Cache file for one genome: keyed by the FASTA md5, the engine and the settings that shape the result."""
-    key = hashlib.md5(json.dumps(ENGINES[p.seed_engine].KEY + [p.seed_chunk, p.seed_overlap]).encode()).hexdigest()[:8]
+_TOOLS_KEY = {}
+
+
+def tools_key(engine: str) -> list:
+    """What else a genome's seeds depend on: the md5 of each of the seed engine's binaries (a new FasTAN release cuts arrays
+    differently; future.md #7, #60) and, for FasTAN, whether it runs with a fixed memory layout (fastan.fixed_layout: without
+    `setarch -R` about 1% of its cuts differ between runs). Computed once per process."""
+    if engine not in _TOOLS_KEY:
+        out = []
+        for t in ENGINES[engine].TOOLS:
+            path = shutil.which(t)
+            out.append([t, md5_file(os.path.realpath(path))[:12] if path else None])
+        if engine == "fastan":
+            out.append(["fixed_layout", bool(fastan.fixed_layout())])
+        _TOOLS_KEY[engine] = out
+    return _TOOLS_KEY[engine]
+
+
+def cache_path(cache_dir, md5: str, p, legacy: bool = False) -> Path:
+    """Cache file for one genome: keyed by the FASTA md5, the engine and the settings that shape the result; for FasTAN also
+    by its binaries and memory layout (tools_key), so a shared cache never hands one FasTAN's seeds to another (0.14). TRF's
+    key is unchanged since satellite engine < 0.9, so its caches (hours per large genome) stay valid. legacy: the FasTAN name
+    before 0.14 (no tools_key), which seed_genomes still reuses."""
+    base = ENGINES[p.seed_engine].KEY + [p.seed_chunk, p.seed_overlap]
+    if p.seed_engine == "fastan" and not legacy:
+        base = base + tools_key(p.seed_engine)
+    key = hashlib.md5(json.dumps(base).encode()).hexdigest()[:8]
     return Path(cache_dir) / f"{md5}.{key}.{p.seed_engine}.tsv.gz"
 
 
@@ -114,46 +137,16 @@ def crash_path(cache_file) -> Path:
     return Path(f"{cache_file}.fastan_crashes.tsv")
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _owner(lock: Path) -> tuple:
-    """(host, pid) of a lock; a lock written by satellite engine < 0.5 holds only the pid (single-host use)."""
-    x = lock.read_text().split()
-    return (socket.gethostname(), int(x[0])) if len(x) == 1 else (x[0], int(x[1]))
-
-
 def _acquire(lock: Path) -> bool:
-    """Create the lock file atomically ('host pid'); steal it only if its owner ran on this host and is dead. A
-    process on another host (shared filesystem, SLURM nodes) cannot be checked from here, so its lock is never
-    stolen: remove a stale one by hand."""
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        try:
-            host, pid = _owner(lock)
-        except (OSError, ValueError, IndexError):
-            return False                          # being written right now; retry next poll
-        if host == socket.gethostname() and pid and not _alive(pid):
-            log.warning(f"seeds: removing stale lock {lock.name} (pid {pid} is gone)")
-            lock.unlink(missing_ok=True)
-            return _acquire(lock)
-        return False
-    os.write(fd, f"{socket.gethostname()} {os.getpid()}".encode())
-    os.close(fd)
-    return True
+    """Create the lock file atomically ('host pid ...'); take it over only when stale (runtime.lock_stale): its owner ran on this
+    host and is gone, or it ran on another host (a shared filesystem, cluster nodes) and has not touched the lock for
+    runtime.STALE_AFTER seconds (owners touch their locks every runtime.HEARTBEAT seconds while they compute)."""
+    return try_lock(lock, "seeds")
 
 
 def _write_crashes(table: Path, genome: str, events: list) -> None:
     """Write the crash table (one row per crash) and log the genome's summary: chunks crashed, pieces split, bp in
-    skipped pieces. Skipped pieces overlap their neighbours, so the bp are an upper bound of what has no seeds."""
+    skipped pieces. Skipped pieces overlap their neighbors, so the bp are an upper bound of what has no seeds."""
     flat = [x for chunk in events for x in chunk]
     table.write_text("\t".join(CRASH_COLS) + "\n" + "".join("\t".join(map(str, x)) + "\n" for x in flat))
     skipped = {}
@@ -202,7 +195,7 @@ def _compute(todo: dict, cache_dir: Path, threads: int, p) -> None:
         crashes = {fa: [] for fa in left}                           # the events of each chunk FasTAN crashed on
         for fa in [fa for fa, n in left.items() if not n]:          # only zero-length sequences: nothing to run
             _write_cache(*target[fa], rows.pop(fa), engine.DUP_TOL)
-        with ProcessPoolExecutor(threads) as ex:
+        with process_pool(threads) as ex:
             for i, (fa, r, ev, failed) in enumerate(ex.map(_run_chunk, jobs, chunksize=1), 1):
                 rows[fa].extend(r)
                 if ev:
@@ -227,7 +220,12 @@ def seed_genomes(genomes, cache_dir, threads: int, p) -> dict:
     cache_dir.mkdir(parents=True, exist_ok=True)
     out, todo = {}, {}
     for g in genomes:
-        path = cache_path(cache_dir, genome_key(g), p)
+        gk = genome_key(g)
+        path, old = cache_path(cache_dir, gk, p), cache_path(cache_dir, gk, p, legacy=True)
+        if not path.exists() and old != path and old.exists():
+            log.info(f"seeds: {g.name}: reusing {old.name}, cached before the cache recorded FasTAN's binary (run_info.json "
+                     f"records the one this run uses)")
+            path = old
         out[g.name] = path
         if path.exists():
             log.info(f"seeds: {g.name} cached ({path.name})")
@@ -241,10 +239,11 @@ def seed_genomes(genomes, cache_dir, threads: int, p) -> dict:
         mine = {path: g for path, g in todo.items() if _acquire(lock_path(path))}
         if mine:
             try:
-                _compute(mine, cache_dir, threads, p)
+                with Heartbeat(*(lock_path(path) for path in mine)):
+                    _compute(mine, cache_dir, threads, p)
             finally:
                 for path in mine:
-                    lock_path(path).unlink(missing_ok=True)
+                    release_lock(lock_path(path))
             continue
         for path, g in todo.items():
             if path not in waiting_logged:

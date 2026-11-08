@@ -76,11 +76,63 @@ every plant. The between-plant test keeps them from producing false `shifted` ve
 
 | file | content |
 |---|---|
-| `asm.provenance.tsv` | per input: plant, verdict, reason, genotype test, missing segments, whether it decides |
-| `asm.plants.tsv` | per plant × chromosome: verdict, methylation at the call and the best alternative, Hi-C verdict |
-| `asm.plant_sites.tsv` | per plant × site: label, score, d, t, P, q |
+| `asm.provenance.tsv` | per input: plant, verdict, reason, genotype test, missing segments, whether it decides (columns below) |
+| `asm.plants.tsv` | per plant × chromosome: verdict, methylation at the call and the best alternative, Hi-C verdict (columns below) |
+| `asm.plant_sites.tsv` | per plant × site: label, score, d, t, P, q (columns below) |
 | `asm.centromeres.tsv` | `meth_samples`, `hic_library`, `hic_provenance`, `plants_shared/shifted/absent/unresolved` |
 | `asm.plants.png` | plants × chromosomes verdicts, and the most-shifted chromosome plant by plant |
+
+### `asm.provenance.tsv` (one row per input)
+
+| column | meaning |
+|---|---|
+| `kind`, `input` | the input: a methylation sample (`meth`) or a Hi-C library (`hic`), by its `sample` name |
+| `plant` | the plant it comes from: the same name |
+| `verdict`, `reason` | `reference`, `other` or `unknown` (Provenance, above), and why, in words |
+| `decides` | whether it decides the reference calls: a methylation sample that is not `other`, when the CHG line runs; the deciding Hi-C library |
+| `on_motif` | methylation (CHG file): the share of its rows in the genotype windows that sit on reference CHG motifs |
+| `sites_tested` | how many symmetric CHG sites (CAG, CTG) in those windows are read on both strands: each strand's C has rows within 300 bp on both sides, with ≥ 3 reads on average |
+| `fixed_per_kb` | the fixed differences (both strands' rows missing) per kb of tested bases (3 per site) |
+| `noise_per_site` | the chance that read errors remove both rows of a site: the share of tested sites missing only the + strand's row times the share missing only the − strand's (add-one smoothed) |
+| `private_vs`, `private`, `private_expected`, `private_p`, `shared_sites` | its private-difference test with the lowest P: the other sample; this sample's fixed differences that the other lacks, at the sites both tested; how many its noise predicts there; the Poisson upper-tail P, uncorrected (a verdict needs P ≤ 0.01 over the number of ordered pairs of samples); those shared sites |
+| `missing_segments` | its missing segments (`chrom:start-end`, `;`-separated) |
+| `read_ends` | Hi-C libraries: its contacts counted at both ends (the per-bin totals of its contact matrix, summed). Among the libraries that may decide (`reference`, else `unknown`), the one whose gate passes on the most chromosomes decides; a tie goes to the most read ends |
+
+### `asm.plants.tsv` (one row per plant and chromosome)
+
+`alt_start`, `alt_end`, `hic_peak_start` and `hic_peak_end` are 1-based; `-1` = none.
+
+| column | meaning |
+|---|---|
+| `plant`, `provenance` | the plant (a methylation sample, or a Hi-C library that does not decide) and its provenance verdict |
+| `chrom` | the chromosome |
+| `verdict` | the plant's verdict, its lines combined (above): `shared`, `shifted`, `possible_shift`, `conflict`, `call_absent`, `unclear`, `no_data`, or `no_call` (no reference call) |
+| `meth_verdict` | the methylation verdict (above); `.` without a methylation sample |
+| `call_site`, `call_label`, `call_score`, `loss_q` | the plant's site at the call (in `asm.plant_sites.tsv`): of the sites whose window overlaps the call, the one where it scores highest (without scores, the one nearest the call's middle); its label and score there, and the q of its loss test |
+| `alt_site`, `alt_start`, `alt_end`, `alt_origins`, `alt_label`, `alt_score`, `gain_q` | the alternative: the highest-scoring site away from the call where the plant is `centromere_like` (among those whose gain has q ≤ 0.05, if any): its window, origins, label, score, and the q of its gain test |
+| `shift_bp` | with `shifted`, `possible_shift` or `conflict`: bp from the call to the alternative, or to the plant's Hi-C peak when its methylation verdict is neither `shifted` nor `possible_shift` |
+| `hic_library`, `hic_verdict`, `hic_peak_start`, `hic_peak_end` | the plant's own Hi-C library (one that does not decide), its verdict (`shared`, `shifted`, `unclear`, `uninformative`, `no_data`; above) and its anchored peak on this chromosome; `.` without one |
+
+### `asm.plant_sites.tsv` (one row per plant and site)
+
+Every methylation sample is scored at every site of its chromosome (Per-plant verdicts, above). `start` and `mid` are
+1-based.
+
+| column | meaning |
+|---|---|
+| `chrom`, `site` | the chromosome and the site (`chrom:S<n>`, numbered as the places merge into sites, the reference lines' places first) |
+| `start`, `end`, `mid` | the window judged, centered on the site's midpoint (that of the first place merged into it): 2 D or one Hi-C bin wide, whichever is larger (D: the methylation engine's expected centromere size) |
+| `origins` | the places merged into the site: `sequence_call`, `hic_peak` (the deciding library's anchored peak), `te_core`, `provisional` (the call before methylation), `satellite:<family>` (a cluster of a centromeric family), `denovo_hic` (the deciding library's prior-free peak), `hic:<library>` (another library's anchored peak), `meth:<sample>` (a sample's `centromere_like` candidate) |
+| `sample` | the plant |
+| `label`, `score`, `value`, `with_data` | at the plant's most extreme adjusted-CHG bin of the window: `centromere_like` (score ≥ 0.5), `dip`, `no_signature_data` or `no_data`; the signature score (1 = deviates like the other chromosomes' calls, 0 = like the background); the adjusted CHG value; the signature entries with data there |
+| `inside` | the window overlaps the reference call |
+| `plants_with_data` | how many plants have a score at this site |
+| `d` | the plant's score minus the median of the other plants' (with ≥ 3 plants scored) |
+| `call_site` | this is the plant's site at the call (`asm.plants.tsv`) |
+| `t`, `df` | d against its null, the plant's d at the call sites of the other chromosomes (every plant's, when it has fewer than 5): t = (d − mean) / (sd × √(1 + 1/n)), on n − 1 degrees of freedom |
+| `p_gain`, `p_loss` | the upper and the lower tail P of t |
+| `test` | the test the row carries: `loss` (the plant's call site), `gain` (a site away from the call that does not come from the plant's own candidates alone), or empty (none: a test needs ≥ 3 plants scored and a reference call) |
+| `q` | the Benjamini-Hochberg q, over every test of the genome; `.` without a test |
 
 ## Validation ([benchmark.md](benchmark.md#8-several-plants-poa-annua))
 

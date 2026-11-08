@@ -19,12 +19,12 @@ ALL = "all"   # pseudo-class: the adjusted track itself (all classes together)
 
 
 def anchor_table(anchors: pd.DataFrame, chroms: dict[str, int]) -> dict:
-    """One anchor per analysed chromosome: chrom -> dict(name, start, end, mid, bin). Several intervals on one
-    chromosome are merged into their span (warned); anchors on sequences that are not analysed are dropped (warned)."""
+    """One anchor per analyzed chromosome: chrom -> dict(name, start, end, mid, bin). Several intervals on one
+    chromosome are merged into their span (warned); anchors on sequences that are not analyzed are dropped (warned)."""
     out = {}
     skipped = sorted(set(anchors.chrom) - set(chroms))
     if skipped:
-        log.warning("anchors on %d sequences not analysed (too short or unplaced) ignored: %s", len(skipped),
+        log.warning("anchors on %d sequences not analyzed (too short or unplaced) ignored: %s", len(skipped),
                     ", ".join(skipped[:5]))
     for c, g in anchors[anchors.chrom.isin(set(chroms))].groupby("chrom", sort=False):
         if len(g) > 1:

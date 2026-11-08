@@ -179,14 +179,14 @@ def test_chain_groups_join_close_subfamilies_only(tmp_path):
 
 
 @pytest.mark.skipif(not have("cmsearch", "cmemit"), reason="infernal missing")
-def test_rdna_neighbourhood_flags_45s_spacer_repeats(tmp_path):
+def test_rdna_neighborhood_flags_45s_spacer_repeats(tmp_path):
     """Real data (P. infirma chr1A NOR): the 45S rDNA intergenic-spacer subrepeat (Poa_sat18_125) forms satellite-like
     arrays without any rRNA gene in its consensus, so rdna_tags missed it and it was called centromeric. Arrays whose
     flanks carry 45S rRNA genes (18S/5.8S/25S) are rDNA-associated; a satellite with plain flanks is not."""
     import subprocess
     import pandas as pd
     import pysam
-    from cenfuse.sat.families import rdna_neighbourhood
+    from cenfuse.sat.families import rdna_neighborhood
     out = subprocess.run(["cmemit", "-c", "--seed", "1", str(RRNA_CM)], capture_output=True, text=True).stdout
     recs = {r.splitlines()[0].split()[0]: "".join(r.splitlines()[1:]) for r in out.split(">")[1:]}
     ssu = next(s for n, s in recs.items() if n.startswith("SSU")).upper().replace("U", "T")
@@ -212,7 +212,7 @@ def test_rdna_neighbourhood_flags_45s_spacer_repeats(tmp_path):
     pysam.faidx(str(fa))
     from cenfuse.sat.annotate import ARR_COLS
     arrays = pd.DataFrame(rows, columns=ARR_COLS)
-    res = rdna_neighbourhood(fa, {"c1": len("".join(seq))}, arrays, ["igs", "sat"], tmp_path / "w", 2,
+    res = rdna_neighborhood(fa, {"c1": len("".join(seq))}, arrays, ["igs", "sat"], tmp_path / "w", 2,
                              flank=15_000, n_arrays=5)
     assert res["igs"] == (5, 5) and res["sat"] == (5, 0)
 

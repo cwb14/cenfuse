@@ -1,0 +1,57 @@
+genome	label	lineage	centromere_type	arm_fasta	arm_all
+chm13	human (CHM13)	mammals	alpha-satellite HOR arrays	S	FULL
+mPanTro3	chimpanzee	mammals	alpha-satellite HOR arrays	S	FULL
+mPanPan1	bonobo	mammals	alpha-satellite HOR arrays	S	FULL
+mGorGor1	gorilla	mammals	alpha-satellite HOR arrays	S	FULL
+mPonAbe1	Sumatran orangutan	mammals	alpha-satellite HOR arrays	S	FULL
+mPonPyg2	Bornean orangutan	mammals	alpha-satellite HOR arrays	S	FULL
+MFA8	crab-eating macaque	mammals	alpha-satellite arrays	S	FULL
+Sscrofa	pig	mammals	satellite arrays	S	FULL
+horse1	horse (T2T)	mammals	satellite arrays; chr11 satellite-free	S	FULL
+hg002	HG002 (diploid human)	mammals	alpha-satellite HOR arrays	S	ONT
+horse	horse (EquCab3)	mammals	satellite arrays; chr11 satellite-free	S	SH
+mmT2T	mouse (T2T)	mammals	minor satellite (acrocentric)	S	SH
+mSymSyn1	siamang	mammals (no CENP-A data)	alpha-satellite arrays	S	FULL
+MMU8	rhesus macaque	mammals (no CENP-A data)	alpha-satellite arrays	S	FULL
+sheep1	sheep	mammals (no CENP-A data)	satellite arrays	S	FULL
+goat1	goat	mammals (no CENP-A data)	satellite arrays (acrocentric)	S	FULL
+mGirTip1	giraffe	mammals (no CENP-A data)	satellite arrays	S	FULL
+ggswu	chicken	birds	chromosome-specific satellites	S	SH
+rice	rice	plants	CentO satellite + CRM	S	TGH
+barley	barley	plants	CRM (Cereba) retrotransposons	S	TH
+potato	potato	plants	satellite on half, satellite-free on half	S	TGH
+mo17	maize (Mo17)	plants	CentC satellite + CRM	S	TG
+sbBTx623	sorghum	plants	satellite + CRM	S	THn
+brachy	Brachypodium distachyon	plants	satellite + CRM	S	THn
+aetAL878	Aegilops tauschii	plants	CRM beside satellites	S	THn
+gmX26	soybean	plants	satellite	S	THn
+CC1	Brassica rapa CC1	plants	satellite	S	THn
+CC2	Brassica rapa CC2	plants	satellite	S	T
+CC3	Brassica rapa CC3	plants	satellite	S	T
+CCA03	Brassica rapa CCA03	plants	satellite	S	T
+PC1	Brassica rapa PC1	plants	satellite	S	S
+TC1	Brassica rapa TC1	plants	satellite	S	S
+TU1	Brassica rapa TU1	plants	satellite	S	S
+OI1	Brassica rapa OI1	plants	satellite	S	S
+CX1	Brassica rapa CX1	plants	satellite	S	S
+MIZ1	Brassica rapa MIZ1	plants	satellite	S	S
+WTC1	Brassica rapa WTC1	plants	satellite	S	S
+colcc	Arabidopsis thaliana (Col-CC)	plants	CEN180 satellite	S	M
+tomato	tomato	plants	satellite-free, beside a dominant satellite	S	TH
+ppat	moss (Physcomitrium patens)	plants	Copia (Bryco) retrotransposon clusters	S	TH
+chlamy	Chlamydomonas reinhardtii	algae	LINE (ZeppL) clusters	S	T
+csNS42	Chlorella sorokiniana	algae	2-7 Copia (Osser) insertions	S	T
+scer	Saccharomyces cerevisiae	fungi	point (125 bp)	S	SH
+spom	Schizosaccharomyces pombe	fungi	regional	S	SH
+ncra	Neurospora crassa	fungi	regional, RIP-mutated TE relics	S	SH
+vdah	Verticillium dahliae	fungi (held out)	regional	S	SH
+ztri	Zymoseptoria tritici	fungi (held out)	regional	S	SH
+cneoA	Cryptococcus neoformans (anaphase Hi-C)	fungi (held out)	regional, retrotransposon-rich	S	SH
+cneoG1	Cryptococcus neoformans (G1 Hi-C)	fungi (held out)	regional, retrotransposon-rich	S	SH
+msym	Malassezia sympodialis	fungi (held out)	short regional	S	SH
+ctro	Candida tropicalis	fungi (held out)	regional (3C-seq)	S	SH
+pfal	Plasmodium falciparum	protists	AT-rich core	S	SH
+celegans	Caenorhabditis elegans	nematodes (holocentric control)	holocentric	S	SH
+cnig	Caenorhabditis nigoni	nematodes (holocentric control)	holocentric	S	SH
+bmori	Bombyx mori	insects (holocentric control)	holocentric, no CenH3	S	SH
+rbrev	Rhynchospora breviuscula	plants (holocentric control)	holocentric (Tyba arrays)	S	SH

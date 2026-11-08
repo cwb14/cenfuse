@@ -18,6 +18,8 @@ from .util import (SatelliteError, canonical_rotation, log, merge_intervals, par
 ABC = Alphabet.dna()
 RRNA_CM = Path(__file__).resolve().parent / "data" / "rfam_rrna.cm"   # Rfam 5S/5.8S/SSU/LSU (package data, data/README.md)
 BLAST_FMT = "6 qseqid sseqid pident length qstart qend sstart send qlen slen bitscore"
+UNIT_COVER = 0.8        # heuristic: a BLAST alignment matches two units when it spans >= 80% of the shorter (frayed
+                        # ends allowed); the same share of the longer unit's dimer must be covered
 THREADS_PER_BUILD = 4   # the fewest per build while families remain: MAFFT (Panax fam006, 65 monomers) is 3.6x faster at
                         # 4 threads and 5.6x at 16, same alignment at 1-16, so 4 builds of 4 beat 1 of 16 (model_workers)
 FAM_COLS = ["fam_id", "rep_seed", "base_seed", "consensus_len", "n_seeds", "max_genome_span",
@@ -91,13 +93,13 @@ def seed_match(slen: int, llen: int, hsps, t_same: float, t_multi: float) -> boo
         return False
     t = 100 * (t_same if k == 1 else t_multi)
     good = [h for h in hsps if h[0] >= t]
-    if not any(h[2] - h[1] + 1 >= 0.8 * slen for h in good):
+    if not any(h[2] - h[1] + 1 >= UNIT_COVER * slen for h in good):
         return False
     cov = np.zeros(llen, bool)
     for h in good:
         a, b = min(h[3], h[4]) - 1, max(h[3], h[4])
         cov[np.arange(a, b) % llen] = True          # circular coverage of the longer monomer
-    return cov.mean() >= 0.8
+    return cov.mean() >= UNIT_COVER
 
 
 def blast_pairs(queries: dict, subjects: dict, workdir: Path, threads: int) -> dict:
@@ -228,7 +230,7 @@ def rdna_tags(cons: dict, workdir: Path, threads: int, cm=RRNA_CM, evalue: float
 RRNA_45S = ("SSU_rRNA_eukarya", "5_8S_rRNA", "LSU_rRNA_eukarya")
 
 
-def rdna_neighbourhood(fasta, chroms: dict, arrays: pd.DataFrame, fams: list, workdir: Path, threads: int,
+def rdna_neighborhood(fasta, chroms: dict, arrays: pd.DataFrame, fams: list, workdir: Path, threads: int,
                        flank: int = 15_000, n_arrays: int = 10, cm=RRNA_CM, evalue: float = RDNA_FLANK_EVALUE) -> dict:
     """45S rDNA intergenic-spacer subrepeats form satellite-like arrays whose consensus holds no rRNA gene, so
     rdna_tags misses them (P. infirma chr1A NOR: Poa_sat18_125 was called centromeric). Search the flanks
@@ -311,7 +313,7 @@ def frame_rotation(seq: str, refs: dict, workdir: Path, threads: int, ident: flo
         best = None
         for k in cand:
             for pid, qs, qe, ss, se in pairs.get(("q", k), []):
-                if pid >= 100 * ident and qe - qs + 1 >= 0.8 * len(seq) and (best is None or pid > best[0]):
+                if pid >= 100 * ident and qe - qs + 1 >= UNIT_COVER * len(seq) and (best is None or pid > best[0]):
                     best = (pid, qs, ss, se, len(cand[k]))
         if best:
             _, qs, ss, se, L = best
@@ -362,7 +364,7 @@ def chain_groups(cons: dict, order: list, workdir: Path, threads: int, ident: fl
             la, lb = len(cons[a]), len(cons[b])
             if a == b or abs(la / lb - 1) > RELATED_LEN_TOL:
                 continue
-            if any(h[0] >= 100 * ident and h[2] - h[1] + 1 >= 0.8 * min(la, lb) for h in hs):
+            if any(h[0] >= 100 * ident and h[2] - h[1] + 1 >= UNIT_COVER * min(la, lb) for h in hs):
                 ra, rb = find(a), find(b)
                 if ra != rb:
                     parent[max(ra, rb, key=order.index)] = min(ra, rb, key=order.index)

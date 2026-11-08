@@ -284,8 +284,9 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     not overlapping it (weak_satellite_beside_core: S. verrucosum chr01, Ae. geniculata chr07U, potato chr11 had the core
     on CENH3 and the weak array 0.8-5 Mb away). A call (satellite, weak satellite or long-unit) the core replaces is
     kept in overruled_start/overruled_end/overruled_family (te_call), never in alt_*; a kept call (te_concordant,
-    te_discordant) and a chromosome without a call record nothing. Decisive evidence (CRM) sets confidence;
-    other clades only flag. Without satellite calls the long-unit scan covers the core and its flanks instead of the
+    te_discordant) and a chromosome without a call record nothing. Decisive evidence sets confidence (CRM from
+    three significant cores; since 0.12 another lineage at TE_SPECIFIC_FOLD or more, unless a dominant satellite passes the
+    one-per-chromosome test: signature.py); other evidence only flags. Without satellite calls the long-unit scan covers the core and its flanks instead of the
     whole chromosome. per_chrom: {chrom: the families classify chose there (its `defines`)}; the call is the cluster
     holding them (satellite_call), so a family chosen on a few chromosomes cannot take the call elsewhere where its
     cluster is merely larger (T2T siamang: an 80-bp satellite chosen on 2 chromosomes took 11 calls from alpha; CHM13

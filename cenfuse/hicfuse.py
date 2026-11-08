@@ -40,13 +40,12 @@ import pandas as pd
 
 from .hic import cli as hic_cli
 from .hic import params as hp
-from .hic.balance import balanced, ice
-from .hic.confidence import level, poisson_resample
+from .hic.confidence import bootstrap, leave_one_out, level
 from .hic.io import InputError
 from .hic.locate import peak_core
 from .hic.qc import call_flags
-from .hic.score import block_means, cluster_score, partner_oe, window_bins
-from .params import ANCHOR_LEVELS, GATE_MIN_REF, GATE_P, HIC_FAR_BINS, HIC_TOL_BINS, NOT_STRONG_FLAGS, \
+from .hic.score import cluster_score, partner_oe, window_bins
+from .params import ANCHOR_LEVELS, FC_LEVEL, GATE_MIN_REF, GATE_P, HIC_FAR_BINS, HIC_TOL_BINS, NOT_STRONG_FLAGS, \
     STRONG_HIC_LEVEL
 from .util import CenfuseError, gap, log, poisson_binomial_sf
 
@@ -59,72 +58,46 @@ HIC_COLS = ["chrom", "callable", "bin_size", "seq_start", "seq_end", "seq_confid
             "denovo_flags", "denovo_agrees_seq", "denovo_agrees_anch"]
 
 
-def run_denovo(pairs, fai, prefix, satellites, threads: int) -> dict:
-    """The Hi-C engine's `call`, as its own command runs it; returns its rows and in-memory state."""
+def run_denovo(pairs, fai, prefix, satellites, threads: int, seq: dict | None = None) -> dict:
+    """The Hi-C engine's `call`, as its own command runs it; returns its rows and in-memory state. seq: the sequence calls,
+    whose partner windows (anchored) the engine's bootstrap scores on its own resamples (state['boot_extra'])."""
     files = hic_cli.pair_files(pairs)              # several = replicate libraries of one plant, merged (0.10.1)
+    extra = None if seq is None else (lambda bins, members, good: {"anchored": _partners(bins, members, good, seq)[1]})
     args = Namespace(pairs=str(files[0]) if len(files) == 1 else [str(f) for f in files], fai=str(fai), o=str(prefix),
                      repeats=None,
                      satellites=[str(s) for s in satellites] or None, t=max(1, threads), verbose=False,
-                     chromosome_set=False)          # the .fai is cenfuse's chromosome set already
+                     chromosome_set=False,          # the .fai is cenfuse's chromosome set already
+                     extra_windows=extra)
     try:
         return hic_cli.run_call(args)
     except InputError as e:
         raise CenfuseError(f"Hi-C {pairs}: {e}") from None
 
 
-def _score_windows(M, bins, members, win: dict):
-    """The Hi-C engine's _score_fixed with explicit partner windows (each resample re-balanced; bins it masks drop
-    out of the windows)."""
-    bias, good, _, _ = ice(M)
-    W = balanced(M, bias, good)
-    mean = block_means(W, bins, good, members)
-    return cluster_score(partner_oe(W, bins, good, mean, {y: w[good[w]] for y, w in win.items()}), bins, good, members)
-
-
 def bootstrap_all(M, bins, members, win: dict, threads: int, n: int = hp.N_BOOT, seed: int = hp.SEED) -> dict:
-    """The Hi-C engine's bootstrap (Poisson resamples, re-balanced, partner windows fixed), but the peak of every
-    callable chromosome, not only of those holding a window."""
-    ks = [int(k) for k in np.where(members)[0]]
+    """The Hi-C engine's bootstrap (Poisson resamples, re-balanced, partner windows fixed: hic.confidence.bootstrap) with
+    explicit partner windows (bins a resample masks drop out of them), and the peak of every callable chromosome, not only of
+    those holding a window. A run computes it inside the engine's own bootstrap, on the same resamples (run_denovo: seq)."""
+    return bootstrap(M, bins, members, {}, n=n, seed=seed, threads=threads, extra={"w": win})[1]["w"]
 
-    def one(ss):
-        S = _score_windows(poisson_resample(M, np.random.default_rng(ss)), bins, members, win)
-        return {k: int(np.nanargmax(S[bins.sl(k)])) if np.isfinite(S[bins.sl(k)]).any() else -1 for k in ks}
 
-    with ThreadPoolExecutor(max(threads, 1)) as ex:
-        reps = list(ex.map(one, np.random.SeedSequence(seed).spawn(n)))
-    return {k: np.array([r[k] for r in reps]) for k in ks}
+def _same_windows(a, b) -> bool:
+    return a is not None and set(a) == set(b) and all(np.array_equal(a[k], b[k]) for k in a)
 
 
 def lopo_all(oe, bins, good, members) -> dict:
-    """Peak of every callable chromosome with each partner window left out in turn (the Hi-C engine's leave_one_out).
-    The same arithmetic as cluster_score(exclude={x: {y}}) restricted to x's own bins: scoring every chromosome for
-    every (x, y) pair is cubic in the partners, and a 25-partner genome took an hour."""
-    out = {}
-    for x in (int(k) for k in np.where(members)[0]):
-        sl = bins.sl(x)
-        g = good[sl]
-        ys = [y for y in oe if y != x]
-        peaks = []
-        for y in ys:
-            rest = [z for z in ys if z != y]
-            if not rest:
-                peaks.append(-1)
-                continue
-            A = np.vstack([oe[z][sl] for z in rest])
-            ok = ~np.isnan(A)
-            n = ok.sum(axis=0)
-            v = np.full(A.shape[1], np.nan)
-            np.divide(np.where(ok, A, 0.0).sum(axis=0), n, out=v, where=n > 0)
-            v[~g] = np.nan
-            peaks.append(int(np.nanargmax(v)) if np.isfinite(v).any() else -1)
-        out[x] = np.array(peaks, dtype=int)
-    return out
+    """Peak of every callable chromosome with each partner window left out in turn (the Hi-C engine's leave_one_out, for every
+    member chromosome)."""
+    return leave_one_out(oe, bins, good, members, {int(k): None for k in np.where(members)[0]})
 
 
-def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NULL, seed: int = hp.SEED) -> dict:
+def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NULL, seed: int = hp.SEED,
+             threads: int = 1) -> dict:
     """The Hi-C engine's position-aware null, for every chromosome with a peak: partner windows moved to random bins at least
     NULL_EXCL from that partner's anchor and its ends; P = (1 + replicates reaching the observed peak ratio within
-    NULL_REACH bins of the peak) / (1 + n). NaN when untestable."""
+    NULL_REACH bins of the peak) / (1 + n). NaN when untestable. Every replicate's positions are drawn first, in the order
+    of one serial loop, and the replicates are then scored on the thread pool (future.md #62): the P values do not depend
+    on the thread count."""
     rng = np.random.default_rng(seed)
     elig = {}
     for y, c in est.items():
@@ -134,20 +107,27 @@ def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NUL
             elig[y] = loc
     if len(elig) < 2:
         return {x: float("nan") for x in peaks}
-    hits, seen = dict.fromkeys(peaks, 0), dict.fromkeys(peaks, 0)
-    for _ in range(n):
-        cent = {y: int(rng.choice(loc)) for y, loc in elig.items()}
+    cents = [{y: int(rng.choice(loc)) for y, loc in elig.items()} for _ in range(n)]
+
+    def one(cent) -> dict:
+        """{x: whether the replicate reaches x's peak ratio (None: no finite score on x)}."""
         S = cluster_score(partner_oe(W, bins, good, mean, window_bins(bins, good, cent)), bins, good, members)
+        out = {}
         for x in peaks:
             v = S[bins.sl(x)]
             if not np.isfinite(v).any():
+                out[x] = None
                 continue
-            seen[x] += 1
             med = np.nanmedian(v)
             lo, hi = max(peaks[x] - hp.NULL_REACH, 0), min(peaks[x] + hp.NULL_REACH + 1, len(v))
             win = v[lo:hi]
-            if med > 0 and np.isfinite(win).any() and np.nanmax(win) / med >= ratios[x]:
-                hits[x] += 1
+            out[x] = bool(med > 0 and np.isfinite(win).any() and np.nanmax(win) / med >= ratios[x])
+        return out
+
+    with ThreadPoolExecutor(max(threads, 1)) as ex:
+        reps = list(ex.map(one, cents))
+    hits = {x: sum(r[x] is True for r in reps) for x in peaks}
+    seen = {x: sum(r[x] is not None for r in reps) for x in peaks}
     return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else float("nan") for x in peaks}
 
 
@@ -328,7 +308,7 @@ def end_test(t: pd.DataFrame, S, bins) -> pd.DataFrame:
     """Which end? (future.md #15) A call in the terminal eighth of a chromosome (Levan's telocentric bound, fold.CI_MIN) sits where a
     peak cannot count: chromosome ends cluster in 3D whatever the centromere, so such a peak is flagged telomeric. But the two ends of a
     chromosome can be told apart: the anchored score, made from the other chromosomes' calls only, is about twice as high at the end
-    holding the call in goat (28 of 30), sheep (22/23), horse (18/19) and mouse (20/20). Per chromosome x: on the OTHER chromosomes
+    holding the call in goat (28 of 30), sheep (22/23), horse (18/19) and mouse (19/19). Per chromosome x: on the OTHER chromosomes
     with such a call, is the call's end the higher one, on most of them, beyond the 1/2 of chance (binomial, P <= GATE_P)?
     Chicken does not pass (12 of 19)."""
     t = t.copy()
@@ -379,10 +359,12 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
         pc = peak_core(S, bins, k)
         if pc is not None and np.isfinite(pc["ratio"]):
             pcs[k] = pc
-    boot = bootstrap_all(M, bins, members, win, threads) if pcs else {}
+    pre = state.get("boot_extra", {}).get("anchored")          # computed by the engine on its resamples (run_denovo: seq)
+    same = pre is not None and _same_windows(state.get("extra_windows", {}).get("anchored"), win)
+    boot = (pre if same else bootstrap_all(M, bins, members, win, threads)) if pcs else {}
     lopo = lopo_all(oe, bins, good, members) if pcs else {}
     pnull = null_all(W, bins, good, mean, members, est, {k: v["peak"] for k, v in pcs.items()},
-                     {k: v["ratio"] for k, v in pcs.items()}) if pcs else {}
+                     {k: v["ratio"] for k, v in pcs.items()}, threads=threads) if pcs else {}
     rows = []
     for k, name in enumerate(bins.names):
         s, e, conf = seq.get(name, (-1, -1, "none"))
@@ -529,9 +511,9 @@ def cis_chance(W, bins, good, bias, k: int, lo: int, hi: int, half: int = hp.HAL
     return {x: (1 + c) / (1 + n) for x, c in hits.items()}
 
 
-def cis_line(state: dict, cores: dict) -> dict:
+def cis_line(state: dict, cores: dict, threads: int = 1) -> dict:
     """A cis readout of the centromere, tested against the LTR cores (future.md #12). The contact crossing a bin (cis_profile) has
-    its extreme at the centromere in many genomes, but which extreme differs: a peak in tomato, rice, Brachypodium and soybean, a dip in
+    its extreme at the centromere in many genomes, but which extreme differs: a peak in tomato, rice and Brachypodium, a dip in
     potato. So the LTR line chooses the sign: for chromosome x, the sign whose extreme lies at the cores of the OTHER chromosomes most
     significantly. Genome-wide, the better sign's agreement with the cores (the zone of _core_zone) must beat chance, Bonferroni
     over the two signs; the chance per chromosome is the larger of the zone's share and cis_chance. Returns dict(k, n, p, sign,
@@ -540,7 +522,7 @@ def cis_line(state: dict, cores: dict) -> dict:
     W, bins, good, members, bias = (state[k] for k in ("W", "bins", "good", "members", "bias"))
     W = W.tocsr()
     idx = {n: i for i, n in enumerate(bins.names)}
-    best, chance = {}, {}
+    todo = []
     for c, iv in cores.items():
         k = idx.get(c)
         if k is None or not members[k]:
@@ -550,8 +532,11 @@ def cis_line(state: dict, cores: dict) -> dict:
             continue
         lo, hi = _core_zone(bins, k, *iv)
         ok = np.isfinite(v)
-        share = float(ok[lo:hi + 1].sum() / ok.sum())
-        sim = cis_chance(W, bins, good, bias, k, lo, hi)
+        todo.append((c, k, v, lo, hi, float(ok[lo:hi + 1].sum() / ok.sum())))
+    with ThreadPoolExecutor(max(threads, 1)) as ex:      # each chromosome draws from its own stream: any order gives the same
+        sims = list(ex.map(lambda x: cis_chance(W, bins, good, bias, x[1], x[3], x[4]), todo))
+    best, chance = {}, {}
+    for (c, k, v, lo, hi, share), sim in zip(todo, sims):
         chance[c] = {x: max(share, sim[x]) for x in sim}
         best[c] = {+1: int(np.nanargmax(v)), -1: int(np.nanargmin(v))}
         best[c] = {g: (j, lo <= j <= hi) for g, j in best[c].items()}
@@ -594,7 +579,7 @@ def cis_trans_line(state: dict) -> dict:
     each chromosome's anchor is the extreme of its cis profile (cis_profile) outside its terminal eighths (interior), and the
     anchored test (anchored_on_cores) asks whether each chromosome's trans peak, made from the other chromosomes' anchors only,
     lies at its own anchor; the zone's share is the chance, Bonferroni over the two signs. Tomato without tes/: the peak at its
-    anchor on 10 of 12 chromosomes, P 6e-14, all 10 on CENH3; C. neoformans in G1, 12 of 14. The terminal eighths are out because
+    anchor on 10 of 12 chromosomes, P 1.2e-13 for the two signs, all 10 on CENH3; C. neoformans in G1, 12 of 14. The terminal eighths are out because
     there both readouts see the chromosome ends, which fold and cluster whatever the centromere (Ae. tauschii and potato: every
     agreement of an unrestricted profile lay in a terminal eighth, none on CENH3).
     The two readouts share the library's coverage, so agreement on a minority of chromosomes can come from coverage alone
@@ -734,22 +719,22 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
     arrays (rdna.detect), flagged rDNA. te_cores: {chrom: (start, end)} of the LTR line: where the gate fails on most chromosomes,
     the anchored test runs again on them (anchored_on_cores) and the cis signal is tested against them (cis_line); without
     LTR cores the cis signal is tested by the trans contacts (cis_trans_line)."""
-    res = run_denovo(pairs, fai, prefix, satellites, threads)
+    res = run_denovo(pairs, fai, prefix, satellites, threads, seq=seq)
     st = res["state"]
     st["rdna"] = add_nors(st["rdna"], nors)
     t, extra = anchored(st, seq, threads)
     te_anchored, cis = None, None
     if te_cores and 2 * int(t.gate_pass.sum()) <= len(t):
         te_anchored = anchored_on_cores(st, te_cores)
-        cis = cis_line(st, te_cores)
+        cis = cis_line(st, te_cores, threads)
     elif 2 * int(t.gate_pass.sum()) <= len(t):          # no LTR cores: the cis signal is tested by the trans contacts instead
         cis = cis_trans_line(st)
     t = nor_peaks(t, nors)
     t = add_denovo(t, res["rows"], st["bins"])
     fc = feature_contacts(st, classes) if classes else pd.DataFrame(columns=FC_COLS)
     if len(fc):
-        sig = fc[fc.p_enriched <= GATE_P]
-        log.info(f"Hi-C feature classes: {len(fc)} tested; self-associated (P <= {GATE_P}): "
+        sig = fc[fc.p_enriched <= FC_LEVEL]
+        log.info(f"Hi-C feature classes: {len(fc)} tested; self-associated (P <= {FC_LEVEL}): "
                  f"{', '.join(f'{r.feature_class} {r.fold:.2f}x' for r in sig.itertuples()) or 'none'}")
     n_pass = int(t.gate_pass.sum())
     log.info(f"Hi-C {'+'.join(Path(f).name for f in hic_cli.pair_files(pairs))}: bin {st['size']} bp; anchored "

@@ -6,6 +6,7 @@ HIC_FAR_BINS = 4          # ... and points to another locus only beyond the Hi-C
                           # resolution the method claims): in between, Hi-C neither supports nor opposes the call
 GATE_P = 0.01             # Hi-C gate: Poisson-binomial tail of agreements with the other chromosomes' sequence calls
                           # (conventional level; Hi-C engine P_HIGH; the benchmark's pre-registered C2 rule)
+FC_LEVEL = 0.01           # feature classes in 3D: a class self-associates at P <= this (conventional level, as GATE_P)
 GATE_MIN_REF = 3          # fewer reference chromosomes give no majority test (a call has < 2 partners, Hi-C engine)
 AXIS_LEAN_P = 0.05        # the trans arm alignment stands in for a failed arm fold only where the fold's own test leans
                           # the same way at the conventional evidence level (Hi-C engine P_NONE): a Rabl axis shows in
@@ -19,7 +20,7 @@ NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NOR
                           # 8-bin end window): chromosome-end clusters are the main non-centromeric trans attractor
                           # (Hi-C engine benchmarks: rice 12/12 and giraffe 15/15 prior-free peaks at ends; 33 mammal misses).
                           # They may support a call, never oppose or move one. Added 2026-10-16 after the rice run
-                          # (docs/design.md, 'Decisions and alternatives tried')
+                          # (docs/design.md, 'Choices tested and rejected')
 HIC_MAX_THREADS = 8       # Hi-C bootstrap threads: each holds ~3 copies of the contact matrix (memory, not speed)
 METH_SCORE = 0.5          # centromere_like = signature score >= 0.5 (methylation engine SIG_FRACTION: nearer the anchors than
                           # the background)

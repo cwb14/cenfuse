@@ -19,7 +19,8 @@ rejected. Benchmark numbers quoted here are from [benchmark.md](benchmark.md).
    heuristic). Nothing is tuned to a benchmark, and there are no threshold options.
 
 Not goals: centromeres from methylation alone (false dips are as deep as true ones); Hi-C choosing between satellite
-families. The LTR line is developed and benchmarked with LTRquest annotations only; the readers for DANTE_LTR and
+families genome-wide (Hi-C may only choose between the sequence line's own candidates on one chromosome, its call and its
+competing cluster: `hic_chose_alt`). The LTR line is developed and benchmarked with LTRquest annotations only; the readers for DANTE_LTR and
 EDTA + TEsorter files stay as they are, with their tests, but get no further work.
 
 ## Stages
@@ -30,8 +31,8 @@ meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> re
 ```
 
 The chromosome set is chosen once per genome ([outputs.md](outputs.md#which-sequences-are-analyzed)) and every line
-reads the same set. Each stage is checkpointed on its inputs and code, so a rerun resumes. `genotype`, `karyotype`
-and `plants` handle inputs from several plants ([plants.md](plants.md)).
+reads the same set. Each stage is checkpointed on its inputs and code, so a rerun resumes (Engineering notes, Checkpoints).
+`genotype`, `karyotype` and `plants` handle inputs from several plants ([plants.md](plants.md)).
 
 ## Satellites (`cenfuse.sat`)
 
@@ -118,8 +119,10 @@ the lineage rules below apply to its lineages alone.
   one-per-chromosome test counts as `low` here). A `high` or `medium` call, or a non-weak call beside the core, it replaces only
   when the core is at least 10-fold enriched on its chromosome and the signature's elements sit significantly more in the core
   than in the call (binomial at 1/2, P ≤ 0.01); otherwise the call stays, one level lower (`te_discordant`). The
-  replaced array is reported in `seq_overruled_*`. Reasons: in a broad CRM plateau the densest window is noise (*B.
-  rapa* A09 and soybean chr1/chr6 had CENH3 on the satellite, 16-26 vs 14-32 elements), a satellite beside a
+  replaced array is reported in `seq_overruled_*`. Reasons: in a broad CRM plateau the densest window is noise (when the
+  test was made, *B. rapa* A09 and soybean chr1/chr6 had CENH3 on the satellite: calls of 14-26 elements against cores of
+  16-32; in 0.13 neither case arises any more: A09 is `high` and `te_concordant`, soybean chr1/chr6 carry no LTR flag, and
+  the test acts on no benchmark call: [future.md #10](future.md#10-the-ltr-retrotransposon-line)), a satellite beside a
   core that holds hundreds of elements is pericentromeric (*Ae. tauschii*), and a core only 3-4-fold enriched says little
   (*Oryza minuta*: such cores took 9 CentO calls, and the homoeologous pairs agreeing fell from 12 of 12 to 8).
 - **Weak cores.** A core of a lineage other than CRM must hold most of the signature's elements on its chromosome to act
@@ -190,9 +193,11 @@ is why Hi-C is tested before it may act.
    them (a peak at an array's edge supports a call inside it); it opposes only beyond 4 mappable bins.
 6. **The test (gate).** For chromosome x, the references are the other chromosomes' `high` calls (with `medium` if
    fewer than 4 are `high`). x passes when the references' own peaks agree with their calls on most of them, beyond
-   chance (Poisson-binomial P ≤ 0.01). Fewer than 3 references: `untested`. Where no call is `high` or `medium`
+   chance (Poisson-binomial P ≤ 0.01), and on most of the whole reference set too: with few references, leaving out one
+   that disagrees can turn 2 of 4 into 2 of 3 (randomized sheep Hi-C passed twice that way; on real Hi-C the rule changed no
+   gate in 14 mammals). Fewer than 3 references: `untested`. Where no call is `high` or `medium`
    anywhere, the `low` calls are the references, and only agreements at clean peaks count; where confident calls exist but
-   are fewer than 4, the `low` calls join them on the same terms (0.13, `gate_refs` `mixed`).
+   are fewer than 4, the `low` calls join them on the same terms (0.13, `hic_gate_refs` `mixed`).
 7. **Support tier.** Where agreements are beyond chance (P ≤ 0.01, at least 3) but not on most chromosomes, Hi-C
    carries centromere information, yet its peak is often elsewhere. It may then only support: a call whose own
    significant peak agrees goes up one level (`hic_support`); it never opposes, moves or places a call, but a strong
@@ -332,6 +337,17 @@ locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 | a Hi-C call on a chromosome without a sequence call, a tested trough agreeing | takes the trough's interval, one level up (`at_pair`) |
 | no call from any line, the trough and a clean prior-free Hi-C peak (placing no call of its own) agreeing, in a genome where the two agree beyond chance (0.13) | the trough, `low` (`at_denovo_pair`) |
 
+The order of the table is the order of the rules in `fuse.py`, which since 0.14 is declared, not implied: `CASCADE` lists the rules
+of which the first that applies sets the call (`_axis_pair`, `_hic_strong_peak`, `_hic_medium_peak`, `_hic_denovo_only`, `_no_call`,
+`_hic_agrees_ambiguous`, `_hic_agrees`, `_hic_support`, `_hic_end`, `_hic_moved`, `_hic_offset`, `_kept`); `PHASES` then act on that
+call in turn (`_te_hic_pair`, `_cis`, `_at_places`: the LTR-core and cis readings override a plain sequence call, the AT trough
+places only what nothing else did); `_refine` takes an agreeing trough's finer interval and lets the Rabl-axis lines contest a kept
+call; `_support`, `_against` and `_confidence` read the result. Every rule is a function of the chromosome's context (computed once)
+and the call so far; a new rule is a new function in its place in the order. Each call names the rule that set its place or
+relation in the `rule` column ([outputs.md](outputs.md#asmcentromerestsv)). The split was checked against the single function it
+replaced on 200,000 random evidence combinations (every rule and flag reached; tests/fuse/test_fuse_equivalence.py) and on the
+benchmark's 260 runs (byte-identical outputs).
+
 CpG kinetochores are added after the integration and change nothing. Per genome, `hic_sequence_conflict` says when
 Hi-C's prior-free peaks are confident but disagree with the sequence calls while the gate fails: one line is wrong
 genome-wide, which only the Rabl axis, `tes/` or methylation can settle.
@@ -401,12 +417,12 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | genomes without sequence calls | Hi-C's clean prior-free peaks as `low` calls, `medium` with a Rabl-axis line | a Rabl polarity test: passed on randomized Hi-C too |
 | a cis profile of the centromere | observed / expected contact across each bin, its sign and its level tested against the LTR cores, chance from simulated maps | the plain mean contact with the zone's share as chance: randomized Hi-C passed (sorghum 5/10, P 3.5e-06), since beside a masked bin the box holds another mix of distances and noise is largest at low coverage. The same profile tested against one locus per chromosome, with no LTR cores: too little power (tomato passes, potato and *Verticillium* miss) and chicken's dips pass while 2/26 lie on CENP-A. Tested against Hi-C's prior-free peaks: no agreement in tomato, potato or rice, and *Ae. tauschii* agrees on 6 of 7 with 0 of 7 right |
 | Hi-C partner windows on LTR cores | fixed at the cores | moved to the best score within reach: more real hits (potato 3 to 6 of 12), but randomized Hi-C passed too |
-| an end-distance expected for trans contacts | not used | informative in single genomes only |
+| an end-distance expected for trans contacts | not used | moss 23 → 25 of 26, but sheep 9 → 5, chicken 7 → 6, goat 12 → 11 (v10.1) |
 | Hi-C depth fragility | reported as depth guidance | a split-half check: unstable halves did not predict each other, and Hi-C time doubles |
 | `.hic` files | stop with the `hictk convert` recipe | reading `.hic` natively: a new dependency for what one command does |
 | a CRM core vs a confident distant or adjacent satellite call | replace only if CRM marks the core significantly more | always replace: wrong on *B. rapa* A09 and soybean chr1/chr6. A bootstrap of the core position: lost *P. annua* Pa1A |
 | TE core floor | 3 independent insertion sites | 5 elements: missed *Chlorella*'s 2-7-insertion centromeres |
-| LTR elements without a lineage (fungi) | not used | pooling them found *Cryptococcus* centromeres (10/14, `low`) but lifted the honesty cap in fish and *Oryza* genomes |
+| LTR elements without a lineage (fungi) | not used | pooling them, three forms (v6): the first lifted the honesty cap in fish and *Oryza* genomes; the guarded form placed *Cryptococcus* JEC21 10/14 and a hybrid's D subgenome 10/13, all `low`, none wrong, and never lifted the cap, but still qualified in 9 fish genomes without truth and in *A. suecica*, and its 20-kb bin floor cost *O. punctata* a CRM call ([future.md #47](future.md#47-centromeric-retroelements-the-ltr-line-cannot-read)) |
 | several qualifying TE lineages | the most concentrated | chromosomes with a core first: agreed less with independent satellite calls |
 | CpG dip inside a call | most prominent valley, half-depth run | deepest bin: lands on array edges. Longest run below half the median: on the CDR 52/90 (valley 88/90) |
 | CpG null | positional (rotation) test for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla |
@@ -428,6 +444,8 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 
 ## Known risks
 
+- The LTR line's `medium` calls outside CRM genomes. In 13 held-out tomatoes, whose centromeres a Tekay signature marks, 15 of the 69 confident calls with `tes/` are wrong
+  (22%; benchmark.md, held-out tomatoes), and a call that merely agrees with the core is the least reliable kind (6 wrong of 17). Treat such calls as a location to check.
 - The Hi-C test takes the sequence calls as references. Where those are wrong genome-wide, only the Rabl axis,
   `tes/` or methylation can rescue Hi-C (potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of
   them; anchored at the calls, none).
@@ -442,10 +460,20 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   flanks CENH3 by 0.46-1.38 Mb on all 5 chromosomes; it only flags because CEN180 passes the one-per-chromosome test. In a genome whose
   satellite fails that test, such a lineage would decide and place calls beside the centromere. In 6 of 27 polyploids above 10-fold
   the cores and the FASTA-only calls mostly disagree (no truth).
+- A call can agree with an LTR core it only touches: where the core is much wider than the centromere, a call at one edge is
+  `te_concordant` while CENH3 sits at the other, and the agreement lifts the caps that would keep it `low`. 5 of the 7 confident
+  errors of the `tes/` arms are such calls, and so is one of the two held-out genomes' errors (*Ae. geniculata* chr05U, in a 9.3-Mb
+  core). Agreement at the core's maximum was measured as a remedy and lowers right calls too
+  ([future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)).
+- A thin core of a decisive signature takes a chromosome whose satellite failed its test (`weak_core`). On the held-out
+  *S. verrucosum* that replaced 2 right satellite calls (cores of 2 and 4 elements; both stay `low`), and a decisive core that
+  replaced a weak array beside it was confidently wrong (chr06); the development genomes had shown neither
+  ([future.md #36](future.md#36-no-held-out-test-of-the-013-rules)).
 - The LTR signature marks where centromeric families accumulated. A centromere that has moved away from its satellite and those families
-  is outvoted: the two sequence lines agree on the old site and Hi-C can only contest it (*P. annua* Pa1A: earlier analyses put its
-  centromere at the Hi-C peak, 21 Mb from the satellite; 0.12 keeps the satellite site at `medium`, `contested`;
-  [future.md #31](future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).
+  is outvoted: the two sequence lines agree on the old site and Hi-C can only contest it, unless a second line at the Hi-C peak
+  lets Hi-C move the call (*P. annua* Pa1A: earlier analyses put its centromere at the Hi-C peak, 21 Mb from the satellite; 0.12
+  kept the satellite site at `medium`, `contested`; since 0.13 insertion age is that second line and moves it 20.7 Mb to the
+  Hi-C site, `high`, without CENH3 truth: [future.md #31](future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).
 - Without LTR cores the cis line is tested by the trans contacts of the same library: coverage they share can make them agree on a
   minority of chromosomes (randomized soybean: support), so it acts only at `pass`; a structure that both folds and clusters away
   from the centromere on most chromosomes would pass (none seen outside the terminal eighths). It cannot see the terminal eighths,
@@ -491,10 +519,65 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 - **FasTAN crashes** are recovered by splitting the piece ([outputs.md](outputs.md#running)).
 - **Resume guard.** The satellite checkpoints stand on the chromosome set, which is recorded before the engine runs; a
   changed set stops the run instead of reusing seeds made on other sequences.
+- **Checkpoints (0.14).** One rule for what a checkpoint stands on: the code, the parameters and the content of the inputs.
+  cenfuse's stages key their checkpoints on the syntax trees of the modules they run and of everything those import inside
+  cenfuse, of their own `Run.stage_*` method, and of the package data they read (the Rfam model of the 5S scan), with comments
+  and docstrings stripped (editing one recomputes nothing, a changed import is seen); on cenfuse's version; on the whole
+  FASTA's md5 for every stage that reads the sequence (a same-length edit such as hard-masking keeps the `.fai`); and on
+  content fingerprints of their other inputs (whole files up to 32 MiB, else the size and four 1-MiB samples; no names or
+  time stamps, so a moved or copied folder resumes). The helpers that keep a run (fingerprints, atomic writes, locks, the run's
+  cost, worker pools) live in `runtime.py`, and the manifest in `manifest.py`: both are kept out of every key (`pipeline.KEYLESS`),
+  although every engine imports them, since they change no result. The satellite engine keys each stage on its results version,
+  the parameters of it and the earlier stages, the FASTA's md5 (a stamp made before 0.14 lacks it: it is trusted only while the
+  FASTA is older than it, then rewritten with the full key),
+  and from classify on the content of `genes/` and `tes/`: adding `tes/` to a finished run, the commonest reason a run resumed
+  on stale satellite calls, now recomputes classify onward with a warning. A stale search stage still stops the run (it may
+  cost hours). Every output and checkpoint is written to a temporary file beside its target and moved over it, and a stage
+  that recomputes first unlinks the files of its folder that have other hard links (its tools, BLAST or FasTAN, write in place):
+  so a reader or a resume never sees a half-written file, and a folder copied with hard links (`cp -al`, `rsync --link-dest`) and
+  recomputed leaves the original as it was (found by the 0.14 verification replay, whose held-out arms were such copies). An
+  unreadable checkpoint is recomputed with a warning. `--force STAGE` recomputes that stage, `--force all` every stage; a
+  stage that reads another's result has it in its key, so it follows. Tested: tests/fuse/test_checkpoints.py.
+- **Locks (0.14).** A run locks its output folder (`.cenfuse.lock`, created exclusively, holding host, pid, start time and
+  command, and touched every minute while the run holds it): a second run on the folder stops. A stale lock is taken over
+  with a warning: on this host when its pid is gone or now belongs to another process (its kernel start time differs from the one
+  the lock records: a reused pid); from
+  another host, or when the lock cannot be read (a run killed between creating and writing it), after 15 minutes without a
+  touch (a heuristic: 15 missed heartbeats). The takeover runs under a second, exclusively created guard file, so of two runs
+  that find one stale lock only one replaces it and neither removes the other's live lock. SIGTERM (a scheduler's kill) ends
+  a run as an exception, so the lock is released and the manifest says it failed. The shared seed cache uses the same rules
+  per genome, so a lock left by a job killed on another node no longer makes later runs wait forever.
+- **The run manifest (0.14).** `run_info.json` records cenfuse's version and git commit, the command, host, threads and times,
+  Python and package versions, every external tool's path, version line and conda package (FasTAN and TRF print no
+  version), the inputs' fingerprints, and how the run ended. cenfuse and its engines share one version, so the headers of
+  the satellite, Hi-C and methylation outputs name it (the Hi-C contact-matrix cache keeps its own format version).
+  `--satellite-dir` warns when the imported outputs' manifest names another version. A failed report section or figure is
+  recorded (summary column `incomplete`, a placeholder in the report, a final warning) instead of one log line. The manifest
+  also records what the run cost (`cost`: wall time, the CPU hours of cenfuse and of every process it started, and the peak
+  memory of the whole process tree, sampled every 30 s as the sum of proportional set sizes: GNU time's maximum counts only the
+  largest single process, not the seed pool's workers or the tools). `cost.memory` says what was measured: a kernel older than
+  Linux 4.14 gives only resident sizes, which count shared pages in every worker (an overestimate).
+- **Worker processes (0.14).** Under fork a worker inherits the log handlers and writes its own lines, as before. Under spawn
+  (macOS) or forkserver (Python 3.14's default on Linux) it has none, and FasTAN's crash lines were lost: there the process
+  pools (seeds, methylation bins, genotypes) send their workers' records over a queue to the main process, which writes them,
+  and the queue's listener is stopped within 10 s whatever a worker did (one killed while it held the queue's lock would
+  otherwise hang the run: found by the 0.14 code review). A write's temporary file left by a killed run is removed by the next
+  write of that file.
+- **Hi-C speed (0.14).** Profiled on the slowest arm (siamang, randomized Hi-C, 999 s of Hi-C), 95% of the stage was two Poisson
+  bootstraps of 100 replicates: the engine's, on its own partner windows, and cenfuse's, on the windows of the sequence calls.
+  They drew the same resamples (one seed, one matrix), and a resample, its balancing and its block means are about 97% of a
+  replicate's cost; the windows differ only in the last, cheap step. So the engine's bootstrap scores cenfuse's windows too, on
+  the same resamples (`hic.confidence.bootstrap`, `extra`; cenfuse passes its windows to the engine's call), and each resample
+  is written straight into the matrix's symmetric layout (`_Resampler`: the same draws, the same arrays, without a sparse
+  transpose and two sums per replicate). The null replicates (their random partner positions drawn first, in the former serial
+  order) and the cis simulations (one random stream per chromosome) run on the thread pool too, though they cost little.
+  Every number is the same, at any thread count.
 
 ## Tests
 
-`pytest -q -n 8`: 1,004 tests on small synthetic fixtures (about 8 min). They cover every rule above with unit tests; a
+`pytest -q -n 8`: about 1,150 tests on small synthetic fixtures (5 min at 6 workers on a shared server).
+`CENFUSE_REQUIRE_TOOLS=1` turns every skip for a missing external tool into a failure (tests/conftest.py), for CI and
+releases. They cover every rule above with unit tests; a
 synthetic genome with planted cases (a Hi-C move with a CRM core, the same without a second line, a hub decoy, a
 satellite-free chromosome, randomized Hi-C, three plants); a full satellite-engine run on its synthetic genome, with and without
 `tes/`; the LTR signature (seed, leave-one-out recruitment, shuffled positions); the one-per-chromosome test; GC troughs planted one

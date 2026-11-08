@@ -236,6 +236,8 @@ def test_oppositions():
     r = row(flags="hic_disagrees_weak", hic_anch_peak_start=80_000_001, hic_anch_peak_end=80_250_000)
     assert "not strong enough to oppose" in it.caveat(r, ctx())
     assert it.caveat(row(flags="hic_near"), ctx()) == "."
+    c = it.caveat(row(flags="hic_near", confidence="low", hic_anch_peak_start=80_000_001, hic_anch_peak_end=80_250_000), ctx())
+    assert "validated Hi-C's peak (80.00-80.25 Mb) lies beside the call" in c          # why Hi-C did not raise a low call
 
 
 def test_gaps_and_no_call():

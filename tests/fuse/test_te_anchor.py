@@ -366,3 +366,43 @@ def test_cis_cannot_raise_a_call_it_cannot_tell_from_its_competitor():
 def test_cis_places_a_low_call_where_there_is_none():
     d = _cis_ev("none", (30_000_000, 30_010_000), seq=None)
     assert d["call"] == (30_000_000, 30_010_000) and d["confidence"] == "low" and d["relation"] == "functional_only"
+
+
+def test_the_null_and_the_cis_simulations_do_not_depend_on_the_thread_count():
+    """future.md #62: the null replicates' positions are drawn first, in one serial order, and each chromosome's cis simulations
+    draw from its own stream, so the thread pool changes no P value. The expected values are those of 0.14.0's serial functions
+    (code/rel14g) on these maps."""
+    st, cen = _noise_state()
+    c = {f"c{k}": ((x - 1) * SIZE, (x + 1) * SIZE) for k, x in cen.items()}
+    for t in (1, 4):
+        r = hicfuse.cis_line(st, c, t)
+        assert {k: r[k] for k in ("k", "n", "p", "sign", "status")} == \
+            {"k": 9, "n": 10, "p": 0.6802696115190116, "sign": -1, "status": "fail"}
+    s = state(strength=3.0)
+    W, b, good = s["W"], s["bins"], s["good"]
+    mean = block_means(W, b, good, s["members"])
+    ratios = {k: 1.45 + 0.04 * k for k in CEN}
+    hits = {0: 0, 1: 60, 2: 23, 3: 0, 4: 4, 5: 10, 6: 5, 7: 24}            # replicates reaching each ratio, of 60
+    for t in (1, 4):
+        p = hicfuse.null_all(W, b, good, mean, s["members"], dict(CEN), dict(CEN), ratios, n=60, threads=t)
+        assert p == {k: (1 + h) / 61 for k, h in hits.items()}
+
+
+def test_anchored_reuses_the_engines_bootstrap_only_for_its_own_windows(monkeypatch):
+    """future.md #62: the anchored test takes the bootstrap the engine ran on its windows (state['boot_extra']) when they are the
+    windows it would use, and its own otherwise; both give the same table."""
+    s = state(strength=10.0)
+    N = s["bins"].N
+    st = dict(s, M=s["W"], hub=np.zeros(N, dtype=bool), rdna={})
+    seq = {f"c{k}": ((c - 1) * SIZE, (c + 2) * SIZE, "high") for k, c in CEN.items()}
+    win = hicfuse._partners(st["bins"], st["members"], st["good"], seq)[1]
+    own, _ = hicfuse.anchored(st, seq, 2)                                     # no engine bootstrap: its own
+    calls = []
+    real = hicfuse.bootstrap_all
+    monkeypatch.setattr(hicfuse, "bootstrap_all", lambda *a, **k: calls.append(1) or real(*a, **k))
+    pre = dict(st, boot_extra={"anchored": real(st["M"], st["bins"], st["members"], win, 2)}, extra_windows={"anchored": win})
+    reused, _ = hicfuse.anchored(pre, seq, 2)
+    assert not calls and reused.equals(own)
+    other = {k: w[:-1] for k, w in win.items()}                               # windows that are not the ones it would use
+    moved, _ = hicfuse.anchored(dict(pre, extra_windows={"anchored": other}), seq, 2)
+    assert calls and moved.equals(own)

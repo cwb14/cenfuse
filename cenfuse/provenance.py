@@ -13,7 +13,6 @@ cenfuse tell (docs/plants.md)?
 from __future__ import annotations
 
 import itertools
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +23,7 @@ from scipy.stats import poisson
 from .meth.params import DEPTH_HI
 from .params import (GENO_ALPHA, GENO_FLANK, GENO_MIN_READS, GENO_POWER, GENO_WINDOW, KARYO_ABSENT,
                      KARYO_MIN_WINDOWS, KARYO_PRESENT)
+from .runtime import process_pool
 from .util import CenfuseError, log
 
 MOTIF_MIN = 0.5         # rows on reference motifs below this share: the file belongs to another assembly (error)
@@ -240,7 +240,7 @@ def genotypes(samples, fasta, chroms: dict, windows: list, threads: int) -> list
     index = {c: i for i, c in enumerate(chroms)}
     jobs = [(s.name, s.files["CHG"], str(fasta), windows, index) for s in samples]
     if len(jobs) > 1 and threads > 1:
-        with ProcessPoolExecutor(min(threads, len(jobs))) as ex:
+        with process_pool(min(threads, len(jobs))) as ex:
             return list(ex.map(sample_genotype, jobs))
     return [sample_genotype(j) for j in jobs]
 

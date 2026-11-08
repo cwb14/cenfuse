@@ -137,28 +137,51 @@ def test_chr3_gap_microsat_and_long_unit(synth_run):
 
 
 def test_resume_and_param_change(synth_run, monkeypatch):
-    """Review I1: a checkpoint is reused only if the code version and the parameters of that stage and all
-    earlier stages are unchanged; --force must name the earliest affected stage (or an earlier one)."""
+    """Review I1: a checkpoint is reused only if the code version and the parameters of that stage and all earlier stages
+    are unchanged. A stale search stage (seeds, families, annotate) stops the run and --force must name it (or an earlier
+    one); a stale stage from classify on (cheap: a parameter, its code, or the genes/ and tes/ inputs) is recomputed from
+    there, with a warning that says what changed (0.14, future.md #59)."""
     import cenfuse.sat.pipeline as pl
-    from cenfuse.sat.pipeline import Pipeline
+    from cenfuse.sat.pipeline import STAGES, Pipeline
     cdir, _, root, same = synth_run
+    work = cdir / "centromere" / "work"
     Pipeline(cdir, 2, root / "cache", same).run()                          # all checkpoints: no-op
-    changed = replace(same, cluster_gap=60_000)                            # a classify parameter
-    with pytest.raises(SatelliteError, match="--force classify"):
-        Pipeline(cdir, 2, root / "cache", changed)
-    with pytest.raises(SatelliteError, match="--force classify"):
-        Pipeline(cdir, 2, root / "cache", changed, force="plot")          # too late a stage
-    monkeypatch.setitem(pl.STAGE_VERSION, "classify", "9.9.9")             # classify code changed
-    with pytest.raises(SatelliteError, match="--force classify"):
-        Pipeline(cdir, 2, root / "cache", same)
-    monkeypatch.setitem(pl.STAGE_VERSION, "seeds", "9.9.9")                # seed code changed
+    changed = replace(same, cluster_gap=60_000)                            # a classify parameter: recomputed from classify
+    pipe = Pipeline(cdir, 2, root / "cache", changed)
+    assert pipe.force == "classify"
+    assert {st for st in STAGES if (work / f"{st}.done").exists()} == {"seeds", "families", "annotate"}
+    Pipeline(cdir, 2, root / "cache", same).run()                          # back to the fixture's outputs
+    monkeypatch.setitem(pl.STAGE_VERSION, "classify", "9.9.9")             # classify code changed: recomputed too
+    assert Pipeline(cdir, 2, root / "cache", same, force="plot").force == "classify"   # a later force cannot skip it
+    Pipeline(cdir, 2, root / "cache", same).run()
+    monkeypatch.undo()
+    Pipeline(cdir, 2, root / "cache", same).run()
+    monkeypatch.setitem(pl.STAGE_VERSION, "seeds", "9.9.9")                # seed code changed: the search is not redone unasked
     with pytest.raises(SatelliteError, match="--force seeds"):
         Pipeline(cdir, 2, root / "cache", same)
     monkeypatch.undo()
     other = replace(same, seed_engine={"fastan": "trf", "trf": "fastan"}[same.seed_engine])
     with pytest.raises(SatelliteError, match="--force seeds"):               # checkpoints of the other engine are stale
         Pipeline(cdir, 2, root / "cache", other)
-    Pipeline(cdir, 2, root / "cache", changed, force="classify")          # accepted (deletes classify+ checkpoints)
+    assert all((work / f"{st}.done").exists() for st in STAGES)             # a stop deletes nothing
+
+
+def test_a_hard_linked_copy_is_never_rewritten(synth_run, tmp_path):
+    """A folder copied with hard links (cp -al) and recomputed from the search on must leave the original's files as they
+    were: each recomputed stage unlinks its folder's shared files first (its tools write in place), and every output is
+    written to a temporary file and moved over its target (future.md #59, found by the 0.14 verification pass)."""
+    import hashlib
+    import os
+    from cenfuse.sat.pipeline import Pipeline
+    cdir, _, root, same = synth_run
+    copy = tmp_path / "Synth"
+    shutil.copytree(cdir, copy, copy_function=os.link, symlinks=True)
+    files = [p for p in cdir.rglob("*") if p.is_file() and not p.is_symlink()]
+    before = {p: hashlib.md5(p.read_bytes()).hexdigest() for p in files}
+    Pipeline(copy, 2, root / "cache", same, force="families").run()
+    changed = [str(p.relative_to(cdir)) for p in files if hashlib.md5(p.read_bytes()).hexdigest() != before[p]]
+    assert not changed, changed
+    assert (copy / "centromere" / "satellite_families.tsv").stat().st_nlink == 1     # the copy has its own outputs now
 
 
 def test_every_array_is_reported_with_family_and_role(synth_run):

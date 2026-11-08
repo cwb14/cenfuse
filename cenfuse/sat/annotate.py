@@ -392,7 +392,7 @@ def drop_multimer_hits(df: pd.DataFrame, ratio: float = MULTIMER_RATIO, min_cov:
 def resolve_overlaps(df: pd.DataFrame, max_cov: float = OVERLAP_MAX_COV) -> pd.DataFrame:
     """Greedy by bitscore: accept a hit only if <= max_cov of it is already covered by accepted hits
     (coverage bitmap over the chromosome span). A pairwise ">50% of the shorter" rule let hits of phase-shifted
-    subfamilies that overlap each of two accepted neighbours by <= 50% survive (A. thaliana CEN180: +27% monomers)."""
+    subfamilies that overlap each of two accepted neighbors by <= 50% survive (A. thaliana CEN180: +27% monomers)."""
     if df.empty:
         return df
     df = df.sort_values(["start", "end"]).reset_index(drop=True)

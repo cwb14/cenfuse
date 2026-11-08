@@ -29,9 +29,10 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.stats import binom
 
+from ..runtime import atomic_open
 from .params import (TE_ALPHA, TE_CENTROMERIC_CLADE, TE_MAJOR_SHARE, TE_MIN_SITES, TE_RECRUIT_MIN, TE_RECRUIT_ROUNDS,
                      TE_SEED_MIN_CORES, TE_SPECIFIC_FOLD)
-from .te import IGNORED_CLADES, Mids, core
+from .te import IGNORED_CLADES, Coords, Mids, core
 from .util import log
 
 NO_FAMILY = {"", ".", "na", "none", "unknown"}
@@ -95,12 +96,16 @@ def load_table(gff, chroms: dict):
     names = list(chroms)
     idx = {c: i for i, c in enumerate(names)}
     rows, lin_code, fam_code = [], {}, {}
+    xy = Coords(gff)
     with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue
             p = line.rstrip("\r\n").split("\t")
             if len(p) < 9 or p[0] not in idx or "LTR_retrotransposon" not in p[2]:
+                continue
+            iv = xy(p, n)
+            if iv is None:
                 continue
             a = _attrs(p[8])
             cl, fa = a.get("clade", ""), a.get("family", "")
@@ -110,7 +115,8 @@ def load_table(gff, chroms: dict):
                 age = float(a.get("k2p_t", "nan"))
             except ValueError:
                 age = float("nan")
-            rows.append((idx[p[0]], int(p[3]) - 1, int(p[4]), lin, fam, age))
+            rows.append((idx[p[0]], iv[0], iv[1], lin, fam, age))
+    xy.done()
     if not rows:
         return None
     x = np.array(rows, dtype=np.float64)
@@ -367,7 +373,7 @@ def write_table(s: Signature, path) -> None:
             "core_elements", "chrom_elements", "core_p", "significant", "source", "n_families", "families", "why",
             "age_in_cores", "age_outside", "young_old", "core_fold"]
     fmt = lambda x: "." if x != x else f"{x:.0f}" if abs(x) >= 100 else f"{x:.3g}"
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         f.write("\t".join(cols) + "\n")
         for c, x in s.cores.items():
             fams = x.get("families", [])

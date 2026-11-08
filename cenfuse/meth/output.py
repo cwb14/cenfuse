@@ -4,19 +4,20 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..runtime import atomic_csv, atomic_open
 from . import params
 
 RGB = {"centromere_like": "0,114,178", "dip": "140,140,140"}
 
 
 def write_tsv(df: pd.DataFrame, path) -> None:
-    df.to_csv(path, sep="\t", index=False, float_format="%.10g", na_rep="")
+    atomic_csv(df, path, sep="\t", index=False, float_format="%.10g", na_rep="")
 
 
 def write_bed(cand: pd.DataFrame, header: str, path) -> None:
     """BED9: span = half-depth dip united with the window; name sample:chrom:rank:label; score = |value| x 1000
-    (capped at 1000); thick = sliding window at the extreme; colour by label."""
-    with open(path, "w") as f:
+    (capped at 1000); thick = sliding window at the extreme; color by label."""
+    with atomic_open(path) as f:
         f.write(f"{header}\n")
         if cand.empty:
             return
@@ -30,7 +31,7 @@ def write_bed(cand: pd.DataFrame, header: str, path) -> None:
 
 def write_bedgraph(adj: dict, lengths: dict, path) -> None:
     """One sample's adjusted CHG track: bin start, end (clipped to the chromosome), value; NaN bins left out."""
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         for c, y in adj.items():
             j = np.flatnonzero(np.isfinite(y))
             s = j * params.BIN

@@ -8,7 +8,7 @@ DEPTH_HI = 2.0              # drop a bin above double the median depth: duplicat
 WIN_D = 0.4                 # sliding window = 0.4 D: narrower than the domain (heuristic)
 RING_LO_D = 1.5             # class reference ring starts 1.5 D away: beyond the domain (heuristic)
 RING_HI_D = 4.0             # ...and ends 4 D away: wide enough for stable class levels (heuristic)
-MIN_LEN_D = 10              # sequences >= 10 D are analysed: a 4-D ring each side of a 2-D centre
+MIN_LEN_D = 10              # sequences >= 10 D are analyzed: a 4-D ring each side of a 2-D center
 GAP_FOLD = 10               # chromosomes vs unplaced scaffolds (heuristic): the first tenfold drop in sorted sequence
                             # length after half the assembly ends the set (cenfuse 0.8, track.tenfold_count); in 0.9
                             # (track.chromosome_count) a sequence under 1/GAP_FOLD of the median length before it is

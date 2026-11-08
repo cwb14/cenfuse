@@ -13,6 +13,7 @@ import pandas as pd
 from . import __version__, morphology
 from .cdr import DIP_P
 from .params import AXIS_LEAN_P, GATE_MIN_REF
+from .runtime import atomic_csv, atomic_open
 from .sat.karyotype import sentence
 
 RGB = {"high": "0,114,178", "medium": "86,180,233", "low": "153,153,153"}
@@ -36,7 +37,7 @@ SO_MEMBER = {"rdna_array": "tandem_repeat", "rdna5s_array": "tandem_repeat", "lo
 
 
 def write_tsv(df: pd.DataFrame, path) -> None:
-    df.to_csv(path, sep="\t", index=False, float_format="%.6g", na_rep=".")
+    atomic_csv(df, path, sep="\t", index=False, float_format="%.6g", na_rep=".")
 
 
 def _attrs(d: dict) -> str:
@@ -46,21 +47,21 @@ def _attrs(d: dict) -> str:
 def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
     write_tsv(t, out / f"{genome}.centromeres.tsv")
     c = t[t.start != "."]
-    with open(out / f"{genome}.centromeres.bed", "w") as f:
+    with atomic_open(out / f"{genome}.centromeres.bed") as f:
         f.write(f"#cenfuse {__version__} {genome}: integrated centromere calls (score: high 1000, medium 600, "
                 f"low 300)\n")
         for r in c.itertuples(index=False):
             sc = {"high": 1000, "medium": 600, "low": 300}.get(r.confidence, 0)
             f.write(f"{r.chrom}\t{int(r.start) - 1}\t{r.end}\t{r.relation}:{r.confidence}\t{sc}\t.\t"
                     f"{int(r.start) - 1}\t{r.end}\t{RGB.get(r.confidence, '0,0,0')}\n")
-    with open(out / f"{genome}.centromeres.gff3", "w") as f:
+    with atomic_open(out / f"{genome}.centromeres.gff3") as f:
         f.write("##gff-version 3\n")
         for ch, L in chroms.items():
             f.write(f"##sequence-region {ch} 1 {L}\n")
         f.write(f"# cenfuse {__version__} {date.today()} genome={genome}\n")
         for r in c.itertuples(index=False):
             a = dict(ID=f"cen_{r.chrom}", relation=r.relation, confidence=r.confidence, source=r.call_source,
-                     support=r.support, against=r.against, flags=r.flags, sequence_call=(
+                     support=r.support, against=r.against, flags=r.flags, rule=getattr(r, "rule", "."), sequence_call=(
                          f"{r.seq_start}-{r.seq_end}" if r.seq_start != "." else "."),
                      sequence_evidence=r.seq_evidence, main_family=r.main_family, offset_bp=r.offset_bp)
             f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
@@ -74,7 +75,7 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
 def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: Path) -> None:
     write_tsv(loci, out / f"{genome}.loci.tsv")
     kinds, chrom_of = dict(zip(loci.locus, loci.kind)), dict(zip(loci.locus, loci.chrom))
-    with open(out / f"{genome}.features.gff3", "w") as f:
+    with atomic_open(out / f"{genome}.features.gff3") as f:
         f.write("##gff-version 3\n")
         for ch, L in chroms.items():
             f.write(f"##sequence-region {ch} 1 {L}\n")
@@ -94,7 +95,7 @@ def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: 
 
 def write_bedgraph(S, bins, members, path, title: str) -> None:
     """Score per bin over its chromosome median (callable chromosomes; NaN bins left out)."""
-    with open(path, "w") as f:
+    with atomic_open(path) as f:
         f.write(f'track type=bedGraph name="{title}"\n')
         for k in np.where(members)[0]:
             sl = bins.sl(int(k))

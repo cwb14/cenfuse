@@ -1,0 +1,25 @@
+# The test suite in the benchmark's exact environment (environment.lock.txt, linux-64), with every external tool required:
+# a missing tool fails instead of skipping (CENFUSE_REQUIRE_TOOLS=1, tests/conftest.py). future.md #65.
+name: tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.lock.txt
+          environment-name: cenfuse
+          cache-environment: true
+      - name: install
+        run: pip install --no-deps --no-build-isolation .
+      - name: tests
+        run: CENFUSE_REQUIRE_TOOLS=1 OMP_NUM_THREADS=1 python -m pytest -q -n 4 -p no:cacheprovider

@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,12 +13,13 @@ import numpy as np
 import pandas as pd
 import pysam
 
+from ..runtime import process_pool
 from . import params
 from .classes import ClassMap, classify
 from .io import read_bedmethyl
 
 log = logging.getLogger("cenfuse-meth")
-CACHE_VERSION = 1
+CACHE_VERSION = 1       # the class-bin cache's format: bump when its content changes (fingerprint)
 
 
 @dataclass
@@ -119,7 +119,7 @@ def collect(samples, chroms: dict[str, int], cmap: ClassMap, ann_key: str, cache
                 ids.append((smp.name, ctx, c))
     out, bad, cached = {}, 0, 0
     if threads > 1:
-        with ProcessPoolExecutor(threads) as ex:
+        with process_pool(threads) as ex:
             res = list(ex.map(_job, jobs, chunksize=1))
     else:
         res = [_job(a) for a in jobs]

@@ -9,7 +9,7 @@ import numpy as np
 
 from .params import (TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_CONTRA_ALPHA, TE_MIN_BIN, TE_MIN_SITES, TE_SMOOTH,
                      TE_SPECIFIC_FOLD)
-from .util import log, merge_intervals
+from .util import SatelliteError, log, merge_intervals
 
 IGNORED_CLADES = {"unknown", "mixture", "na", "none", "."}
 # DANTE_LTR (REXdb) classification ranks above the lineage: an element classified only this far has no clade
@@ -41,18 +41,55 @@ def _clade(ftype: str, attrs: dict) -> str:
     return "" if clade.lower() in IGNORED_CLADES else clade
 
 
+_WARNED = set()
+
+
+class Coords:
+    """Reads the coordinates of a GFF feature line, counting the malformed ones (not integers, end before start): a few are
+    skipped with one warning at the end of the file (one bad record in a million should not stop a run); a file where most
+    feature lines are malformed is not a GFF3 this reader understands, and stops the run."""
+
+    def __init__(self, path):
+        self.path, self.bad, self.ok, self.first = path, 0, 0, None
+
+    def __call__(self, p: list, lineno: int):
+        try:
+            s, e = int(p[3]) - 1, int(p[4])
+            if s < 0 or e <= s:
+                raise ValueError
+        except (ValueError, IndexError):
+            self.bad += 1
+            self.first = self.first or f"line {lineno}: {' '.join(p[:5])!r}"
+            return None
+        self.ok += 1
+        return s, e
+
+    def done(self) -> None:
+        if not self.bad:
+            return
+        if self.bad > self.ok:
+            raise SatelliteError(f"{self.path}: {self.bad} of {self.bad + self.ok} LTR feature lines have malformed "
+                                 f"coordinates (first, {self.first}): not a GFF3 this reader understands")
+        if str(self.path) not in _WARNED:            # the tes/ file is read several times per run: one warning
+            _WARNED.add(str(self.path))
+            log.warning(f"{self.path}: {self.bad} LTR feature line(s) with malformed coordinates skipped (first, {self.first})")
+
+
 def _te_rows(gff, chroms: dict):
-    """(chrom, start, end, clade) of every classified LTR retrotransposon on the genome's sequences (0-based)."""
+    """(chrom, start, end, clade) of every classified LTR retrotransposon on the genome's sequences (0-based); malformed
+    lines are skipped and counted (Coords)."""
+    xy = Coords(gff)
     with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue
             p = line.rstrip("\r\n").split("\t")
             if len(p) < 9 or p[0] not in chroms or not ("LTR_retrotransposon" in p[2] or p[2] == "transposable_element"):
                 continue
             clade = _clade(p[2], {k.lower(): v for k, _, v in (kv.partition("=") for kv in p[8].split(";")) if v})
-            if clade:
-                yield p[0], int(p[3]) - 1, int(p[4]), clade
+            if clade and (iv := xy(p, n)) is not None:
+                yield p[0], iv[0], iv[1], clade
+    xy.done()
 
 
 def te_census(gff, chroms: dict) -> dict:

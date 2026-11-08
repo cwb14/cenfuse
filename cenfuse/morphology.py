@@ -1,4 +1,4 @@
-"""Chromosome morphology and assembly completeness from the integrated call (docs/design.md, 'Morphology').
+"""Chromosome morphology and assembly completeness from the integrated call (docs/design.md, 'Reading the integration').
 
 The integrated call fixes where a chromosome's arms meet. Each called chromosome gets its centromeric index (short arm
 / length), arm ratio (long / short) and Levan class, measured from the CpG kinetochore's midpoint where the CpG line

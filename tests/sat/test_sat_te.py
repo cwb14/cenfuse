@@ -220,3 +220,21 @@ def test_crm_cores_take_precedence_on_their_chromosomes():
     assert m[0] == "CRM" and not m[2] and sorted(m[1]) == ["c00", "c01", "c02"]
     assert choose_marker({"Tekay": tekay}, chroms, candidate_clades({"Tekay": tekay}, chroms))[0] == "Tekay"
     assert choose_marker({}, chroms, []) is None
+
+
+def test_malformed_tes_lines_are_skipped_with_a_warning(tmp_path, caplog):
+    """One bad record among many is skipped and counted (future.md #63: the tes/ parser crashed on it); a file of mostly
+    malformed lines stops the run."""
+    import pytest
+    from cenfuse.sat import te
+    from cenfuse.sat.util import SatelliteError
+    ok = "".join(f"c1\tx\tLTR_retrotransposon\t{1000 * i + 1}\t{1000 * i + 500}\t.\t+\t.\tID=e{i};clade=CRM\n" for i in range(9))
+    f = tmp_path / "a.gff3"
+    f.write_text("##gff-version 3\n" + ok + "c1\tx\tLTR_retrotransposon\tabc\t500\t.\t+\t.\tID=bad;clade=CRM\n")
+    with caplog.at_level("WARNING", logger="cenfuse-sat"):
+        rows = list(te._te_rows(f, {"c1": 100_000}))
+    assert len(rows) == 9 and "1 LTR feature line(s) with malformed coordinates skipped" in caplog.text
+    g = tmp_path / "b.gff3"
+    g.write_text("c1\tx\tLTR_retrotransposon\t9\t5\t.\t+\t.\tclade=CRM\n" * 3 + ok[:ok.index("\n") + 1])
+    with pytest.raises(SatelliteError, match="malformed"):
+        list(te._te_rows(g, {"c1": 100_000}))

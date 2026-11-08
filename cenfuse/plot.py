@@ -36,11 +36,13 @@ from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
 from matplotlib.textpath import TextPath  # noqa: E402
 
+from .runtime import atomic_path  # noqa: E402
+
 log = logging.getLogger("cenfuse")
-MM = 1 / 25.4
+MM = 1 / 25.4                                    # layout: inches per millimeter
 WIDTH = 180 * MM
 B_COL_MM = 4.6                                   # panel B: spacing of the line columns
-ROWS_PER_PAGE = 24
+ROWS_PER_PAGE = 24                               # layout: chromosome rows per page
 ROLE_COLOR = {"centromeric": "#D55E00", "cen_associated": "#F4A582", "interstitial": "#CC79A7",
               "subtelomeric": "#56B4E9", "rDNA": "#009E73"}
 OTHER = "#B0B0B0"
@@ -796,18 +798,20 @@ def _closing_new_figures():
 
 def overview(figs: list, out: Path) -> None:
     out = Path(out)
-    with _closing_new_figures(), PdfPages(out / "cenfuse_overview.pdf") as pdf:
+    with _closing_new_figures(), atomic_path(out / "cenfuse_overview.pdf") as tmp, PdfPages(tmp) as pdf:
         for f in figs:
             f.setdefault("out", out)
             for i, fig in enumerate(_page_iter(f)):
                 pdf.savefig(fig)
                 if i == 0:
-                    fig.savefig(out / f"{f['genome'].name}.overview.png", dpi=300)
+                    with atomic_path(out / f"{f['genome'].name}.overview.png") as png:
+                        fig.savefig(png, dpi=300)
                 plt.close(fig)                                 # before the next page is drawn
             pp = _plants_page(f)
             if pp is not None:
                 pdf.savefig(pp)
-                pp.savefig(out / f"{f['genome'].name}.plants.png", dpi=300)
+                with atomic_path(out / f"{f['genome'].name}.plants.png") as png:
+                    pp.savefig(png, dpi=300)
                 plt.close(pp)
             for txt in legends(f):
                 fig = _text_page(txt)

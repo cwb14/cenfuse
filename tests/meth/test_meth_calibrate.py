@@ -18,7 +18,7 @@ def test_anchor_table_merges_and_drops(caplog):
     assert set(t) == {"c1", "c2"}
     assert (t["c1"]["start"], t["c1"]["end"], t["c1"]["mid"]) == (1_000_000, 1_600_000, 1_300_000)
     assert t["c2"]["bin"] == 5_500_000 // params.BIN and t["c2"]["name"] == "c2_cen"
-    assert "merged" in caplog.text and "not analysed" in caplog.text
+    assert "merged" in caplog.text and "not analyzed" in caplog.text
 
 
 def test_permutation_on_constructed_pools():

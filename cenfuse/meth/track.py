@@ -1,4 +1,4 @@
-"""Expected centromere size D, the analysed chromosomes, and the composition-adjusted track: each class is compared
+"""Expected centromere size D, the analyzed chromosomes, and the composition-adjusted track: each class is compared
 with its own methylation in a ring 1.5-4 D away, deviations are summed over classes and a 0.4-D sliding window."""
 from __future__ import annotations
 
