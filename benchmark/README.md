@@ -15,7 +15,7 @@ publication" (benchmark.md credits Logsdon et al. 2024; future.md #37).
 
 | file | what |
 |---|---|
-| `truth.tsv` | the manifest: one row per genome (58 of the frozen scorer + `agen`, `sver` for 0.14): `kind`, `rule`, `tol_bp`, `hic_bins`, `truth` (paths relative to the data root, `;`-separated; `.` for holocentric), `source` (assembly, data accessions, paper, how the BED was made), `notes` (caveats) |
+| `truth.tsv` | the manifest: one row per genome (58 of the frozen scorer + `agen`, `sver` and 13 tomatoes added in 0.14/0.15): `kind`, `rule`, `tol_bp`, `hic_bins`, `truth` (paths relative to the data root, `;`-separated; `.` for holocentric), `source` (assembly, data accessions, paper, how the BED was made), `notes` (caveats) |
 | `paths.py` | every root the chain reads, in one place: the data root, the development folders, the 0.13.0 release's runs, job tables and reference tables. `python -m benchmark.paths` lists them |
 | `score.py` | the frozen scorer (`v12/bench/rel/score_rel.py`), reading the manifest |
 | `compare_rel.py` | release runs vs their reference runs, column by column |
@@ -178,3 +178,10 @@ bins, files and the intervals read). Seven mutations of the scoring rules each f
   cite (`v11/bench/pa1a_age.py`, `young_core.py`, `poly_one.py`).
 - The runs themselves: the job tables, the satellite replays (`--satellite-dir`), checkpoint seeding
   (`v12/bench/seed_run.py`), and the gallery (`v12/bench/rel/make_gallery.py`, not in the chain).
+
+## 0.15
+
+The 0.15.0 tables were made from `v14/runs/rel15b` by `v14/bench/docs15.sh` (outside the repository): `release.sh` against the 0.14
+release (`JOBS` = the 260 arms of 0.14, `JOBS_CMP` = those arms with column 6 at the 0.14 runs), and, for the genomes outside that
+job table (agen, sver and the 13 tomatoes, which `truth.tsv` now names), the row-making scripts of v13 `bench/`. A truth-free check of LTR-line
+rules, homoeolog agreement on the polyploid panel (future.md #68), is in `v14/bench/polyeval.py`.

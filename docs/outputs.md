@@ -59,7 +59,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `te_share`, `te_chrom_elements` | the share of this chromosome's signature elements inside the core, and how many there are: a lineage other than CRM needs most of them inside to act |
 | `te_core_elements`, `te_call_elements` | the two counts of the head-to-head test: signature elements in the core, and in the call or the array it replaced |
 
-**AT troughs** (only where most chromosomes have no sequence call)
+**AT troughs** (only where most chromosomes have no sequence call or a `low` one with a competing cluster)
 
 | column | meaning |
 |---|---|
@@ -129,7 +129,7 @@ validated peak moved the call); `hic_offset` (it points elsewhere and cannot mov
 `hic_medium_peak`, `hic_denovo_only` (Hi-C placed a call where the sequence has none); `fold_pair`, `align_pair` (the Rabl-axis
 line and the prior-free peak at one locus); `fold_offset`, `align_offset`, `hic_denovo_offset` (they oppose a kept call:
 contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis_elsewhere` (the cis signal); `at_only`,
-`at_denovo_pair`, `at_pair` (the AT trough); `meth_support` (methylation alone confirms the call); `none` (no call).
+`at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `meth_support` (methylation alone confirms the call); `none` (no call).
 
 ## Flags
 
@@ -143,6 +143,8 @@ contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis
 | `not_one_per_chromosome` | the largest clusters of the centromeric families do not fall one per chromosome in this genome, so those arrays may not be centromeres: `low`, unless an LTR core agrees |
 | `te_concordant`, `te_discordant` | the LTR marker's core agrees with the call / lies elsewhere; with a decisive core the call is raised to at least `medium` / lowered one level (otherwise they only flag) |
 | `weak_core` | a decisive signature's core too thin to be significant took a chromosome without a call, or a satellite call of a family that failed the one-per-chromosome test: `low` |
+| `minority_core` | a decisive signature's significant core holding under half of the signature's elements on the chromosome replaced a satellite call that was `low` on its own: `low` (the replaced array is in `seq_overruled_*`) |
+| `te_age_core` | the chromosome's LTR core is the youngest of several comparable density peaks of the signature's elements (`te_signature.tsv`, `core_age_from`) |
 | `satellite_away_from_core`, `satellite_beside_core`, `weak_satellite_beside_core` | a decisive core replaced the satellite call (kept in `seq_overruled_*`): a call elsewhere that was `low` or held significantly fewer of the signature's elements; a call beside the core that held significantly fewer; a weak call beside it |
 | `partial_chain` | the main family is no tandem satellite: less than half of its bp in tandem repeats and less than half in whole-unit hits. The sequence call is `low`, or at most `medium` where a retrotransposon core overlaps it (for a lineage other than CRM, only if the family is not made of it); lines that pass their tests may raise the final call |
 | `chain_to_core` | such a call narrowed to the decisive core inside it |
@@ -155,6 +157,7 @@ contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis
 | `cis_agrees`, `cis_near`, `cis_only`, `cis_elsewhere` | the extreme of the contact crossing each bin, tested against the LTR cores (or, without them, by Hi-C's trans contacts on most chromosomes; column `cis_test`): at the call (one level up); within 4 bins of it (neither way); farther, a `low` call moved to it (still `low`), or a chromosome without a call placed there; farther, the call kept, one level lower if the test passed on most chromosomes (`contested`). The trans-tested signal is read outside the terminal eighths and leaves a call inside one as it is |
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing: it takes the trough's interval, one level up; the trough lies elsewhere |
 | `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
+| `at_chose_alt` | the genome's AT troughs passed their test and this chromosome's deepest trough window lies on the competing cluster of a `low` sequence call and not on the call: the competing cluster, `low` unless another line agrees there; not where validated Hi-C can tell the two clusters apart. A heuristic on the evidence of one genome (design.md) |
 | `cis_blind` | the call lies in a terminal eighth, where the cis signal tested by trans contacts cannot see; its extreme lies elsewhere (the caveat says where), and the call is left as it is |
 | `fold_pair`, `align_pair` | Hi-C's prior-free peak and the arm fold (or the trans arm alignment) agree here, away from the sequence call: the call moved, or was placed, at `medium` |
 | `fold_offset`, `align_offset`, `hic_denovo_offset` | the arm fold / the alignment / Hi-C's prior-free peak points elsewhere: one level lower each |
@@ -302,6 +305,8 @@ seed, `decisive`, `why` and the ages are genome-wide: the same on every row.
 | `age_in_cores`, `age_outside` | with LTRquest's `K2P_T` (insertion time from the divergence of an element's two LTRs, years): the median age of the signature's elements inside the significant cores and outside them, on the chromosomes with one |
 | `young_old` | the share of the younger half of those elements that lies inside the cores, over that of the older half: above 1, young copies mark the cores |
 | `core_fold` | the core's own fold enrichment: the share of the chromosome's signature elements inside it over the share of the chromosome it covers |
+| `core_age_from` | when the signature's elements form several comparable peaks on this chromosome and the youngest is significantly younger than the highest, the core is that younger peak and this column names the density maximum it replaced (1-based start-end); else `.` |
+| `core_alt` | a second density peak of the signature's elements on this chromosome, at least half as high as the core's, with at least 3 independent insertions (1-based start-end; a second place to look; reported only), else `.` |
 
 ## Which sequences are analyzed
 

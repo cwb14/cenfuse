@@ -21,6 +21,6 @@ LTR signature, provenance, plants; and the calls' BED and GFF3) equals 0.13.0's 
   ([outputs.md](outputs.md), [plants.md](plants.md)).
 - **The benchmark in the repository** ([benchmark/](../benchmark/README.md)): the truth manifest, the frozen scorer as a tested
   module, and the chain that writes this page's tables and fills it from templates, reproducing 0.13's tables byte for byte.
-- **New truth, held out:** *Ae. geniculata* and *S. verrucosum* ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and 13 tomatoes
-  ([section 3](#held-out-from-014-thirteen-tomatoes)).
+- **New truth, held out:** *Ae. geniculata* and *S. verrucosum* ([section 3](#an-allotetraploid-and-a-wild-potato)), and 13 tomatoes
+  ([section 3](#thirteen-tomatoes)).
 - **The benchmark's scoring, measured:** how close a right call is ([How calls are scored](#how-calls-are-scored)), and the truth rule's two numbers changed: no outcome moves.

@@ -1,14 +1,12 @@
 # Benchmarks
 
-cenfuse was scored on 55 assemblies (56 genomes and libraries), from T2T mammals to fungi, against centromeres mapped
-functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.14.0 on every
-benchmark arm and on the 40 arms held out from 0.12 (260 runs, 2026-11-08), scored with the rules fixed before each benchmark
-was first run; 0.14 changed no rule, and its calls equal 0.13.0's on all 260 runs ([section 13](#13-what-changed-from-013)).
-Each run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`); the engine's rules are
-unchanged since 0.11. Two genomes whose CENH3 truth was on disk but never scored, an allotetraploid among them, are held out
-from 0.14 and run in full, search included ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and so are 13 tomatoes ([section 3](#held-out-from-014-thirteen-tomatoes)); the genomes held
-out from the 0.12 rules are in [section 4](#held-out-from-the-012-rules). The scorer, the truth manifest and this page's tables are
-in the repository ([benchmark/](../benchmark/README.md)). The overview pages of every genome are in the [gallery](gallery.md); how
+cenfuse was scored on 57 assemblies (70 genomes and libraries), from T2T mammals to fungi, against centromeres mapped
+functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.15.0 (290 runs, 2026-11-08):
+every benchmark arm of the earlier releases and every genome added since, the allotetraploid *Ae. geniculata*, the wild potato *S.
+verrucosum* and 13 tomatoes among them, scored with the rules fixed before each benchmark was first run. Since 0.15 every dataset is development
+data ([section 13](#13-what-changed-from-014)); earlier statements about what was held out from which release keep their history. Each
+run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`), with the classify stage onward recomputed
+for arms with `tes/`. The scorer, the truth manifest and this page's tables are in the repository ([benchmark/](../benchmark/README.md)). The overview pages of every genome are in the [gallery](gallery.md); how
 each rule works is in [design.md](design.md).
 
 ## How calls are scored
@@ -69,7 +67,7 @@ New in 0.12 (from the 0.12 release):
   in *P. falciparum*, real and shuffled. **F** confident errors from the FASTA alone, 0.11 and 0.12. **G** every genome, both tests.*
 {{FIGURES_MORE}}
 
-From the 0.10.1 release ([what changed since](#13-what-changed-from-013) applies to these, with [0.11 to 0.12](#from-011-to-012)):
+From the 0.10.1 release ([what changed since](#13-what-changed-from-014) applies to these, with [0.11 to 0.12](#from-011-to-012)):
 
 - [Mammals and Hi-C](img/benchmark_overview.pdf) ![benchmark overview](img/benchmark_overview.png)
   *9 T2T mammals with CENP-A truth; rice, barley, potato and horse EquCab3 with ChIP truth. **A** every chromosome
@@ -216,13 +214,13 @@ Potato's 214 LTRquest CRM elements give exactly a majority of chromosomes; any l
 gain from `tes/`. Every CRM core short of a majority still lay on CENH3 (24/24 in rice, potato, maize and
 *Brachypodium*).
 
-### Held out from 0.14: an allotetraploid and a wild potato
+### An allotetraploid and a wild potato
 
-{{HELD14}}
+{{AGEN_SVER}}
 
-### Held out from 0.14: thirteen tomatoes
+### Thirteen tomatoes
 
-{{HELD14_TOMATO}}
+{{TOMATOES}}
 
 ## 4. Hi-C
 
@@ -374,7 +372,7 @@ on each of these genomes: no test passes and no Hi-C-alone call is made.
 No right call became wrong and no confident error was added in any of them. Three libraries are shallower than
 downloaded (sorghum, *Ae. tauschii*, mouse: a mate file was damaged in transfer and only its intact part was mapped).
 
-### Held out from the 0.12 rules
+### Genomes first scored after the 0.12 rules
 
 The 0.12 rules were frozen before any of these arms was scored: LTRquest annotations made for this release on genomes whose `tes/`
 arms had never been run, and two genomes new to the benchmark (grape PN40024 and cucumber 9930, CENH3 ChIP-seq from their authors,
@@ -605,6 +603,10 @@ Over 14 genomes: 3,349,152 whole copies, 4387 lost (0.131%; a copy split in two 
 
 {{CRITERIA14}}
 
+- **The 0.15 checks** (PLAN.md, 2026-11-08), with the results:
+
+{{CRITERIA15}}
+
 - **Rules changed after a result was seen.** Each change has a reason independent of the case that prompted it, and
   was rechecked on cases not used to make it:
 
@@ -642,7 +644,11 @@ Over 14 genomes: 3,349,152 whole copies, 4387 lost (0.131%; a copy split in two 
 | 0.12: Hi-C anchored on the LTR cores counts a peak only where it is clean (not at a chromosome end, hub or NOR) | held-out *R. breviuscula*: 3 `medium` calls in a holocentric genome, its Athila cores at chromosome ends, which cluster | the 20 runs where the test runs, rerun (code/rel12b): only those 3 calls change, back to `low`; *Brachypodium* and *Arabidopsis* still pass; no untouched genome where the test runs was left to check |
 {{RULES13}}
 
-## 13. What changed from 0.13
+## 13. What changed from 0.14
+
+{{CHANGES15}}
+
+### From 0.13 to 0.14
 
 {{CHANGES14}}
 

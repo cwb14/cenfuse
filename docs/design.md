@@ -104,8 +104,19 @@ the lineage rules below apply to its lineages alone.
   evidence there. The first round starts from the seed's cores, each next one from the significant cores of the round before, until
   they stop changing. Where recruitment leaves no significant core, the seed's own core stands (*Chlorella*'s 54 Osser elements
   fall in families too small to recruit).
-- **What may decide.** A CRM seed with significant cores on most chromosomes decides. Another lineage decides at 10-fold or more,
-  unless a dominant satellite passes the [one-per-chromosome test](#one-locus-per-chromosome-a-test-of-the-satellite-line-satkaryotypepy):
+- **Where nothing can decide on its own: a family's concentration over the chromosomes (0.15).** The families above need
+  significant cores on most chromosomes one by one, and a centromeric family with few copies per chromosome misses that (LA1028: a
+  Tekay family of 122 elements, about 10 per chromosome, significant on 4 of 12). Where no CRM candidate exists and the most specific
+  candidate is under 10-fold, a family pooled over the chromosomes still qualifies when its core is significant at the conventional
+  5% level by itself on more than half of the chromosomes (its concentration is broad; Fisher's P alone can be carried by a few
+  strong chromosomes), the Fisher combination of its chromosomes' core P is significant after Bonferroni over the families tested, at
+  least three cores are significant to recruit from, as a CRM seed, and it is at least 10-fold enriched in its cores (over all its
+  cores, significant or not; an effect size, not a test: core windows fitted to few copies reach 10-fold by chance, and none of 2,500
+  simulated families of 5-80 uniform copies per chromosome passes the other three) (`signature.pooled_candidates`).
+- **What may decide.** A CRM seed with significant cores on most chromosomes decides. Another lineage decides at 10-fold or more, with
+  significant cores on most chromosomes or a seed that qualified by the pooled test above, and with cores that are specific on their own
+  chromosomes (median core fold ≥ 10; 0.15: a specific seed can recruit families spread along the chromosomes, *Arachis* 11.6-fold seed and
+  1.5-fold cores), unless a dominant satellite passes the [one-per-chromosome test](#one-locus-per-chromosome-a-test-of-the-satellite-line-satkaryotypepy):
   tomato's dominant satellite fails it and its Tekay family decides, *Arabidopsis*' CEN180 passes and Athila only flags, moss has no
   dominant satellite and Bryco decides. The 10-fold level comes from 42 polyploids whose best marker is not CRM, against
   0.11's FASTA-only calls, with no truth: the share of cores within 1 Mb of the call has median 0.30 at or below 10-fold (15
@@ -129,12 +140,21 @@ the lineage rules below apply to its lineages alone.
   like this; otherwise it flags, and a call placed on it is `low` (a core is right 39 of 41 times with most of the
   elements, 3 of 11 without). A core too thin to be significant still has its place in a genome whose signature decides: on a chromosome
   without a call, or with a satellite call of a family that failed the one-per-chromosome test, it is the better candidate,
-  `low` (`weak_core`).
+  `low` (`weak_core`). A significant core of a decisive signature that holds under half the signature's elements on its chromosome
+  cannot move a confident call, but it replaces a call that is `low` on its own and stays `low` (`minority_core`, 0.15): such a core
+  and the satellite array it replaces are both uncertain, and in the 13 tomatoes and their relatives the core was right on many times
+  more of these chromosomes than the kept array.
 - **The age of the elements.** The signature's youngest elements concentrate in the cores more than the oldest in nearly every CRM
   lineage and in Bryco, the reverse of lineages that accumulate near centromeres (Athila, Retand, most Tekay). It separates lineages
-  but not families, so it is reported (`te_signature.tsv`) and places nothing. Since 0.13 the same contrast, measured on the other
+  but not families, so it is reported (`te_signature.tsv`) and places nothing genome-wide. Since 0.13 the same contrast, measured on the other
   chromosomes, is the premise of the age tie-breaker (`ageline.py`): where it holds, younger copies at a strong validated Hi-C peak
   than at a `high` call are the second line that lets Hi-C move the call (Integration, below).
+  Since 0.15 age also chooses between the density peaks of the signature's elements on a chromosome (`signature.age_choice`): where
+  several peaks are comparable (at least half as high as the highest, with three independent insertions each), a peak is itself a
+  significant core (the same test as any core: a move must not swap a tested core for an untested one) and one is significantly
+  younger (one-sided Mann-Whitney P ≤ 0.01, Bonferroni over the peaks compared on the chromosome, at least three dated copies per peak), the youngest is the core: copies insert into the
+  active kinetochore, so the older cluster is where the centromere was (young CRM subgroups colonize present maize centromeres, older ones their flanks,
+  Wolfgruber et al. 2009; *P. annua* Pa1A, future.md #31). The elements at the replaced density maximum stay reported (`core_age_from`), as does the highest peak otherwise reported beside the core (`core_alt`). A limit: recruited families are pooled, so a peak made of a younger family reads as younger (future.md #71).
 - **Formats.** An element's lineage comes from `clade=` (LTRquest, EDTA + TEsorter) or from a DANTE_LTR element's
   `Final_Classification`. DANTE_LTR's rank-D clusters (protein domains without LTRs) are not elements: in potato they
   made 195 of 223 CRM and put cores up to 15 Mb off CENH3. A file without lineages (EDTA alone gives superfamilies
@@ -144,13 +164,28 @@ the lineage rules below apply to its lineages alone.
 
 Many regional centromeres sit on the most AT-rich stretch of their chromosome (*Plasmodium*, *Malassezia*, *Neurospora*, blast
 fungi), whatever their sequence. That leaves a mark in the FASTA alone, but AT-rich stretches of other kinds exist in every
-genome. So the one-per-chromosome test applies again: for each window of 1-500 kb (their width is not known in advance), the N deepest
-independent GC troughs of the genome must cover more chromosomes than chance. The window with the smallest P is kept, corrected for
-the windows tried, at P ≤ 0.05; 7 or fewer chromosomes can hardly reach that (*S. pombe*: `untested`). The call on a chromosome is
-its deepest trough at that window, widened to the half-depth run around it.
+genome. So the one-per-chromosome test applies again, on the troughs. For each window of 1-500 kb (their width is not known
+in advance), the genome's independent troughs are ranked by depth; the deepest class is read off the depths alone, blind to the
+chromosomes (the largest step between consecutive troughs, the class size M running from N, the chromosomes long enough for the
+window, to 1.5 N: the centromeres and a minority of others); and its counts per chromosome are tested against a random deal in
+which each next trough falls in proportion to the windows a chromosome has left, a trough taking its share of the room there
+(so a chromosome holds at most the independent troughs it has room for). A chromosome with one centromere each makes the class
+fall more evenly over the chromosomes than such a deal can: the Freeman-Tukey statistic of the counts against each chromosome's share,
+lower tail, mid-P of 10,000 deals (Fisher's test of a too-good fit: a chromosome-sized version of "too even to be chance"). The window with the smallest P is kept, corrected for the windows tried (Sidak), at P ≤ 0.05; with 3 chromosomes the level cannot be reached (*S. pombe*:
+`untested`). Holocentric genomes and GC-block shuffles do not pass (3.9% of shuffled genomes, and *Z. tritici* and *C.
+tropicalis*, whose troughs miss, fail); *V. dahliae* now passes (P 0.010, its 8 troughs all right), *C. neoformans* still fails (P 0.36: the deepest
+class is not separated from the other AT-rich loci at any window). The call on a chromosome is its deepest trough at the chosen
+window, widened to the half-depth run around it (0.15: choosing the window per chromosome by the trough's prominence loses
+right calls, *C. neoformans* 12 to 10 of 14 and *N. crassa* 7 to 6 of 7; merging sub-troughs within 100 kb only widens the
+call, *C. neoformans* from 20 to 107 kb).
 
-The line runs only where most chromosomes have no sequence call, and never moves a satellite or LTR call. Alone it gives `low` calls
-(`at_only`). With Hi-C, the prior-free peaks test the troughs directly: agreement beyond chance (Bonferroni over the windows, P ≤ 0.01)
+The line runs where most chromosomes have no sequence call or a `low` one with a competing cluster. Alone it gives `low` calls
+(`at_only`), and on a `low` call whose competing cluster holds the trough's deepest window and the call does not, it chooses that
+cluster (`at_chose_alt`, as Hi-C does with `hic_chose_alt`; mouse: 17 of the 20 FASTA-only calls move from the major to
+the minor satellite array, the true centromere), unless validated Hi-C has a peak on the chromosome and can tell the two apart. The
+call stays `low` unless another line agrees at the chosen cluster. **This rule is a named heuristic, on the evidence of one genome**: two
+satellites differ in composition whatever their centromeres do, so the deepest trough can lie on the inactive array, and only T2T mouse
+exercises the rule (future.md #70). It never moves a confident satellite or LTR call. With Hi-C, the prior-free peaks test the troughs directly: agreement beyond chance (Bonferroni over the windows, P ≤ 0.01)
 on most chromosomes validates the line, on fewer lets the two support each other where they agree. A Hi-C call in agreement then
 takes the trough's interval, which is finer than a Hi-C bin, and rises a level (`at_pair`); a chromosome Hi-C cannot place takes its
 trough at `medium` if the line is validated.
@@ -207,7 +242,8 @@ is why Hi-C is tested before it may act.
 8. **Hi-C alone.** In a genome with fewer than 3 reference calls (point, regional, AT-rich centromeres) nothing can
    test Hi-C against the sequence. There the Rabl axis decides (below): where it passed and agrees with the
    prior-free peak, the call is `medium` (`fold_pair`, `align_pair`). Elsewhere a clean `high` prior-free peak gives
-   a `low` call (`hic_denovo_only`): the best candidate, untested. A sequence call is kept; a clean prior-free peak
+   a `low` call (`hic_denovo_only`): the best candidate, untested. A peak held at `medium` only because its null test cannot be run
+   (`null_untestable`: too few chromosomes to resample) has passed every test it could take and counts too (0.15, *C. tropicalis*: 6 of 7, `low`). A sequence call is kept; a clean prior-free peak
    away from it is reported (`hic_denovo_elsewhere`).
 
 ## The Rabl axis: the arm fold and the trans arm alignment (`fold.py`)
@@ -245,7 +281,7 @@ the LTR cores, weak ones included. The sequence calls play no part.
   any call does; a chromosome without a call takes the core. The windows stay where the LTR line put them: moved to the best score
   within their zones, they find each other in randomized Hi-C too (soybean: 1 of 20 chromosomes becomes 4, P 0.002). A peak counts
   only where it is clean, as for the gate's `low` references: chromosome ends, hubs and NORs attract trans contacts whatever the
-  centromere. Without that, held-out holocentric *R. breviuscula*, whose Athila cores lie at the ends of 4 of 5 chromosomes, passed
+  centromere. Without that, holocentric *R. breviuscula*, whose Athila cores lie at the ends of 4 of 5 chromosomes, passed
   (3/5, P 5e-4) and got 3 `medium` calls; with it, 1/5 (P 0.18), and its calls equal those without `tes/`.
 - **The contact crossing a bin (cis).** The two flanks of a centromere can touch each other more, or less, than DNA at the same distance
   elsewhere. So the profile is the contact between the 4 bins left and the 4 bins right of a bin, over what the chromosome's mean contact
@@ -334,6 +370,7 @@ locate the array (0.8-5.6 Mb); the dip locates the kinetochore inside it.
 | gate failed, no LTR cores, the cis signal tested by the trans contacts at `pass` (0.13) | the same rules, outside the terminal eighths only: a call inside one is left as it is |
 | gate failed, no Rabl axis, a call in a terminal eighth at the end with the higher anchored score, as on most such chromosomes | +1 (`hic_end`) |
 | no call from sequence, Hi-C or LTRs, AT troughs passed their test | the trough, `composition`: `low` (`at_only`), `medium` where Hi-C's prior-free peaks validated the troughs |
+| a `low` sequence call with a competing cluster, AT troughs passed their test, the trough's deepest window on the competing cluster and not on the call | that cluster, `low` unless another line agrees there (`at_chose_alt`; not where validated Hi-C can tell the two apart) |
 | a Hi-C call on a chromosome without a sequence call, a tested trough agreeing | takes the trough's interval, one level up (`at_pair`) |
 | no call from any line, the trough and a clean prior-free Hi-C peak (placing no call of its own) agreeing, in a genome where the two agree beyond chance (0.13) | the trough, `low` (`at_denovo_pair`) |
 
@@ -341,7 +378,7 @@ The order of the table is the order of the rules in `fuse.py`, which since 0.14 
 of which the first that applies sets the call (`_axis_pair`, `_hic_strong_peak`, `_hic_medium_peak`, `_hic_denovo_only`, `_no_call`,
 `_hic_agrees_ambiguous`, `_hic_agrees`, `_hic_support`, `_hic_end`, `_hic_moved`, `_hic_offset`, `_kept`); `PHASES` then act on that
 call in turn (`_te_hic_pair`, `_cis`, `_at_places`: the LTR-core and cis readings override a plain sequence call, the AT trough
-places only what nothing else did); `_refine` takes an agreeing trough's finer interval and lets the Rabl-axis lines contest a kept
+places what nothing else did or chooses a `low` call's competing cluster); `_refine` takes an agreeing trough's finer interval and lets the Rabl-axis lines contest a kept
 call; `_support`, `_against` and `_confidence` read the result. Every rule is a function of the chromosome's context (computed once)
 and the call so far; a new rule is a new function in its place in the order. Each call names the rule that set its place or
 relation in the `rule` column ([outputs.md](outputs.md#asmcentromerestsv)). The split was checked against the single function it
@@ -388,10 +425,11 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | Hi-C bins | 5 kb-2 Mb ladder, ≥ 20 bins per chromosome, ≤ 4,000 per chromosome, ≤ 50,000 per genome | each size a multiple of every finer one; a centromere needs flanks; memory |
 | sat: TANDEM_FRAC, ACRO_ALPHA, LOCUS_FOLD | 0.5, 0.01, 2 | majority rule; conventional level; heuristic |
 | sat: TE_MIN_SITES, TE_ALPHA, TE_CONTRA_ALPHA | 3 sites, 1e-3, 0.01 | three independent insertions make a locus; conventional levels |
+| sat: TE_PEAK_SHARE, TE_AGE_ALPHA, TE_AGE_MIN, TE_PEAK_MAX, TE_POOLED_MIN_CORES, TE_POOLED_BREADTH | 1/2, 0.01, 3 dated copies, 8 peaks, 3 cores, 0.05 | the half-maximum convention of the core; the LTR line's level for overruling a call; as the three insertions that make a core; more than any genome's real clusters; as a CRM seed; the conventional level, per chromosome, for a family's concentration being broad |
 | sat: TE_SPECIFIC_FOLD, TE_MAJOR_SHARE | 10-fold, 1/2 | agreement with independent FASTA-only calls in 42 polyploids whose marker is not CRM: median 0.30 at or below 10-fold, 0.75 above (6 exceptions above, named in [the LTR section](#ltr-retrotransposons-tes-satsignaturepy)); majority rule |
 | sat: TE_SEED_MIN_CORES, TE_RECRUIT_MIN, TE_RECRUIT_ROUNDS | 3 cores, 5 elements, 5 rounds | fewer are no pattern; the results do not depend on them (right cores 152-155 of 172 across 3-10 elements and 1-4 rounds) |
 | karyotype: ALPHA, N_NULL | 0.05, 10,000 draws | conventional level; P resolution 1e-4 |
-| AT: BIN, SCALES, MIN_WINDOWS, APART, AT_ALPHA | 1 kb, 1-500 kb, 10 windows, 5 windows, 0.05 | Malassezia's 3-5 kb centromeres need 1 kb; known regional centromeres span the ladder; a trough needs flanks; one regional centromere gives several troughs closer than that; conventional level, Sidak over the sizes |
+| AT: BIN, SCALES, MIN_WINDOWS, APART, CLASS_MAX, AT_ALPHA | 1 kb, 1-500 kb, 10 windows, 5 windows, 1.5 N, 0.05 | Malassezia's 3-5 kb centromeres need 1 kb; known regional centromeres span the ladder; a trough needs flanks; one regional centromere gives several troughs closer than that; the class of the deepest troughs is the centromeres and a minority of others (two per chromosome, as AT-rich chromosome ends make, is not the pattern sought; heuristic); conventional level, Sidak over the sizes |
 | Hi-C on LTR cores: zone | core ± HALF_WIN bins | the partner half-window, Hi-C's resolution |
 | cis: half window, CIS_SIM | 4 bins, 200 maps | the partner half-window; the engine's null resolution (0.005) |
 | which end: END_ZONE, END_SHARE, END_MIN_BINS | 1/8, 5%, 4 bins | Levan's telocentric bound; a named heuristic of about one half-window at the bins chosen; the half-window |
@@ -444,8 +482,12 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 
 ## Known risks
 
-- The LTR line's `medium` calls outside CRM genomes. In 13 held-out tomatoes, whose centromeres a Tekay signature marks, 15 of the 69 confident calls with `tes/` are wrong
-  (22%; benchmark.md, held-out tomatoes), and a call that merely agrees with the core is the least reliable kind (6 wrong of 17). Treat such calls as a location to check.
+- The AT test where chromosomes have little room: with fewer than about 5 independent troughs per chromosome at a window the deal is a little
+  liberal (pure-noise genomes of 10 chromosomes of 0.3-0.5 Mb at 20 kb: 12% at the 5% level for that window, 6% after the correction for the
+  windows tried); the benchmark's shuffled genomes pass 3.9% (6.3% with 1-kb blocks).
+
+- The LTR line's `medium` calls outside CRM genomes. In 13 tomatoes, whose centromeres a Tekay signature marks, 14 of the 72 confident calls with `tes/` are wrong
+  (19%; benchmark.md, thirteen tomatoes), and a call that merely agrees with the core is the least reliable kind (5 wrong of 18). Treat such calls as a location to check. No statistic of the signature (seed specificity, the core's share or fold, a second comparable peak) tells the wrong cores from the right ones (0.15, future.md #27).
 - The Hi-C test takes the sequence calls as references. Where those are wrong genome-wide, only the Rabl axis,
   `tes/` or methylation can rescue Hi-C (potato and barley Hi-C anchored at the true centromeres find 7/11 and 6/7 of
   them; anchored at the calls, none).
@@ -462,10 +504,10 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   the cores and the FASTA-only calls mostly disagree (no truth).
 - A call can agree with an LTR core it only touches: where the core is much wider than the centromere, a call at one edge is
   `te_concordant` while CENH3 sits at the other, and the agreement lifts the caps that would keep it `low`. 5 of the 7 confident
-  errors of the `tes/` arms are such calls, and so is one of the two held-out genomes' errors (*Ae. geniculata* chr05U, in a 9.3-Mb
+  errors of the `tes/` arms are such calls, and so is one of *Ae. geniculata*'s errors (chr05U, in a 9.3-Mb
   core). Agreement at the core's maximum was measured as a remedy and lowers right calls too
   ([future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)).
-- A thin core of a decisive signature takes a chromosome whose satellite failed its test (`weak_core`). On the held-out
+- A thin core of a decisive signature takes a chromosome whose satellite failed its test (`weak_core`). On
   *S. verrucosum* that replaced 2 right satellite calls (cores of 2 and 4 elements; both stay `low`), and a decisive core that
   replaced a weak array beside it was confidently wrong (chr06); the development genomes had shown neither
   ([future.md #36](future.md#36-no-held-out-test-of-the-013-rules)).

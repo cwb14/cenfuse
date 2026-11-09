@@ -1,10 +1,10 @@
 # Future development
 
-Open problems and planned work after cenfuse 0.14.0. The entries come from the benchmark ([benchmark.md](benchmark.md)), a replay of
+Open problems and planned work after cenfuse 0.15.0. The entries come from the benchmark ([benchmark.md](benchmark.md)), a replay of
 106 allotetraploid plant genomes (2,355 calls), and the development notes of every version, from the predecessors (cenrep, cenhic) to
-0.13, each checked against the 0.13.0 code (2026-11-07), then updated for 0.14.0 (2026-11-08: no rule changed; checkpoints, locks,
-the run manifest, atomic writes, a Hi-C stage about twice as fast, the benchmark in the repository, negative controls as a command, held-out
-truth for an allotetraploid, a wild potato and 13 tomatoes; each entry's "0.14" paragraph says what was done or measured). An entry gives the evidence, an approach, the check that would settle it, and
+0.13, each checked against the 0.13.0 code (2026-11-07), then updated for 0.14.0 and for 0.15.0 (2026-11-08: the LTR line's minority cores,
+age choice between density peaks and pooled seed; a new AT test and the `at_chose_alt` rule; Hi-C alone on few chromosomes; every dataset
+is development data from here on; each entry's "0.14" or "0.15" paragraph says what was done or measured). An entry gives the evidence, an approach, the check that would settle it, and
 where in the code to start. Entry numbers are stable, because the code, the tests and the other docs cite them (`future.md #31`): a
 closed entry keeps its number, and a new one takes the next free number.
 
@@ -57,22 +57,15 @@ Every release so far has kept these (design.md, Principles; benchmark.md, sectio
 
 ## Where to start
 
-0.14 changed no rule: its calls equal 0.13's on all 260 runs, which are right on 2,174 of the 2,624 chromosome-runs with truth in
-the real arms (82.9%); taking, on each, a line whose own locus is right would reach 91.7% (`v12/bench/headroom.py`). Most of that
-headroom lies in AT troughs (117 of the 231 chromosome-runs) and in competing clusters (64, mouse 38). Twelve confident misses
-remain (benchmark.md, section 11). The held-out genomes of 0.14 add 17, all with `tes/`: 2 in *Ae. geniculata* and *S. verrucosum*, 15 in the 13 tomatoes.
+0.15 raised the release's right calls from 2,174 to 2,236 of the 2,624 chromosome-runs with truth in the real arms (82.9% to 85.2%; every confident error count is unchanged, benchmark.md section 13); taking, on each, a line whose own locus is right would reach 91.3% (`benchmark.headroom`). Most of the remaining headroom is in AT troughs (91 of the 161 chromosome-runs, nearly all *C. neoformans*, where the troughs are right but the test still fails) and in competing clusters (30). Twelve confident misses remain in the release runs (benchmark.md, section 11), and 16 more with `tes/`: 2 in *Ae. geniculata* and *S. verrucosum*, 14 in the 13 tomatoes.
 In order:
 
-1. **#46 and #36 The LTR line outside CRM genomes.** In 13 held-out tomatoes a Tekay signature decides in 12, and from it 15 of 69 confident calls are wrong
-   (22%), while the majority rule `TE_MAJOR_SHARE` holds back 59 cores that are right on 36 chromosomes, where the kept call is right on 6. Both need a reason of their own and new
-   held-out Solanaceae (tobacco, eggplant): these genomes have been seen.
-2. **#35 Fetch the public sets**: wheat, oat, 4 soybean lines (and the soybean pan-centromere), cattle, gibbon, a same-animal horse set, the siamang's DiMeLo-seq (on disk).
-   The benchmark can score new truth from the repo (`benchmark/`, #34), and the held-out protocol worked (#36).
-3. **#45 Calls at the edge of a wide LTR core**: 6 confident errors (one held out, *Ae. geniculata* chr05U). Agreement at the core's maximum failed its check; the core's
-   maximum is tied in half the profiles, so a tie-break with a reason comes first.
-4. **#28 and #39 Fungal centromeres the FASTA already marks** (AT troughs right on 8/8 *V. dahliae*, 12/14 *C. neoformans*).
-5. **#37, #38 and #50 The mammal misses**: seven of the 12 are scored against other animals' ChIP or another caller.
-6. **#63 The other large functions** (`interpret`'s sentences, `Run.run`, `hicfuse.py`): the cascade is split into rules (0.14).
+1. **#27 Wrong LTR cores that look right.** With every LTR-RT rule of 0.15, the signature's cores are right on 117 of 156 tomato chromosomes, and the rest are the most frequent cause of wrong calls in this genus: no statistic of the signature separates them. What would is an independent line (Hi-C, CENH3).
+2. **#35 Fetch the public sets** for more *Solanum* with Hi-C or ChIP (tobacco, eggplant), wheat, oat, 4 soybean lines, cattle, gibbon, a same-animal horse set.
+3. **#45 Calls at the edge of a wide LTR core** (5 confident errors).
+4. **#28 and #39 *C. neoformans*:** the AT troughs are right on 12 of 14 chromosomes and the new test still fails; its LTR elements mark the centromeres (46 of 56) but are unclassified (#47).
+5. **#37, #38 and #50 The mammal misses**, seven of the 12 scored against other animals' ChIP or another caller.
+6. **#63 The other large functions** (`interpret`'s sentences, `Run.run`, `hicfuse.py`).
 7. **#32 The own-trans-pair rule** for calls in a terminal eighth (tomato's 2), when a second genome shows the case.
 8. **#65 and #60 CI's first run** (`.github/workflows/tests.yml`, written and tested locally, not yet run on GitHub).
 
@@ -115,23 +108,23 @@ In order:
 | [33](#33-cis-and-trans-at-one-locus-as-a-confident-call) | Hi-C | cis and trans at one locus as a confident call | open | the AT trough's finer interval |
 | [34](#34-the-benchmark-cannot-be-rerun-from-the-repository) | benchmark | the benchmark cannot be rerun from the repository | partly done | the truth-making and analysis scripts; a fresh, unseeded run of every arm (two done, 0.14) |
 | [35](#35-truth-on-disk-or-public-not-yet-used) | benchmark | truth on disk or public, not yet used | partly done | the public sets (the two on disk and 13 tomatoes scored in 0.14) |
-| [36](#36-no-held-out-test-of-the-013-rules) | benchmark | no held-out test of the 0.13 rules | partly done | other lineages (the 13 tomatoes are one genus, 0.14) |
+| [36](#36-no-held-out-test-of-the-013-rules) | benchmark | no held-out test of the 0.13 rules | closed | every dataset is development data from 0.15 on (the user's decision) |
 | [37](#37-scoring-rules-and-controls-to-tighten) | benchmark | scoring rules and controls to tighten | partly done | the end-conditioned chance model; full-depth controls |
 | [38](#38-which-array-holds-the-kinetochore) | satellites | which array holds the kinetochore | open | settle the orangutan truth; mouse as a test bed |
 | [39](#39-satellite-arrays-below-the-engines-absolute-sizes) | satellites | satellite arrays below the engine's absolute sizes | open | a family-free tandem readout, tested one per chromosome |
-| [40](#40-a-centromeric-satellite-smaller-than-a-shared-familys-cluster) | satellites | a centromeric satellite smaller than a shared family's cluster | open | chromosome-specific families tested together |
+| [40](#40-a-centromeric-satellite-smaller-than-a-shared-familys-cluster) | satellites | a centromeric satellite smaller than a shared family's cluster | tested, not adopted | (0.15) the largest cluster of families on few chromosomes places 2/11 potato, 0/12 tomato, 3/12 *S. verrucosum* |
 | [41](#41-right-calls-held-at-low-by-the-honesty-cap) | satellites | right calls held at low by the honesty cap | open | a stability test of dominance |
 | [42](#42-the-one-per-chromosome-test-near-its-level) | satellites | the one-per-chromosome test near its level | open | potato with genes; oat |
 | [43](#43-assemblies-that-lack-or-misassemble-the-centromeric-array) | satellites | assemblies that lack or misassemble the centromeric array | open | the 56 repaired ape centromeres as positives |
 | [44](#44-holocentric-genomes-one-low-call-per-chromosome) | satellites | holocentric genomes: one low call per chromosome | open | score the satellite holocentromeres with CENH3 |
 | [45](#45-confident-calls-at-the-edge-of-a-wide-ltr-core) | LTR | confident calls at the edge of a wide LTR core | open | agreement at the core's maximum failed its check (0.14); tied maxima first |
-| [46](#46-crm-decides-by-its-name) | LTR | CRM decides by its name | open | `TE_MAJOR_SHARE` on new held-out Solanaceae (lead from 13 tomatoes, 0.14) |
+| [46](#46-crm-decides-by-its-name) | LTR | CRM decides by its name | partly done | 0.15: a significant minority core replaces a `low` call (`minority_core`); the CRM privilege itself stays |
 | [47](#47-centromeric-retroelements-the-ltr-line-cannot-read) | LTR | centromeric retroelements the LTR line cannot read | open | fungal lineage labels; non-LTR families |
 | [48](#48-how-much-the-ltr-line-depends-on-the-annotation) | LTR | how much the LTR line depends on the annotation | open | rerun the thinning on 0.13 |
 | [49](#49-hi-c-cannot-see-inside-megabase-arrays) | Hi-C | Hi-C cannot see inside megabase arrays | open | multi-mapped reads or array-unique k-mers |
 | [50](#50-satellite-free-centromeres-in-mammals) | Hi-C | satellite-free centromeres in mammals | open | same-animal horse data |
 | [51](#51-hi-c-tests-at-their-threshold) | Hi-C | Hi-C tests at their threshold | open | the depth series on 0.13; the bin |
-| [52](#52-hi-c-alone-untested) | Hi-C | Hi-C alone, untested | open | guards and the dormant mis-mapping controls |
+| [52](#52-hi-c-alone-untested) | Hi-C | Hi-C alone, untested | partly done | 0.15: a peak at `medium` only because its null cannot be run counts (*C. tropicalis*); the other guards stay open |
 | [53](#53-where-the-cis-trans-line-passes-every-extreme-is-trusted) | Hi-C | where the cis-trans line passes, every extreme is trusted | tested, not adopted | the diagnostic on gate-passing genomes |
 | [54](#54-the-support-tiers-evidence) | Hi-C | the support tier's evidence | open | score its raises against functional truth |
 | [55](#55-cpg-kinetochores-outside-primates) | methylation | CpG kinetochores outside primates | open | HGSVC3 as a held-out set; a mouse negative |
@@ -146,6 +139,8 @@ In order:
 | [64](#64-constants-without-a-reason-in-designmd) | code | constants without a reason in design.md | partly done | other bare literals inside functions |
 | [65](#65-tests-that-pass-without-running) | code | tests that pass without running | partly done | a slow test at production values; CI's first run |
 | [66](#66-statements-the-013-outputs-no-longer-bear-out) | docs | statements the 0.13 outputs no longer bear out | partly done | the old figures, schematic and slides; the audit as a release step |
+| [67](#67-fragments-and-solo-ltrs-as-a-core-locator) | LTR | fragments and solo LTRs of the signature families as a core locator | tested, not adopted | a stronger gain than the age choice's before the new stage is worth its cost |
+| [68](#68-homoeolog-agreement-on-the-polyploid-panel) | benchmark | homoeolog agreement on the polyploid panel | built, unchecked | a polyploid with CENH3 truth (the proxy was found useful on *Arachis*) |
 
 ## Benchmark, truth and validation
 
@@ -288,6 +283,8 @@ in 22 confident calls. The rest of the plan (CRM-plateau genomes, *D. melanogast
 on 3 of 8, all `low`. A call that merely agrees with the core is the least reliable confident kind: 6 wrong of 17 (`te_concordant`). The FASTA arms made no confident
 call. Together: 15 of 69 confident calls wrong, the same rate as the benchmark's tomato (2 of 8). One genus, so this tests one lineage's centromeres.
 **Check.** The held-out scores, reported as written, with the release.
+
+**Closed in 0.15 by the user's decision.** No dataset is held out from development from here on: new genomes are used as development data, and each rule keeps its reason independent of the case that prompted it. Earlier statements of what was held out from which release stay as history.
 
 ### 37. Scoring rules and controls to tighten
 
@@ -469,6 +466,8 @@ not one family.
 **Check.** Potato from the FASTA against CENH3; *S. verrucosum* (#35); no change where the centromeric family is shared.
 **Code.** `sat/classify.py` (roles), `sat/karyotype.py`.
 
+**Tested in 0.15, not adopted.** The largest cluster of the families on at most 3 chromosomes, taken as the candidate on each chromosome, places 2 of 11 potato, 0 of 12 tomato and 3 of 12 *S. verrucosum* centromeres within 1 Mb (16 of 33 in chicken, 4 of 17 in *Chlamydomonas*). In *Solanum* the kb-unit satellites lie at some centromeres but are not the chromosome's largest array often enough (v14 `bench/sat40.py`).
+
 ### 41. Right calls held at low by the honesty cap
 
 **Evidence.** Where no family dominates, every satellite call is `low`, even when the calls are mostly right: chicken 27 of 33 (its
@@ -604,6 +603,8 @@ then what 0.13 shows:
 **Check.** More genomes with a non-CRM signature and truth (the 13 tomatoes of 0.14 are scored: #36, #46; 15 of their 69 confident calls are wrong); *Arabidopsis* with CEN180 masked must not move
 its calls onto the Athila cores; randomized TNEG tomato stays silent.
 
+**0.15.** The age choice (the youngest comparable peak of the signature's elements on a chromosome is the core: `signature.age_choice`) moved 27 cores across the 32 genomes with truth and an LTR annotation (each genome once: 12 wrong to right, 1 right to wrong, 8 right either way, 5 wrong either way, 1 not scored; `v14/bench/chk_moved.py`). Tomato's 5 wrong cores among 12 fell to 4; over the 13 tomatoes the cores are right on 117 of 156 chromosomes (102 of 151 before). No statistic of the signature tells the remaining wrong cores from the right ones: seed specificity, the share or fold of the core, a second comparable peak (accuracy 0.85 with one against 0.83 without), a super-majority of the core's share. A second comparable peak is reported (`core_alt`), as a place to check.
+
 ### 31. A centromere that left its satellite and its LTR families
 
 **Evidence.** Earlier analyses (no ChIP) place *P. annua* Pa1A's functional centromere at 163.0-169.4 Mb, where Hi-C peaks (168.0 Mb),
@@ -679,6 +680,8 @@ more elements) is worth its own check before any rule reads the maximum.
 genomes (wheat, the soybean lines, *Ae. geniculata*: #35), not these five, decide the rule.
 **Code.** `sat/centromere.py` (`te_concordant`), `sat/te.py` (`agrees`), `linetests.py`.
 
+**0.15.** Unchanged: the age choice and the minority cores do not reach these calls.
+
 ### 46. CRM decides by its name
 
 **Evidence.** CRM is the one lineage that decides from 3 significant cores on, with no fold level (`sat/signature.py`); other lineages
@@ -705,6 +708,8 @@ serve if how their centromeres were found is confirmed.
 **Check.** No right call lost in the CRM-decisive genomes of the benchmark; no tobacco or eggplant CENH3 domain overruled by CRM.
 **Code.** `sat/signature.py` (`seed_of`, `TE_SEED_MIN_CORES`).
 
+**0.15.** A significant core holding under half of the signature's elements (`strong` False) now replaces a call that is `low` on its own and stays `low` (`minority_core`): 41 of the 57 such calls in the 13 tomatoes are right, none confident. The rule that a non-CRM core needs a majority of the signature's elements on its chromosome to act confidently stays. A signature now decides only if its cores are specific on their chromosomes (median core fold at least 10): a specific seed can recruit families spread along the chromosomes, *Arachis* (11.6-fold seed, cores 1.5-fold), found on the polyploid panel.
+
 ### 47. Centromeric retroelements the LTR line cannot read
 
 **Evidence.** The LTR line uses classified LTR elements only. Two genomes show what that misses:
@@ -722,6 +727,8 @@ before they may act.
 **Check.** *Cryptococcus* (both nuclear states, without Hi-C) and *Chlamydomonas* placed; fish and *Oryza* unchanged; shuffled positions
 give no signature.
 **Code.** `sat/te.py` (the readers take `LTR_retrotransposon` features only), `sat/signature.py`.
+
+**Measured in 0.15, not adopted.** All LTR elements pooled per chromosome, unclassified ones included, are right on 6 of 14 *C. neoformans* and 3 of 8 *V. dahliae* centromeres, and never significant (too few independent insertions per chromosome): the line's minimum of three insertion sites is what a pooled test would have to give up.
 
 ### 48. How much the LTR line depends on the annotation
 
@@ -940,6 +947,8 @@ trans cluster may be something other than the centromeres, and a holocentric gen
 *Z. tritici* scored.
 **Code.** `fuse.py` (`hic_denovo_only`), `hic/qc.py` (flags), `hicfuse.py` (`repeats=None` where the engine is called), `hic/simulate.py`.
 
+**0.15.** A prior-free peak held at `medium` only because its null test cannot be run (`null_untestable`, too few chromosomes to resample: *C. tropicalis*) now counts for Hi-C alone: 0 to 6 of 7 right there, `low`; on randomized libraries the flag never occurs without `not_converged` (which keeps a peak unclean).
+
 ### 53. Where the cis-trans line passes, every extreme is trusted
 
 **Evidence.** The cis signal tested by trans contacts acts on every chromosome of a genome that passes (leave one out), not only where that
@@ -978,31 +987,27 @@ design.md.
 
 ### 28. Where AT troughs do not work
 
-**Evidence.** The test passes in *P. falciparum*, *M. sympodialis* and *N. crassa*. It fails elsewhere, and its failures are of two kinds:
-- **Right troughs, failed test.** Each chromosome's deepest trough lies on the centromere in *V. dahliae* (8 of 8) and *C. neoformans*
-  (12 of 14), but the genome-level count of the N deepest troughs fails: *V. dahliae* has three deep troughs Mb apart on one chromosome,
-  and a *C. neoformans* centromere holds two sub-troughs. These 20 calls are computed and discarded; AT troughs hold 117 of the 231
-  chromosome-runs of headroom (113 where only the trough is right, a count inflated by the 250-kb tolerance without Hi-C, #37).
-- **Wrong troughs.** In *Z. tritici* (0 of 21 overlapping) and *C. tropicalis* (0 of 7) the troughs miss, so a test that passed there
-  would make wrong calls.
+**Evidence (0.15).** The test now passes in *P. falciparum*, *M. sympodialis*, *N. crassa* and *V. dahliae* (each chromosome's deepest
+trough right on 13 of 14, 8 of 8, 7 of 7 and 8 of 8 chromosomes, overlapping the centromere), and on mouse, which it did not run on before.
+The former test (the N deepest troughs of the genome cover the chromosomes; multinomial null) ignored the room a chromosome has for
+independent troughs (it passed 15% of shuffled *C. neoformans* genomes) and saw only whether a trough was among the N deepest; its replacement deals the deepest class over the chromosomes with
+their capacities and asks how evenly it falls (Freeman-Tukey, lower tail). The remaining failures:
+- **Right troughs, failed test.** *C. neoformans* (P 0.36) and *S. pombe* (`untested`, 3 chromosomes). *C. neoformans*' deepest troughs at
+  10 kb are right on 12 of 14 chromosomes but a tie with other AT-rich loci (0.423-0.452 for the first, 0.43-0.46 for the others): nothing
+  in the depths sets a class of centromeres apart, and the even deal of 14 troughs on 14 chromosomes has no power.
+- **Wrong troughs.** *Z. tritici* and *C. tropicalis*: the test fails (P 0.69 and 0.15), as it should: their troughs are not on the centromeres
+  (overlap 0 of 21 and 0 of 7).
 
-Point centromeres say nothing (yeast: 125 bp), and genomes with few chromosomes cannot reach the level (*S. pombe*: `untested`,
-though its 3 troughs are right). The test passes on about 4% of genomes with shuffled GC blocks, as its 5% level allows, and then gives
-`low` calls. It also passes on *Chlamydomonas* (P 0.0125, 500-kb window) with its troughs right on 6 of 13. It does not run there only
-because most chromosomes have a sequence call: a latent false pass. *P. falciparum* NC_037281.1 is its one wrong call (482 kb off,
-`low`).
-**Tested in 0.13, not changed.** Counting the troughs of one AT-rich run once (each trough's half-depth run excluded before the next)
-changes no genome. *C. neoformans*' 30-65-kb centromeres hold two sub-troughs with GC-normal sequence between them (CEN11: 0.865 and
-0.925 Mb), so the run breaks, and *V. dahliae*'s troughs are Mb apart. Also tried before 0.12: CUSUM on the GC deficit (*M. sympodialis*
-0 of 8) and choosing the window by the largest gap between the first and second trough (wrong windows in *C. neoformans* and *S. pombe*).
-In *C. neoformans* the cis signal tested by trans contacts now places them (entry 26), and an AT trough agreeing with a weak prior-free
-peak places 3 more (`at_denovo_pair`).
-**Approach.** A per-chromosome test: each chromosome's deepest trough against its own chance, combined over chromosomes, instead of
-the genome's N deepest. A second feature with the trough would also help: a gene desert, or without `genes/` a run of low k-mer
-complexity.
-**Check.** *V. dahliae* and *C. neoformans* pass from the FASTA; *Z. tritici*, *C. tropicalis*, *Chlamydomonas*, the holocentric genomes
-and the shuffled genomes do not.
-**Code.** `atline.py`; `v12/bench/at_diag.py` and `v12/results/at_merge.tsv` hold the per-chromosome numbers.
+Point centromeres say nothing (yeast: 125 bp), and with 3 chromosomes the level cannot be reached (*S. pombe*: `untested`, though its 3 troughs are right).
+The test passes on 3.9% of genomes with shuffled GC blocks (3,336 shuffles of the benchmark's genomes, block sizes 1-500 kb, 6.3% at 1-kb blocks). It stays silent on the
+holocentric genomes. It no longer passes on *Chlamydomonas* (P 0.09): chromosome ends make two deep troughs per chromosome there (at 10 kb, 21 of the 30 deepest troughs lie in the terminal 5% of a chromosome), so the deepest class is bounded at 1.5 N.
+Two latent false passes remain on genomes where it would act only if a chromosome had no call: *B. rapa* TC1 and the tomato LA0426 (P 0.002 and 0.04; the 5% level allows them).
+
+**Tested in 0.13 and 0.15, not changed.** Counting the troughs of one AT-rich run once (each trough's half-depth run excluded before the next) changes no genome (0.13). Choosing the window per chromosome by the trough's prominence across scales loses right calls (*C. neoformans* 12 to 10 of 14, *N. crassa* 7 to 6 of 7); merging the troughs of one centromere within 100 kb only widens the call (0.15). Also tried before 0.12: CUSUM on the GC deficit (*M. sympodialis* 0 of 8) and choosing the window by the largest gap between the first and second trough (wrong windows in *C. neoformans* and *S. pombe*).
+In *C. neoformans* the cis signal tested by trans contacts places them (entry 26), and an AT trough agreeing with a weak prior-free peak places 3 more (`at_denovo_pair`).
+**Approach.** A second feature with the trough would help where the depths do not separate a class: a gene desert, or without `genes/` a run of low k-mer complexity.
+**Check.** *C. neoformans* passes from the FASTA; *Z. tritici*, *C. tropicalis*, *Chlamydomonas*, the holocentric genomes and the shuffled genomes do not.
+**Code.** `atline.py`; `v14/wt_at/analysis/` holds the comparisons.
 
 ## Methylation
 
@@ -1698,3 +1703,30 @@ two counts are not reconciled, #66), but its trans contacts at them do not meet.
 not act).
 **What remains**: potato without `tes/` (#40 for its satellites), the calls in terminal eighths (#32), and the extremes the line trusts
 on chromosomes where its own pair fails (#53).
+
+## Added in 0.15
+
+### 67. Fragments and solo LTRs as a core locator
+
+**Tested in 0.15, not adopted.** The LTRs of the signature's families, mapped back to the genome with minimap2 (leave-one-chromosome-out queries), give thousands of hits per chromosome; the density peak of those hits is right on 248 of 299 chromosomes where an element core exists, against 237 for the element core and 248 for the age choice among element peaks (251 for both together: v14 `bench/frag4.py`). The fragments gain in tomatoes and lose in potato, soybean and sorghum, for +3 over the age choice alone and a new external stage per genome, so nothing was built.
+
+### 68. Homoeolog agreement on the polyploid panel
+
+**Built in 0.15 as a check, no truth.** On the 106 allotetraploids of the polyploid collection (stored searches replayed from classify; `v14/bench/replay_T.sh` with `FIX_STAMPS`, `run_P.sh`), a call is lifted through the collinear anchors between homoeologous chromosomes and compared with its homoeolog's call (within 5% of the chromosome). The check found the one bad first form of a 0.15 rule: minority cores acted in *Arachis*, where the recruited families' cores were not specific (agreement on the changed pairs fell from 11 of 14 to 2 of 14), which the benchmark with truth could not see. Agreement after the 0.15 LTR rules: 663 of 1,103 homoeologous pairs agree over 105 species with anchors, against 657 under the 0.14 rules (60.1% against 59.6%); of the 26 pairs whose call changed, 14 agree against 8 before, 17 lie closer and 9 farther.
+**Open.** A polyploid with CENH3 truth would calibrate the proxy; homoeolog agreement can be a right call on an evolutionarily new centromere that lies elsewhere in the other subgenome.
+
+### 69. Why a null test could not be run
+
+**Open (0.15 code review).** `_clean_denovo` counts a prior-free Hi-C peak held at `medium` by `null_untestable` as having passed every test it could take. The flag has two causes: fewer than two partner chromosomes with bins to resample (*C. tropicalis*), which is what the rule means, and a non-finite observed ratio or a chromosome never scored in a replicate, a degenerate case the rule does not mean. The two are not separated in the Hi-C engine's flags, because that needs a change to the engine's stage. **To do:** a distinct flag for the degenerate case. It could place one more `low` call; the only caller also needs a genome that cannot test Hi-C at all, and no benchmark run was seen in that state.
+
+### 70. The AT trough choosing between two satellites rests on one genome
+
+**Open (0.15 code review).** `at_chose_alt` lets a tested trough choose a `low` call's competing cluster. Two satellites differ in composition whatever their centromeres do, so nothing says the deepest trough lies on the active array; on the module's own reasoning the AT line is for chromosomes without a satellite call. Only T2T mouse exercises the rule (17 chromosomes in 3 arms, all right, all `low`), it never fired on the polyploid panel, and of the 136 scored low calls with a competing cluster over all genomes with truth, the 2 outside mouse where exactly one cluster is right and the trough lies on exactly one (*S. tuberosum* and *S. verrucosum*, whose AT test fails, so the rule does not act) have the trough on the wrong one. Outside mouse the first choice is the right one on 27 of the 46 chromosomes where exactly one cluster is right. The rule stays as a named heuristic because the call stays `low`, the flag names it and the first choice stays reported (`seq_start`, `seq_end`). **What would settle it:** another genome with two satellites at one centromere per chromosome and CENH3 or CENP-A truth, whose AT test passes.
+
+### 71. Age choice and family composition
+
+**Open (0.15 code review).** `age_choice` compares the ages of all the recruited families' copies at two peaks. Families burst at different times, so a peak made of a younger family reads as younger without any move of the centromere. **What would settle it:** the same test within the commonest family of each peak, where copies are enough; the power is lower.
+
+### 72. Minority cores beyond *Solanum*
+
+**Open (0.15 code review).** `minority_core` was built on the tomatoes, and outside *Solanum* the benchmark has one scored chromosome where it acts: cucumber chr1 (HT and HTH arms), a `low` call that was right in 0.14 and is 2.1 Mb off in 0.15, still `low`. On the polyploid panel, a truth-free check the rule was not built on, it acts on 14 calls in 3 species (*Arabidopsis suecica*, *Malus toringoides*, *Sphagnum papillosum*), and the 11 homoeologous pairs they touch agree in 7 against 3 under 0.14's rules. With truth, its precision outside *Solanum* is unknown. Every number for it is on development data, by design (no held-out data since 0.15).

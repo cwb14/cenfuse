@@ -11,10 +11,10 @@ Every call comes with a confidence and, in words, what speaks for and against it
 **A** one row per chromosome: Hi-C score (blue), CHG methylation (black), satellite arrays colored by role,
 retrotransposon density (orange); black box = the sequence call, gray band = the final call; ▶ ▼ telomere arrays at
 the ends and inside; ◆ ◇ 45S and 5S rDNA arrays. **B** the evidence that supports (●) or opposes (×) each call.
-**C** where each kind of evidence puts the centromere. **D** the Hi-C score around each call. On Pa1A validated Hi-C peaks 21 Mb
-from the satellite that the LTR signature also marks (TE ×), and the copies of the centromeric LTR families there are young (median
-0 years) while those at the satellite are old (620,000 years; column `age`): the centromere moved, and the call (arrow) moves with
-it, where earlier analyses put it ([docs/future.md #31](docs/future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).*
+**C** where each kind of evidence puts the centromere. **D** the Hi-C score around each call. On Pa1A the copies of the centromeric LTR
+families form two peaks: the highest on the satellite array at 146 Mb and, significantly younger, one 21 Mb from it. The younger peak
+is the call, and validated Hi-C peaks inside it: the centromere moved, where earlier analyses put it
+([docs/future.md #31](docs/future.md#31-a-centromere-that-left-its-satellite-and-its-ltr-families)).*
 
 ## How it works
 
@@ -29,12 +29,15 @@ while anything else falls in proportion to chromosome length.
    chromosomes. Its call is the main array of the centromeric family on each chromosome. The test: do the N largest
    arrays of those families cover more of the N chromosomes than chance? Where they do not (tomato, potato, barley,
    *Ae. tauschii*), a satellite call cannot be confident on its own.
-2. **AT troughs** (always, where most chromosomes have no other call). Many regional centromeres sit on the most AT-rich
-   stretch of their chromosome, whatever their sequence. The same test, on the genome's deepest GC troughs:
-   *Plasmodium*, *Malassezia* and *Neurospora* pass from the FASTA alone.
+2. **AT troughs** (where most chromosomes have no other call, or only a `low` one with a competing cluster). Many regional centromeres
+   sit on the most AT-rich stretch of their chromosome, whatever their sequence. The test asks whether the genome's deepest GC troughs
+   fall more evenly over the chromosomes than chance deals (one centromere per chromosome): *Plasmodium*, *Malassezia*, *Neurospora*
+   and *V. dahliae* pass from the FASTA alone.
 3. **LTR retrotransposons** (`tes/`). cenfuse learns which families mark centromeres in this genome, at family level and
    for each chromosome from the other chromosomes, so any lineage can do it: CRM in grasses, Bryco in moss, Osser in
-   *Chlorella*, a single Tekay family in tomato. A decisive signature can replace a satellite call it contradicts.
+   *Chlorella*, a single Tekay family in tomato. Where a chromosome holds several comparable clusters of those families, the
+   significantly younger one marks where the centromere is now. A decisive signature can replace a satellite call it contradicts
+   and a `low` call it disagrees with.
 4. **Hi-C** (`hic/`). Centromeres meet in the nucleus. Before Hi-C may act on a chromosome, it has to find the
    centromeres of the *other* chromosomes in your library. Where those calls are wrong genome-wide, Hi-C is tested
    against the LTR cores instead, and so is a cis signal: in tomato the two flanks of each centromere touch about twice
@@ -62,7 +65,7 @@ Details: [docs/design.md](docs/design.md).
 Calls were scored against centromeres mapped by CENP-A/CENH3 ChIP (or CUT&Tag, DiMeLo-seq) on the same assembly.
 A call is right when it overlaps the CENP-A domain (mammals), lies within 4 Hi-C bins of the CENH3 domain (plants:
 about 1 Mb; moss and algae: 100 kb), or within 1 Hi-C bin (fungi, *Plasmodium*); *confident* = `high` or `medium`.
-Every number is from cenfuse 0.14.0, whose calls equal 0.13.0's on all 260 benchmark runs. Per genome, the controls and every failure are in
+Every number is from cenfuse 0.15.0 (290 runs). Per genome, the controls and every failure are in
 [docs/benchmark.md](docs/benchmark.md); every genome's overview page is in the [gallery](docs/gallery.md).
 
 {{README_TABLE}}
@@ -76,7 +79,7 @@ git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse      # or, on linux-64, the benchmark's exact environment:
                                                                     # mamba create -n cenfuse --file environment.lock.txt
 pip install --no-deps .
-pytest -q -n 8          # optional: about 1,150 tests, a few minutes; CENFUSE_REQUIRE_TOOLS=1 fails instead of skipping without the tools
+pytest -q -n 8          # optional: about 1,170 tests, a few minutes; CENFUSE_REQUIRE_TOOLS=1 fails instead of skipping without the tools
 ```
 
 ## Quick start
@@ -90,7 +93,7 @@ Then read `mygenome/cenfuse/cenfuse_report.md` (what was found, in words), `asm.
 chromosome) and `cenfuse_overview.pdf`.
 
 **Runtime and memory.** The satellite search takes most of the time and grows with genome size and satellite content. Fresh
-runs from the FASTA (2026-11-07; the search code is unchanged in 0.14): the allotetraploid *Ae. geniculata* (7.9 Gb) 64 min at 32 threads, the wild potato *S. verrucosum*
+runs from the FASTA (2026-11-07; the search code has not changed since): the allotetraploid *Ae. geniculata* (7.9 Gb) 64 min at 32 threads, the wild potato *S. verrucosum*
 (0.7 Gb) 16 min at 16, 13 tomatoes (0.8-1.2 Gb) 13-50 min at 16; adding `tes/` to the finished run, 1-12 min. From before 0.11 (whose search is up to 4.9x faster
 where long repeat models hold low-complexity tracts): T2T mammals (2.6-3.6 Gb) 1-10 h at 12 threads, mouse 9 h at 16. Hi-C and
 the integration take minutes. Peak memory (the largest process): 17.5 GB for *Ae. geniculata* at 32 threads, 7-46 GB for the tomatoes at 16, 8-74 GB for T2T
@@ -114,7 +117,7 @@ mygenome/
 | input | what it adds |
 |---|---|
 | FASTA | satellite families and their roles, telomeres, rDNA arrays, one sequence call per chromosome |
-| `tes/` | the LTR retrotransposon families that mark centromeres in this genome, learned from it (from the FASTA alone barley gets 0/7 right, potato 2/11, tomato 1/12; with `tes/` 7/7, 10/11, 6/12); with Hi-C, they also test Hi-C where the satellite calls cannot |
+| `tes/` | the LTR retrotransposon families that mark centromeres in this genome, learned from it (from the FASTA alone barley gets 0/7 right, potato 2/11, tomato 1/12; with `tes/` 7/7, 10/11, 8/12); with Hi-C, they also test Hi-C where the satellite calls cannot |
 | `hic/` | a test of every call; tested Hi-C can move a call, and where the FASTA gives no call (point, regional, AT-rich centromeres) it places one; a cis signal at satellite-free centromeres, tested by the LTR cores or, without `tes/`, by Hi-C's own contacts between chromosomes (tomato: 10/12 either way) |
 | `meth/` | CpG: the kinetochore inside each call (primates); CHG (with `tes/`): a possible second line of evidence in plants |
 | `genes/` | gene density at every locus; rejects gene-rich repeats as centromeres |
@@ -145,7 +148,7 @@ mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm
 | `--reboundary` | repairs element ends that lack a target-site duplication, and merges duplicate calls of one element |
 | `--no-plots` | skips LTRquest's plots: cenfuse reads only the GFF3 |
 
-All 17 `tes/` annotations of the benchmark, and those made for the genomes held out from 0.12, come from this command, except
+All `tes/` annotations of the benchmark come from this command, except
 that they were made without `--proteins`. cenfuse reads LTRquest's `family=` labels to learn the centromeric families; a file without
 them uses lineages only. The LTR line needs a sensitive annotation: with less sensitive ones (DANTE_LTR, EDTA's intact set, half of
 LTRquest's elements) CRM concentrated on too few rice chromosomes to decide in 0.11, and potato lost its gain from `tes/`.

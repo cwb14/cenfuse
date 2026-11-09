@@ -1,14 +1,12 @@
 # Benchmarks
 
-cenfuse was scored on 55 assemblies (56 genomes and libraries), from T2T mammals to fungi, against centromeres mapped
-functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.14.0 on every
-benchmark arm and on the 40 arms held out from 0.12 (260 runs, 2026-11-08), scored with the rules fixed before each benchmark
-was first run; 0.14 changed no rule, and its calls equal 0.13.0's on all 260 runs ([section 13](#13-what-changed-from-013)).
-Each run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`); the engine's rules are
-unchanged since 0.11. Two genomes whose CENH3 truth was on disk but never scored, an allotetraploid among them, are held out
-from 0.14 and run in full, search included ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and so are 13 tomatoes ([section 3](#held-out-from-014-thirteen-tomatoes)); the genomes held
-out from the 0.12 rules are in [section 4](#held-out-from-the-012-rules). The scorer, the truth manifest and this page's tables are
-in the repository ([benchmark/](../benchmark/README.md)). The overview pages of every genome are in the [gallery](gallery.md); how
+cenfuse was scored on 57 assemblies (70 genomes and libraries), from T2T mammals to fungi, against centromeres mapped
+functionally on the same assembly. Every number on this page comes from one release rerun of cenfuse 0.15.0 (290 runs, 2026-11-08):
+every benchmark arm of the earlier releases and every genome added since, the allotetraploid *Ae. geniculata*, the wild potato *S.
+verrucosum* and 13 tomatoes among them, scored with the rules fixed before each benchmark was first run. Since 0.15 every dataset is development
+data ([section 13](#13-what-changed-from-014)); earlier statements about what was held out from which release keep their history. Each
+run read a replay of the satellite engine on its arm's stored search (`--satellite-dir`), with the classify stage onward recomputed
+for arms with `tes/`. The scorer, the truth manifest and this page's tables are in the repository ([benchmark/](../benchmark/README.md)). The overview pages of every genome are in the [gallery](gallery.md); how
 each rule works is in [design.md](design.md).
 
 ## How calls are scored
@@ -45,11 +43,11 @@ each rule works is in [design.md](design.md).
 
 | truth | calls | right calls | median call width | median domain width | median midpoint distance (90th percentile) | midpoint inside the domain | median share of the call on the domain |
 |---|---|---|---|---|---|---|---|
-| animals: CENP-A, CenSat active array, minor satellite | all right | 768 | 3.65 Mb | 0.32 Mb | 0.44 Mb (1.66 Mb) | 44% | 15% |
+| animals: CENP-A, CenSat active array, minor satellite | all right | 802 | 3.44 Mb | 0.34 Mb | 0.40 Mb (1.66 Mb) | 46% | 17% |
 | animals: CENP-A, CenSat active array, minor satellite | `high`, `medium` | 672 | 3.89 Mb | 0.30 Mb | 0.49 Mb (1.73 Mb) | 39% | 11% |
-| plants and algae: CENH3 | all right | 815 | 2.39 Mb | 0.90 Mb | 0.34 Mb (1.56 Mb) | 53% | 26% |
-| plants and algae: CENH3 | `high`, `medium` | 733 | 2.83 Mb | 0.90 Mb | 0.39 Mb (1.59 Mb) | 53% | 26% |
-| fungi and *Plasmodium*: mapped centromeres | all right | 213 | 30 kb | 12 kb | 3 kb (26 kb) | 70% | 50% |
+| plants and algae: CENH3 | all right | 815 | 2.39 Mb | 0.90 Mb | 0.35 Mb (1.56 Mb) | 53% | 26% |
+| plants and algae: CENH3 | `high`, `medium` | 735 | 2.83 Mb | 0.90 Mb | 0.39 Mb (1.58 Mb) | 53% | 26% |
+| fungi and *Plasmodium*: mapped centromeres | all right | 241 | 40 kb | 12 kb | 4 kb (26 kb) | 69% | 50% |
 | fungi and *Plasmodium*: mapped centromeres | `high`, `medium` | 92 | 60 kb | 5 kb | 2 kb (21 kb) | 62% | 51% |
 
 ## Figures
@@ -87,7 +85,7 @@ New in 0.12 (from the 0.12 release):
   against the share of cores on CENH3; **G** where the 10-fold level comes from (42 polyploids, no truth). **H** every genome with LTRs
   and truth, held-out ones included.*
 
-From the 0.10.1 release ([what changed since](#13-what-changed-from-013) applies to these, with [0.11 to 0.12](#from-011-to-012)):
+From the 0.10.1 release ([what changed since](#13-what-changed-from-014) applies to these, with [0.11 to 0.12](#from-011-to-012)):
 
 - [Mammals and Hi-C](img/benchmark_overview.pdf) ![benchmark overview](img/benchmark_overview.png)
   *9 T2T mammals with CENP-A truth; rice, barley, potato and horse EquCab3 with ChIP truth. **A** every chromosome
@@ -131,7 +129,7 @@ richest set where it differs from the columns before it. Chance = the right call
 | horse (T2T) | CENP-A | 29/32 | 29/32 |  |  | 29/32 (genes, Hi-C) | 4.0 |
 | HG002 (diploid human) | CenSat active array | 46/46 |  |  |  | 46/46 (ONT CpG methylation) | 2.6 |
 | horse (EquCab3) | CENP-A | 3/5 |  |  | 3/5 |  | 0.1 |
-| mouse (T2T) | minor-satellite array | 1/20 |  |  | 1/20 |  | 1.4 |
+| mouse (T2T) | minor-satellite array | 18/20 |  |  | 18/20 |  | 0.4 |
 | **mammals (no CENP-A data)** | | | | | | | |
 | siamang | none (satellome locus) | 18/26 | 19/26 |  |  | 20/26 (2) (genes, Hi-C) | 1.0 |
 | rhesus macaque | none (satellome locus) | 22/22 | 22/22 |  |  | 22/22 (genes, Hi-C) | 4.2 |
@@ -161,7 +159,7 @@ richest set where it differs from the columns before it. Chance = the right call
 | *Brassica rapa* MIZ1 | CENH3 | 10/10 |  |  |  |  | 2.5 |
 | *Brassica rapa* WTC1 | CENH3 | 10/10 |  |  |  |  | 2.3 |
 | *Arabidopsis thaliana* (Col-CC) | CENH3 | 5/5 |  | 5/5 | 5/5 | 5/5 (`tes/`, ONT methylation) | 0.8 |
-| tomato | CENH3 | 1/12 |  | 6/12 (2) | 10/12 | 10/12 (`tes/`, Hi-C) | 0.9 |
+| tomato | CENH3 | 1/12 |  | 8/12 (2) | 10/12 | 10/12 (`tes/`, Hi-C) | 0.9 |
 | moss (*Physcomitrium patens*) | CENH3 | 16/26 |  | 26/26 | 21/26 | 26/26 (`tes/`, Hi-C) | 1.4 |
 | **algae** | | | | | | | |
 | *Chlamydomonas reinhardtii* | CENH3 | 6/17 |  | 6/17 |  |  | 2.6 |
@@ -171,12 +169,12 @@ richest set where it differs from the columns before it. Chance = the right call
 | *Schizosaccharomyces pombe* | CEN / CENP-A / CenH3 | 0/3 |  |  | 3/3 |  | 0.0 |
 | *Neurospora crassa* | CEN / CENP-A / CenH3 | 7/7 |  |  | 7/7 |  | 1.7 |
 | **fungi (held out)** | | | | | | | |
-| *Verticillium dahliae* | CEN / CENP-A / CenH3 | 0/8 |  |  | 8/8 |  | 0.0 |
+| *Verticillium dahliae* | CEN / CENP-A / CenH3 | 8/8 |  |  | 8/8 |  | 1.8 |
 | *Zymoseptoria tritici* | CEN / CENP-A / CenH3 | 0/21 |  |  | 19/21 |  | 0.0 |
 | *Cryptococcus neoformans* (anaphase Hi-C) | CEN / CENP-A / CenH3 | 0/14 |  |  | 13/14 |  | 0.0 |
 | *Cryptococcus neoformans* (G1 Hi-C) | CEN / CENP-A / CenH3 | 0/14 |  |  | 12/14 |  | 0.0 |
 | *Malassezia sympodialis* | CEN / CENP-A / CenH3 | 8/8 |  |  | 8/8 |  | 5.0 |
-| *Candida tropicalis* | CEN / CENP-A / CenH3 | 0/7 |  |  | 0/7 |  | 0.0 |
+| *Candida tropicalis* | CEN / CENP-A / CenH3 | 0/7 |  |  | 6/7 |  | 0.0 |
 | **protists** | | | | | | | |
 | *Plasmodium falciparum* | CEN / CENP-A / CenH3 | 13/14 |  |  | 14/14 |  | 5.1 |
 | **nematodes (holocentric control)** | | | | | | | |
@@ -252,7 +250,7 @@ families called centromeric (N = the number of chromosomes) should cover nearly 
 fewer if they are not ([design.md](design.md#one-locus-per-chromosome-a-test-of-the-satellite-line-satkaryotypepy)). The test reads
 the FASTA alone and asks nothing about any one locus:
 
-| genome | chromosomes | covered by the N largest clusters | by chance | P | test | FASTA only, 0.12 | FASTA only, 0.13 |
+| genome | chromosomes | covered by the N largest clusters | by chance | P | test | FASTA only, 0.14 | FASTA only, 0.15 |
 |---|---|---|---|---|---|---|---|
 | human (CHM13) | 24 | 22 | 15 | 0.0001 | pass | 23/23 | 23/23 |
 | chimpanzee | 25 | 25 | 15 | 0.0001 | pass | 18/18 | 18/18 |
@@ -265,7 +263,7 @@ the FASTA alone and asks nothing about any one locus:
 | horse (T2T) | 33 | 31 | 20 | 0.0001 | pass | 29/32 | 29/32 |
 | HG002 (diploid human) | 46 | 44 | 28 | 0.0001 | pass | 46/46 | 46/46 |
 | horse (EquCab3) | 32 | 26 | 19 | 0.0002 | pass | 3/5 | 3/5 |
-| mouse (T2T) | 20 | 20 | 13 | 0.0001 | pass | 1/20 | 1/20 |
+| mouse (T2T) | 20 | 20 | 13 | 0.0001 | pass | 1/20 | 18/20 |
 | siamang | 26 | 18 | 16 | 0.2 | fail | 18/26 | 18/26 |
 | rhesus macaque | 22 | 22 | 14 | 0.0001 | pass | 22/22 | 22/22 |
 | sheep | 28 | 22 | 16 | 0.0015 | pass | 26/28 (1) | 26/28 (1) |
@@ -299,7 +297,7 @@ the FASTA alone and asks nothing about any one locus:
 | *Saccharomyces cerevisiae* | 17 | no centromeric family | | | none | 0/16 | 0/16 |
 | *Schizosaccharomyces pombe* | 3 | no centromeric family | | | none | 0/3 | 0/3 |
 | *Neurospora crassa* | 7 | no centromeric family | | | none | 7/7 | 7/7 |
-| *Verticillium dahliae* | 8 | no centromeric family | | | none | 0/8 | 0/8 |
+| *Verticillium dahliae* | 8 | no centromeric family | | | none | 0/8 | 8/8 |
 | *Zymoseptoria tritici* | 21 | no centromeric family | | | none | 0/21 | 0/21 |
 | *Cryptococcus neoformans* (anaphase Hi-C) | 14 | no centromeric family | | | none | 0/14 | 0/14 |
 | *Cryptococcus neoformans* (G1 Hi-C) | 14 | no centromeric family | | | none | 0/14 | 0/14 |
@@ -335,7 +333,7 @@ each genome: the most specific centromere-concentrated family or lineage seeds i
 enriched in the other chromosomes' cores ([design.md](design.md#ltr-retrotransposons-tes-satsignaturepy)). Right / chromosomes
 (confidently wrong):
 
-| genome | signature | fold in its cores | decides? | FASTA only | + `tes/`, 0.12 | + `tes/`, 0.13 | + `tes/` + Hi-C, 0.13 |
+| genome | signature | fold in its cores | decides? | FASTA only | + `tes/`, 0.14 | + `tes/`, 0.15 | + `tes/` + Hi-C, 0.15 |
 |---|---|---|---|---|---|---|---|
 | rice | CRM | 15.8 | yes | 12/12 | 12/12 | 12/12 | 12/12 |
 | barley | CRM | 7.4 | yes | 0/7 | 7/7 | 7/7 | 7/7 |
@@ -350,7 +348,7 @@ enriched in the other chromosomes' cores ([design.md](design.md#ltr-retrotranspo
 | *Brassica rapa* CC3 | CRM | 7.3 | yes | 10/10 | 10/10 | 10/10 |  |
 | *Brassica rapa* CCA03 | CRM | 30.3 | yes | 10/10 | 10/10 | 10/10 |  |
 | *Arabidopsis thaliana* (Col-CC) | Athila | 13.3 | no: a dominant satellite falls one per chromosome | 5/5 | 5/5 | 5/5 | 5/5 |
-| tomato | Tekay | 32.7 | yes | 1/12 | 6/12 (2) | 6/12 (2) | 10/12 |
+| tomato | Tekay | 32.7 | yes | 1/12 | 6/12 (2) | 8/12 (2) | 10/12 |
 | moss (*Physcomitrium patens*) | Bryco | 58.8 | yes | 16/26 | 26/26 | 26/26 | 26/26 |
 | *Chlamydomonas reinhardtii* | . | . | none | 6/17 | 6/17 | 6/17 |  |
 | *Chlorella sorokiniana* | Osser | 78.9 | yes | 0/10 | 9/10 | 9/10 |  |
@@ -390,21 +388,19 @@ Potato's 214 LTRquest CRM elements give exactly a majority of chromosomes; any l
 gain from `tes/`. Every CRM core short of a majority still lay on CENH3 (24/24 in rice, potato, maize and
 *Brachypodium*).
 
-### Held out from 0.14: an allotetraploid and a wild potato
+### An allotetraploid and a wild potato
 
-Two genomes whose CENH3 truth was on disk but scored by no release, held out from 0.14 (its plan named them, and what it expected
-of them, before any of their runs): *Aegilops geniculata* (UUMM allotetraploid, 14 chromosomes, 7.9 Gb, GCA_053567775.1; CENH3 ChIP of
+Two genomes whose CENH3 truth was on disk and first scored in 0.14: *Aegilops geniculata* (UUMM allotetraploid, 14 chromosomes, 7.9 Gb, GCA_053567775.1; CENH3 ChIP of
 Yunusbaev et al. 2026 on the same assembly, their Table S2 at Mb resolution; cenrep, cenfuse's predecessor, used it to shape two LTR
-rules, so it is held out from 0.14's changes, not from cenfuse's development) and *Solanum verrucosum* (a diploid wild potato, 12
+rules) and *Solanum verrucosum* (a diploid wild potato, 12
 chromosomes, 0.7 Gb, GCA_031230405.1; CENH3 ChIP SRR18548893 and SRR18548892 by the frozen rule, with WGS of another accession,
 SRR5349572, standing in for the input that was never deposited). Both were run in full, search included, from the FASTA; the `tes/`
-arm (LTRquest annotations of the cenrep batch) reuses the FASTA arm's search. Scored within 1 Mb. 0.14's calls equal 0.13's on all
-four arms (every table of the four arms is identical, cell by cell).
+arm (LTRquest annotations of the cenrep batch) reuses the FASTA arm's search. Scored within 1 Mb.
 
 | genome | inputs | right / chromosomes | right `high` / `medium` / `low` | confidently wrong | chance expected | P |
 |---|---|---|---|---|---|---|
 | *Ae. geniculata* | FASTA | 0/14 | 0 / 0 / 0 | 0 | 0.21 | 1 |
-| *Ae. geniculata* | FASTA, `tes/` | 13/14 | 0 / 13 / 0 | 1 | 0.33 | 7.6e-21 |
+| *Ae. geniculata* | FASTA, `tes/` | 13/14 | 0 / 12 / 1 | 1 | 0.33 | 7.6e-21 |
 | *S. verrucosum* | FASTA | 5/12 | 0 / 0 / 5 | 0 | 0.73 | 0.00043 |
 | *S. verrucosum* | FASTA, `tes/` | 8/12 | 3 / 4 / 1 | 1 | 0.72 | 6.1e-08 |
 
@@ -414,17 +410,17 @@ four arms (every table of the four arms is identical, cell by cell).
 - ***Ae. geniculata* with `tes/`:** a CRM signature (38.1-fold in its cores, significant cores on 14 of 14 chromosomes) decides and
   rejects the satellite families that lie away from its cores, the FASTA arm's 86-bp family among them (away on 11 of 12). The
   centromeric family becomes a 1,216-bp family made of chains of partial copies of a longer repeat (`partial_chain`), whose arrays
-  lie in the cores (`te_concordant`): 13 of 14 right, all `medium` (a chain call is never `high`). The one confident error, chr05U
+  lie in the cores (`te_concordant`): 13 of 14 right, 12 `medium` and 1 `low` (a chain call is never `high`; 0.15: chr05M went from `medium` to `low` when the age rule moved its core). The one confident error, chr05U
   (167.1-175.2 Mb, 2.1 Mb off), lies in the right part of a 9.3-Mb CRM core (164.5-173.9 Mb) whose left edge reaches CENH3
-  (160-165 Mb): the pattern of [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core), on a held-out genome.
+  (160-165 Mb): the pattern of [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core).
 - ***S. verrucosum* from the FASTA:** the test fails too (9/12, P 0.24): 5 of 12 right, all `low`. **With `tes/`** (a CRM signature,
   42-fold, decisive): 8 of 12 right, 7 of them confident (3 `high`, 4 `medium`), and one confident error, chr06 (`medium`, 1.4 Mb
   off), where the CRM core replaced a weak satellite array beside it (`weak_satellite_beside_core`). Two right satellite calls were
   lost to thin CRM cores of 2 and 4 elements (chr10, chr12, `weak_core`, `low`): the 0.12 rule that a thin decisive core takes a
-  chromosome whose satellite failed its test costs right calls on a held-out genome
+  chromosome whose satellite failed its test costs right calls here
   ([future.md #36](future.md#36-no-held-out-test-of-the-013-rules)).
 - **Earlier.** The satellite batch of cenfuse 0.10.1 (development data there, its docs since rewritten) placed 10 of 14 *Ae. geniculata*
-  centromeres and 7 of 11 *S. verrucosum* ones within 1 Mb, with its own processing of the same ChIP; 0.14 with `tes/` places 13 of 14
+  centromeres and 7 of 11 *S. verrucosum* ones within 1 Mb, with its own processing of the same ChIP; 0.15 with `tes/` places 13 of 14
   and 8 of 12.
 - **Truth caveats.** *Ae. geniculata*'s domains have Mb resolution. *S. verrucosum*'s input comes from another accession, and its
   chr04 holds two CENH3 peaks of nearly equal height (28.4 and 27.3-fold in 50-kb bins); the frozen rule takes the one at 23.2-23.5 Mb.
@@ -432,76 +428,74 @@ four arms (every table of the four arms is identical, cell by cell).
   threads, 17.5 GB (the search 60 min: seeds 3, families 13, annotate 38); *S. verrucosum* 16 min at 16 threads, 3.2 GB. Adding
   `tes/` to the finished run (classify onward): 12 and 1.4 min.
 
-### Held out from 0.14: thirteen tomatoes
+### Thirteen tomatoes
 
-Thirteen tomatoes held out from 0.14, named with their truth before any of their runs: the telomere-to-telomere assemblies of Shi et al. 2026
+Thirteen tomatoes: the telomere-to-telomere assemblies of Shi et al. 2026
 (BioProject PRJNA1201608; 12 chromosomes each, 0.8-1.2 Gb), wild species from every clade of the genus and three cultivated lines. Truth: the CENH3
 centromeres of their Supplementary Table 8 for the 11 accessions with deposited CENH3 ChIP, and for the two with ChIP but no row there (LA2093, TS-9) the
-frozen ChIP rule. Left out when the set was named: Heinz 1706 (the benchmark's own tomato), six accessions whose centromeres were published without
+frozen ChIP rule. Not included: Heinz 1706 (the benchmark's own tomato), six accessions whose centromeres were published without
 deposited ChIP, and two without an assembly. Each was run from the FASTA, search included, and with `tes/` (LTRquest, the benchmark tomato's command).
 Scored within 1 Mb. They are one genus, and three are the species of the benchmark's tomato, so they are 13 tests of one lineage's centromeres, not of 13
 lineages.
 
 | accession | truth | FASTA: right | `high` / `medium` / `low` | confidently wrong | P | with `tes/`: right | `high` / `medium` / `low` | confidently wrong | P |
 |---|---|---|---|---|---|---|---|---|---|
-| *S. juglandifolium* LA2134 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.64 | 1/12 | 0 / 0 / 1 | 0 | 0.63 |
+| *S. juglandifolium* LA2134 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.64 | 9/12 | 0 / 0 / 9 | 0 | 1.6e-08 |
 | *S. lycopersicoides* LA2951 | Table 8 | 4/12 | 0 / 0 / 4 | 0 | 0.0051 | 8/12 | 1 / 5 / 2 | 3 | 8.5e-08 |
-| *S. habrochaites* LA1777 | Table 8 | 0/12 | 0 / 0 / 0 | 0 | 1 | 6/12 | 0 / 4 / 2 | 1 | 3.7e-05 |
-| *S. chilense* LA0458 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.21 | 2/12 | 1 / 0 / 1 | 0 | 0.21 |
-| *S. corneliomulleri* LA0103 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 5/12 | 0 / 5 / 0 | 0 | 0.0012 |
-| *S. peruvianum* LA0111 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.5 | 4/12 | 0 / 3 / 1 | 1 | 0.004 |
-| *S. huaylasense* LA1982 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.58 | 8/12 | 0 / 7 / 1 | 0 | 8.8e-08 |
-| *S. chmielewskii* LA1028 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.63 | 1/12 | 0 / 0 / 1 | 0 | 0.63 |
-| *S. galapagense* LA0426 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.22 | 9/12 | 0 / 6 / 3 | 1 | 4.6e-09 |
-| *S. lycopersicum var. cerasiforme* TS-623 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.24 | 7/12 | 0 / 6 / 1 | 2 | 6.2e-06 |
-| *S. lycopersicum* TS-60 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 6/12 | 0 / 5 / 1 | 2 | 3.1e-05 |
-| *S. pimpinellifolium* LA2093 | ChIP (frozen rule) | 1/12 | 0 / 0 / 1 | 0 | 0.57 | 6/12 | 0 / 6 / 0 | 3 | 2.4e-05 |
-| *S. lycopersicum* TS-9 | ChIP (frozen rule) | 3/12 | 0 / 0 / 3 | 0 | 0.048 | 7/12 | 0 / 5 / 2 | 2 | 1.7e-06 |
+| *S. habrochaites* LA1777 | Table 8 | 0/12 | 0 / 0 / 0 | 0 | 1 | 10/12 | 0 / 4 / 6 | 1 | 6.2e-11 |
+| *S. chilense* LA0458 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.21 | 11/12 | 1 / 0 / 10 | 0 | 8.2e-12 |
+| *S. corneliomulleri* LA0103 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 9/12 | 0 / 5 / 4 | 0 | 1.6e-08 |
+| *S. peruvianum* LA0111 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.5 | 8/12 | 0 / 3 / 5 | 1 | 6.4e-08 |
+| *S. huaylasense* LA1982 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.58 | 12/12 | 0 / 7 / 5 | 0 | 5.7e-15 |
+| *S. chmielewskii* LA1028 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.63 | 8/12 | 0 / 2 / 6 | 0 | 1.4e-07 |
+| *S. galapagense* LA0426 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.22 | 11/12 | 0 / 6 / 5 | 1 | 1.4e-12 |
+| *S. lycopersicum var. cerasiforme* TS-623 | Table 8 | 2/12 | 0 / 0 / 2 | 0 | 0.24 | 7/12 | 1 / 6 / 0 | 2 | 5.5e-06 |
+| *S. lycopersicum* TS-60 | Table 8 | 1/12 | 0 / 0 / 1 | 0 | 0.62 | 8/12 | 0 / 5 / 3 | 2 | 6.5e-08 |
+| *S. pimpinellifolium* LA2093 | ChIP (frozen rule) | 1/12 | 0 / 0 / 1 | 0 | 0.57 | 7/12 | 0 / 6 / 1 | 2 | 1.2e-06 |
+| *S. lycopersicum* TS-9 | ChIP (frozen rule) | 3/12 | 0 / 0 / 3 | 0 | 0.048 | 7/12 | 1 / 5 / 1 | 2 | 2.1e-06 |
 
-Pooled, from the FASTA: 13 accessions, 20 of 156 chromosomes right (0 of them `high` or `medium`), 0 confidently wrong of 0 confident calls; 156 calls; with `tes/`: 13 accessions, 70 of 156 chromosomes right (54 of them `high` or `medium`), 15 confidently wrong of 69 confident calls (22%); 156 calls.
+Pooled, from the FASTA: 13 accessions, 20 of 156 chromosomes right (0 of them `high` or `medium`), 0 confidently wrong of 0 confident calls; 156 calls; with `tes/`: 13 accessions, 115 of 156 chromosomes right (58 of them `high` or `medium`), 14 confidently wrong of 72 confident calls (19%); 156 calls.
 
 - **From the FASTA, no confident call.** The CENH3 domains hold a median of 4.5 kb of annotated satellite (0.25% of the domain; 100 kb or more on 24 of 156), and cenfuse says
   it is unsure: 20 of 156 right against 11.3 expected by chance, every call `low`. In *S. chilense* the one-per-chromosome test passes (10 of 12 chromosomes, P 0.045) on arrays that are mostly not centromeric, and
   the calls stay `low` only because no satellite dominates: the two safeguards are not redundant.
-- **With `tes/`, more than three times as many right, and confident errors.** A Tekay signature decides in 12 of the 13 accessions (18- to 53-fold; *S. chmielewskii*'s
-  best is SIRE at 9.5-fold, under the 10-fold level, and flags only). 54 calls are right and confident, but 15 of the 69 confident calls are wrong (22%; 12 of 60 without
-  LA2951, below), as in the benchmark's own tomato (2 of 8). They lie a median 4.0 Mb from CENH3, two of them just past the 1-Mb tolerance. This is the
-  held-out estimate of how far a `medium` call from a Tekay core can be trusted in this genus.
-- **What each branch did** (future.md [#36](future.md#36-no-held-out-test-of-the-013-rules)): the branches that move a call to a strong core are right on 33 of 39, and the
-  thin cores of `weak_core` on 3 of 8, all `low`. Calls that merely agree with the core are the worst confident ones: 6 wrong of 17.
+- **With `tes/`, nearly six times as many right, and confident errors.** A Tekay signature decides in all 13 accessions (18- to 53-fold; in *S. chmielewskii* a family
+  that is concentrated across the chromosomes but too small to be significant on most of them, 28-fold, seeds it: the pooled seed of 0.15). 58 calls are right and confident, and 14 of the 72 confident calls are wrong
+  (19%; 11 of 63 without LA2951, below), against 2 of 8 in the benchmark's own tomato. They lie a median 4.2 Mb from CENH3, two of them just past the 1-Mb tolerance. This estimates how far a `medium` call
+  from a Tekay core can be trusted in this genus.
+- **What each branch did:** the branches that move a call to a strong core are right on 35 of 41, the thin cores of `weak_core` on 7 of 15 and the minority cores of 0.15 (`minority_core`) on 41 of 58, all `low`. Calls that merely agree with the core are the worst confident ones: 5 wrong of 18.
 
 | what the LTR line did (flag) | chromosomes | right | right and confident | confidently wrong | wrong, `low` |
 |---|---|---|---|---|---|
 | the core replaced a satellite call far from it (`satellite_away_from_core`) | 20 | 15 | 15 | 5 | 0 |
 | the core replaced a satellite call beside it (`satellite_beside_core`) | 14 | 13 | 13 | 1 | 0 |
-| the core replaced a weak array beside it (`weak_satellite_beside_core`) | 5 | 5 | 5 | 0 | 0 |
-| a thin core replaced a call that failed the satellite test (`weak_core`) | 8 | 3 | 0 | 0 | 5 |
-| the call stands and agrees with the core (`te_concordant`) | 22 | 15 | 11 | 6 | 1 |
-| the call stands against the core (`te_discordant`) | 65 | 6 | 0 | 0 | 59 |
+| the core replaced a weak array beside it (`weak_satellite_beside_core`) | 7 | 7 | 7 | 0 | 0 |
+| a thin core replaced a call that failed the satellite test (`weak_core`) | 15 | 7 | 0 | 0 | 8 |
+| a significant core holding under half of the signature's elements replaced a low call (`minority_core`) | 58 | 41 | 0 | 0 | 17 |
+| the call stands and agrees with the core (`te_concordant`) | 27 | 20 | 13 | 5 | 2 |
+| the call stands against the core (`te_discordant`) | 0 | 0 | 0 | 0 | 0 |
 
-- **What the line leaves unused.** On 66 chromosomes the final call and the core lie more than 1 Mb apart; 65 of those calls are `low`. The call is right on 7 of them, the core on 37. 59 of these cores come from a decisive Tekay signature and hold under half of its elements on their chromosome, where a lineage other than CRM may not replace a call (`TE_MAJOR_SHARE`): of those 59, the core is right on 36 and the call on 6. That rule (a lineage other than CRM replaces a call only where its core holds most of the signature's elements on the
-  chromosome) has a reason, that the signature's other elements say the locus is not unique; here it costs right calls. Seen on these genomes, it can only be a lead
-  ([future.md #46](future.md#46-crm-decides-by-its-name)): no rule was changed on them.
+- **What the line leaves unused.** On 1 chromosomes the final call and the core lie more than 1 Mb apart; 0 of those calls are `low`. The call is right on 1 of them, the core on 1. 1 of these cores come from a decisive Tekay signature and hold under half of its elements on their chromosome, where a lineage other than CRM may not replace a call (`TE_MAJOR_SHARE`): of those 1, the core is right on 1 and the call on 1. Since 0.15 such a minority core replaces a `low` call and stays `low` (`minority_core`): the signature's other elements still say the locus is not unique, so it decides nothing more.
 
 | accession | lineage (fold in its cores) | decisive | significant cores | cores within 1 Mb of CENH3 | calls right |
 |---|---|---|---|---|---|
-| *S. juglandifolium* LA2134 | Tekay (18.2x) | True | 11/12 | 7/12 | 1/12 |
+| *S. juglandifolium* LA2134 | Tekay (18.2x) | True | 11/12 | 9/12 | 9/12 |
 | *S. lycopersicoides* LA2951 | Tekay (52.5x) | True | 11/12 | 10/12 | 8/12 |
-| *S. habrochaites* LA1777 | Tekay (35.0x) | True | 10/12 | 8/12 | 6/12 |
-| *S. chilense* LA0458 | Tekay (19.4x) | True | 12/12 | 11/12 | 2/12 |
-| *S. corneliomulleri* LA0103 | Tekay (24.2x) | True | 12/12 | 10/12 | 5/12 |
-| *S. peruvianum* LA0111 | Tekay (30.7x) | True | 11/12 | 8/12 | 4/12 |
-| *S. huaylasense* LA1982 | Tekay (29.8x) | True | 11/12 | 12/12 | 8/12 |
-| *S. chmielewskii* LA1028 | SIRE (9.5x) | False | 7/12 | 1/7 | 1/12 |
-| *S. galapagense* LA0426 | Tekay (27.3x) | True | 12/12 | 10/12 | 9/12 |
-| *S. lycopersicum var. cerasiforme* TS-623 | Tekay (33.7x) | True | 12/12 | 6/12 | 7/12 |
-| *S. lycopersicum* TS-60 | Tekay (34.0x) | True | 12/12 | 7/12 | 6/12 |
-| *S. pimpinellifolium* LA2093 | Tekay (33.8x) | True | 10/12 | 6/12 | 6/12 |
-| *S. lycopersicum* TS-9 | Tekay (34.9x) | True | 12/12 | 6/12 | 7/12 |
-| all | | | 143/156 | 102/151 | 70/156 |
+| *S. habrochaites* LA1777 | Tekay (35.0x) | True | 11/12 | 10/12 | 10/12 |
+| *S. chilense* LA0458 | Tekay (19.4x) | True | 12/12 | 11/12 | 11/12 |
+| *S. corneliomulleri* LA0103 | Tekay (24.2x) | True | 12/12 | 9/12 | 9/12 |
+| *S. peruvianum* LA0111 | Tekay (30.7x) | True | 11/12 | 8/12 | 8/12 |
+| *S. huaylasense* LA1982 | Tekay (29.8x) | True | 11/12 | 12/12 | 12/12 |
+| *S. chmielewskii* LA1028 | Tekay (28.1x) | True | 4/12 | 8/12 | 8/12 |
+| *S. galapagense* LA0426 | Tekay (27.3x) | True | 12/12 | 11/12 | 11/12 |
+| *S. lycopersicum var. cerasiforme* TS-623 | Tekay (33.7x) | True | 12/12 | 7/12 | 7/12 |
+| *S. lycopersicum* TS-60 | Tekay (34.0x) | True | 12/12 | 8/12 | 8/12 |
+| *S. pimpinellifolium* LA2093 | Tekay (33.8x) | True | 10/12 | 7/12 | 7/12 |
+| *S. lycopersicum* TS-9 | Tekay (34.9x) | True | 12/12 | 7/12 | 7/12 |
+| all | | | 141/156 | 117/156 | 115/156 |
 
 - **Truth caveats.** LA2951: the frozen rule finds a domain >= 4x on 1 of 12 chromosomes; it overlaps Table 8's on 1 of 1, within 1 Mb on 1; LA1777: the frozen rule finds a domain >= 4x on 10 of 12 chromosomes; it overlaps Table 8's on 10 of 10, within 1 Mb on 10. *S. lycopersicoides*' ChIP is weak by the frozen rule (at most 5.2-fold, and the rule's peak inside Table 8's interval on 5 of 12 chromosomes,
-  against 12 of 12 in *S. habrochaites*); Table 8 stayed its truth, as written in advance. Without it the `tes/` arms are 62 of 144 right and 12 confidently wrong. The LTRquest annotations
+  against 12 of 12 in *S. habrochaites*); Table 8 stayed its truth. Without it the `tes/` arms are 107 of 144 right and 11 confidently wrong. The LTRquest annotations
   come from the environment as of 2026-11-05, later than the benchmark's (2026-10-27).
 - **Cost of a fresh run** (search included, 16 threads, GNU time's maximum, the largest process only): 13-50 min and 7-46 GB (*S. lycopersicoides*, 1.2 Gb); LTRquest, 12 threads:
   1.8-4.1 h. Adding `tes/` to the finished run: 1-3 min.
@@ -563,7 +557,7 @@ cenfuse runs against the LTR cores where `tes/` is given and the Hi-C test fails
 |---|---|---|---|---|---|---|---|---|---|
 | *Aegilops tauschii* | 7 | 0 | 0.07 | 1 | 4 | 0.06 | 0.00041 | dip at the core on 4/7 chromosomes (P 0.00094): pass | trans peaks at the cis dip on 1/7 chromosomes (P 0.38): fail, tested by trans contacts; acts on 0 |
 | barley | 7 | 0 | 0.05 | 1 | 3 | 0.05 | 0.003 | not run: Hi-C test passed | trans peaks at the cis peak on 3/7 chromosomes (P 0.0018): support, tested by trans contacts; acts on 0 |
-| *Brachypodium distachyon* | 3 | 3 | 0.45 | 0.082 | 0 | 0.55 | 1 | peak at the core on 5/5 chromosomes (P 0.021): fail | trans peaks at the cis peak on 3/5 chromosomes (P 0.00089): pass, tested by trans contacts; acts on 2 |
+| *Brachypodium distachyon* | 3 | 3 | 0.45 | 0.082 | 0 | 0.55 | 1 | peak at the core on 5/5 chromosomes (P 0.022): fail | trans peaks at the cis peak on 3/5 chromosomes (P 0.00089): pass, tested by trans contacts; acts on 2 |
 | *Brassica rapa* CC1 | 10 | 0 | 0.02 | 1 | 0 | 0.02 | 1 | not run: Hi-C test passed | not run: Hi-C test passed |
 | *Cryptococcus neoformans* (anaphase Hi-C) | 14 | 7 | 0.43 | 0.41 | 5 | 0.44 | 0.84 |  | trans peaks at the cis peak on 6/14 chromosomes (P 0.00021): support, tested by trans contacts; acts on 0 |
 | *Cryptococcus neoformans* (G1 Hi-C) | 14 | 13 | 0.43 | 6.3e-05 | 6 | 0.48 | 0.76 |  | trans peaks at the cis peak on 12/14 chromosomes (P 1.4e-13): pass, tested by trans contacts; acts on 14 |
@@ -582,7 +576,7 @@ cenfuse runs against the LTR cores where `tes/` is given and the Hi-C test fails
 | sorghum | 10 | 0 | 0.29 | 1 | 3 | 0.33 | 0.75 | dip at the core on 4/10 chromosomes (P 1): fail | trans peaks at the cis dip on 1/10 chromosomes (P 0.85): fail, tested by trans contacts; acts on 0 |
 | *Saccharomyces cerevisiae* | 16 | 2 | 0.23 | 0.94 | 5 | 0.23 | 0.28 |  | trans peaks at the cis dip on 6/16 chromosomes (P 0.053): fail, tested by trans contacts; acts on 0 |
 | *Schizosaccharomyces pombe* | 3 | 3 | 0.31 | 0.023 | 3 | 0.30 | 0.026 |  | trans peaks at the cis peak on 3/3 chromosomes (P 0.0025): ambiguous, tested by trans contacts; acts on 0 |
-| tomato | 12 | 12 | 0.16 | 4.6e-12 | 1 | 0.15 | 0.89 | peak at the core on 7/12 chromosomes (P 0.0001): pass | trans peaks at the cis peak on 10/12 chromosomes (P 1.2e-13): pass, tested by trans contacts; acts on 12 |
+| tomato | 12 | 12 | 0.16 | 4.6e-12 | 1 | 0.15 | 0.89 | peak at the core on 8/12 chromosomes (P 2.4e-05): pass | trans peaks at the cis peak on 10/12 chromosomes (P 1.2e-13): pass, tested by trans contacts; acts on 12 |
 | *Verticillium dahliae* | 8 | 2 | 0.26 | 0.65 | 8 | 0.28 | 2.2e-05 |  | trans peaks at the cis dip on 8/8 chromosomes (P 2.9e-08): pass, tested by trans contacts; acts on 8 |
 | *Zymoseptoria tritici* | 20 | 4 | 0.11 | 0.16 | 3 | 0.10 | 0.35 |  | trans peaks at the cis dip on 3/20 chromosomes (P 0.46): fail, tested by trans contacts; acts on 0 |
 | human (CHM13) | 23 | 4 | 0.27 | 0.95 | 0 | 0.28 | 1 |  | not run: Hi-C test passed |
@@ -619,7 +613,7 @@ chromosome's cis extreme outside its terminal eighths anchors the anchored test,
 made from the other chromosomes' extremes, lies at its own extreme on most chromosomes ([design.md](design.md#the-cis-and-trans-readouts-of-hi-c-test-each-other-hicfusecis_trans_line)).
 Every run where it ran (the anchored test failed on most chromosomes, no LTR cores):
 
-| genome (inputs) | Hi-C bin | trans peaks at the cis extreme | verdict | acts on | right, 0.12 | right, 0.13 |
+| genome (inputs) | Hi-C bin | trans peaks at the cis extreme | verdict | acts on | right, 0.14 | right, 0.15 |
 |---|---|---|---|---|---|---|
 | *Aegilops tauschii* (FASTA, Hi-C) | 2000000 | dip: 1/7 (P 0.38) | fail | 0 | 1/7 | 1/7 |
 | *Arabidopsis thaliana* (Col-CC) (FASTA, Hi-C) | 250000 | peak: 1/5 (P 0.5) | fail | 0 | 5/5 | 5/5 |
@@ -627,9 +621,9 @@ Every run where it ran (the anchored test failed on most chromosomes, no LTR cor
 | *Brachypodium distachyon* (FASTA, Hi-C) | 250000 | peak: 3/5 (P 0.00089) | pass | 2 | 3/3 | 3/3 |
 | *Caenorhabditis elegans* (FASTA, Hi-C) | 250000 | peak: 0/6 (P 1) | fail | 0 | 0 confident / 6 | 0 confident / 6 |
 | *Caenorhabditis nigoni* (FASTA, Hi-C) | 250000 | peak: 0/6 (P 1) | fail | 0 | 0 confident / 6 | 0 confident / 6 |
-| *Candida tropicalis* (FASTA, Hi-C) | 50000 | dip: 3/6 (P 0.22) | fail | 0 | 0/7 | 0/7 |
-| *Cryptococcus neoformans* (G1 Hi-C) (FASTA, Hi-C) | 10000 | peak: 12/14 (P 1.4e-13) | pass | 14 | 0/14 | 12/14 |
-| *Cryptococcus neoformans* (anaphase Hi-C) (FASTA, Hi-C) | 10000 | peak: 6/14 (P 0.00021) | support | 0 | 10/14 | 13/14 |
+| *Candida tropicalis* (FASTA, Hi-C) | 50000 | dip: 3/6 (P 0.22) | fail | 0 | 0/7 | 6/7 |
+| *Cryptococcus neoformans* (G1 Hi-C) (FASTA, Hi-C) | 10000 | peak: 12/14 (P 1.4e-13) | pass | 14 | 12/14 | 12/14 |
+| *Cryptococcus neoformans* (anaphase Hi-C) (FASTA, Hi-C) | 10000 | peak: 6/14 (P 0.00021) | support | 0 | 13/14 | 13/14 |
 | *Malassezia sympodialis* (FASTA, Hi-C) | 10000 | dip: 3/8 (P 0.1) | fail | 0 | 8/8 | 8/8 |
 | *Neurospora crassa* (FASTA, Hi-C) | 50000 | dip: 6/7 (P 1.7e-06) | pass | 7 | 7/7 | 7/7 |
 | *Plasmodium falciparum* (FASTA, Hi-C) | 10000 | dip: 2/14 (P 0.47) | fail | 0 | 14/14 | 14/14 |
@@ -641,18 +635,18 @@ Every run where it ran (the anchored test failed on most chromosomes, no LTR cor
 | barley (FASTA, Hi-C) | 2000000 | peak: 3/7 (P 0.0018) | support | 0 | 6/7 | 6/7 |
 | chicken (FASTA, Hi-C) | 250000 | dip: 9/30 (P 0.18) | fail | 0 | 27/33 | 27/33 |
 | horse (EquCab3) (FASTA, Hi-C) | 250000 | peak: 0/32 (P 1) | fail | 0 | 3/5 | 3/5 |
-| moss (*Physcomitrium patens*) (FASTA, Hi-C) | 250000 | dip: 7/26 (P 0.075) | fail | 0 | 16/26 | 21/26 |
-| mouse (T2T) (FASTA, Hi-C) | 500000 | peak: 0/20 (P 1) | fail | 0 | 1/20 | 1/20 |
+| moss (*Physcomitrium patens*) (FASTA, Hi-C) | 250000 | dip: 7/26 (P 0.075) | fail | 0 | 21/26 | 21/26 |
+| mouse (T2T) (FASTA, Hi-C) | 500000 | peak: 0/20 (P 1) | fail | 0 | 1/20 | 18/20 |
 | potato (FASTA, Hi-C) | 250000 | dip: 1/12 (P 0.74) | fail | 0 | 2/11 | 2/11 |
 | sorghum (FASTA, Hi-C) | 500000 | dip: 1/10 (P 0.85) | fail | 0 | 10/10 | 10/10 |
-| tomato (FASTA, Hi-C) | 250000 | peak: 10/12 (P 1.2e-13) | pass | 12 | 1/12 | 10/12 |
+| tomato (FASTA, Hi-C) | 250000 | peak: 10/12 (P 1.2e-13) | pass | 12 | 10/12 | 10/12 |
 | giraffe (FASTA, genes, Hi-C) | 250000 | peak: 2/16 (P 0.11) | fail | 0 | 15/15 | 15/15 |
 | goat (FASTA, genes, Hi-C) | 250000 | dip: 4/31 (P 0.033) | fail | 0 | 30/30 | 30/30 |
 | horse (T2T) (FASTA, genes, Hi-C) | 250000 | dip: 3/33 (P 0.33) | fail | 0 | 29/32 | 29/32 |
 | pig (FASTA, genes, Hi-C) | 250000 | dip: 2/19 (P 0.095) | fail | 0 | 13/17 (3) | 13/17 (3) |
 | rhesus macaque (FASTA, genes, Hi-C) | 250000 | peak: 4/22 (P 0.0035) | support | 0 | 22/22 | 22/22 |
 | sheep (FASTA, genes, Hi-C) | 250000 | dip: 4/28 (P 0.026) | fail | 0 | 26/28 (1) | 26/28 (1) |
-| cucumber 9930 (held out from 0.12) (FASTA, Hi-C) | 250000 | dip: 2/7 (P 0.17) | fail | 0 | 1/1 | 1/1 |
+| cucumber 9930 (FASTA, Hi-C) | 250000 | dip: 2/7 (P 0.17) | fail | 0 | 1/1 | 1/1 |
 
 On 46 randomized libraries (partners re-paired, coverage kept) the test never passes; it reaches support on 3 (human (CHM13) (dip on 3/23); rhesus macaque (dip on 4/22); soybean (dip on 6/20)), where it does not act. The right counts also carry the other 0.13 rules: moss gains its 5 through the support tier choosing the competing
 cluster, and *C. neoformans* in anaphase its 3 through an AT trough paired with a prior-free peak.
@@ -710,7 +704,7 @@ arm alignment). Either can test Hi-C without the sequence calls.
 | nuclei | runs | alignment passes | examples (k/n, P) |
 |---|---|---|---|
 | Type I fungi and *Plasmodium* | 4 | 3 | yeast 13/16 (3.4e-05), *Plasmodium* 12/14 (3.6e-08), *Neurospora* 6/7 (0.00031) |
-| Type I fungi, held out in 0.10 | 5 | 3 | *M. sympodialis* 6/8 (0.00041), *C. neoformans* anaphase 12/14 (1.5e-07), *V. dahliae* 8/8 (2.1e-05) |
+| Type I fungi | 5 | 3 | *M. sympodialis* 6/8 (0.00041), *C. neoformans* anaphase 12/14 (1.5e-07), *V. dahliae* 8/8 (2.1e-05) |
 | *C. neoformans* in G1 (centromeres unclustered) | 1 | 0 | best: *C. neoformans* G1 0/14 (1) |
 | barley | 2 | 2 | barley 7/7 (3.4e-05) |
 | *P. annua* and *P. infirma* (no ChIP truth) | 2 | 2 | *P. annua* 10/14 (1.4e-05), *P. infirma* 5/7 (0.0005) |
@@ -731,33 +725,34 @@ within 1 Hi-C bin (250 kb without Hi-C); [high/medium/low]:
 
 | genome | centromeres | Hi-C | bin | FASTA only | + Hi-C |
 |---|---|---|---|---|---|
-| *Saccharomyces cerevisiae* | point (125 bp) | 14.9 M | 10 kb | 0/16 | 16/16 [0/13/3] |
-| *Plasmodium falciparum* | AT-rich core | 15.9 M | 10 kb | 13/14 | 14/14 [10/4/0] |
-| *Schizosaccharomyces pombe* | regional | 22.1 M | 50 kb | 0/3 | 3/3 [0/3/0] |
-| *Neurospora crassa* | regional, RIP-mutated TE relics | 29.5 M | 50 kb | 7/7 | 7/7 [6/1/0] |
-| *Verticillium dahliae* | regional | 17.7 M | 50 kb | 0/8 | 8/8 [7/1/0] |
-| *Zymoseptoria tritici* | regional | 23.8 M | 10 kb | 0/21 | 19/21 [0/0/19] |
-| *Cryptococcus neoformans* (anaphase Hi-C) | regional, retrotransposon-rich | 20.3 M | 10 kb | 0/14 | 13/14 [0/4/9] |
-| *Cryptococcus neoformans* (G1 Hi-C) | regional, retrotransposon-rich | 20.0 M | 10 kb | 0/14 | 12/14 [0/0/12] |
-| *Malassezia sympodialis* | short regional | 15.0 M | 10 kb | 8/8 | 8/8 [0/8/0] |
-| *Candida tropicalis* | regional (3C-seq) | 11.4 M | 50 kb | 0/7 | 0/7 |
+| *Saccharomyces cerevisiae* | point (125 bp) | . | 10 kb | 0/16 | 16/16 [0/13/3] |
+| *Plasmodium falciparum* | AT-rich core | . | 10 kb | 13/14 | 14/14 [10/4/0] |
+| *Schizosaccharomyces pombe* | regional | . | 50 kb | 0/3 | 3/3 [0/3/0] |
+| *Neurospora crassa* | regional, RIP-mutated TE relics | . | 50 kb | 7/7 | 7/7 [6/1/0] |
+| *Verticillium dahliae* | regional | . | 50 kb | 8/8 | 8/8 [7/1/0] |
+| *Zymoseptoria tritici* | regional | . | 10 kb | 0/21 | 19/21 [0/0/19] |
+| *Cryptococcus neoformans* (anaphase Hi-C) | regional, retrotransposon-rich | . | 10 kb | 0/14 | 13/14 [0/4/9] |
+| *Cryptococcus neoformans* (G1 Hi-C) | regional, retrotransposon-rich | . | 10 kb | 0/14 | 12/14 [0/0/12] |
+| *Malassezia sympodialis* | short regional | . | 10 kb | 8/8 | 8/8 [0/8/0] |
+| *Candida tropicalis* | regional (3C-seq) | . | 50 kb | 0/7 | 6/7 [0/0/6] |
 
 **AT troughs.** The genome's N deepest GC troughs must cover more chromosomes than chance, at one of the window sizes 1-500 kb:
 
-| genome | window | P | test | FASTA only, 0.12 | FASTA only, 0.13 | + Hi-C, 0.12 | + Hi-C, 0.13 | troughs vs Hi-C |
+| genome | window | P | test | FASTA only, 0.14 | FASTA only, 0.15 | + Hi-C, 0.14 | + Hi-C, 0.15 | troughs vs Hi-C |
 |---|---|---|---|---|---|---|---|---|
-| *Chlorella sorokiniana* | 20000 | 0.999 | fail | 0/10 | 0/10 |  |  |  |
-| *Saccharomyces cerevisiae* | 10000 | 0.833 | fail | 0/16 | 0/16 | 16/16 | 16/16 | 3/16 fail |
-| *Schizosaccharomyces pombe* | 5000 | 0.814 | untested | 0/3 | 0/3 | 3/3 | 3/3 | 3/3 pass |
-| *Neurospora crassa* | 200000 | 0.0441 | pass | 7/7 | 7/7 | 7/7 | 7/7 | 7/7 pass |
-| *Verticillium dahliae* | 200000 | 0.32 | fail | 0/8 | 0/8 | 8/8 | 8/8 | 8/8 pass |
-| *Zymoseptoria tritici* | 10000 | 0.164 | fail | 0/21 | 0/21 | 19/21 | 19/21 | 4/20 fail |
-| *Cryptococcus neoformans* (anaphase Hi-C) | 10000 | 0.395 | fail | 0/14 | 0/14 | 10/14 | 13/14 | 7/14 support |
-| *Cryptococcus neoformans* (G1 Hi-C) | 10000 | 0.395 | fail | 0/14 | 0/14 | 0/14 | 12/14 | 1/14 fail |
-| *Malassezia sympodialis* | 1000 | 0.00539 | pass | 8/8 | 8/8 | 8/8 | 8/8 | 8/8 pass |
-| *Candida tropicalis* | 10000 | 0.592 | fail | 0/7 | 0/7 | 0/7 | 0/7 | 1/6 fail |
-| *Plasmodium falciparum* | 1000 | 0.0007 | pass | 13/14 | 13/14 | 14/14 | 14/14 | 13/14 pass |
-| *Bombyx mori* | 2000 | 0.201 | fail | 0 confident / 29 | 0 confident / 29 | 0 confident / 29 | 0 confident / 29 | 2/12 fail |
+| mouse (T2T) | 200000 | 0.0009 | pass | 1/20 | 18/20 | 1/20 | 18/20 | 0/20 fail |
+| *Chlorella sorokiniana* | 200000 | 0.979 | fail | 0/10 | 0/10 |  |  |  |
+| *Saccharomyces cerevisiae* | 50000 | 0.999 | fail | 0/16 | 0/16 | 16/16 | 16/16 | 3/16 fail |
+| *Schizosaccharomyces pombe* | 5000 | 0.557 | untested | 0/3 | 0/3 | 3/3 | 3/3 | 3/3 pass |
+| *Neurospora crassa* | 200000 | 0.0402 | pass | 7/7 | 7/7 | 7/7 | 7/7 | 7/7 pass |
+| *Verticillium dahliae* | 100000 | 0.0104 | pass | 0/8 | 8/8 | 8/8 | 8/8 | 8/8 pass |
+| *Zymoseptoria tritici* | 10000 | 0.695 | fail | 0/21 | 0/21 | 19/21 | 19/21 | 4/20 fail |
+| *Cryptococcus neoformans* (anaphase Hi-C) | 10000 | 0.361 | fail | 0/14 | 0/14 | 13/14 | 13/14 | 7/14 support |
+| *Cryptococcus neoformans* (G1 Hi-C) | 10000 | 0.361 | fail | 0/14 | 0/14 | 12/14 | 12/14 | 1/14 fail |
+| *Malassezia sympodialis* | 1000 | 0.00479 | pass | 8/8 | 8/8 | 8/8 | 8/8 | 8/8 pass |
+| *Candida tropicalis* | 20000 | 0.15 | fail | 0/7 | 0/7 | 0/7 | 6/7 | 1/6 fail |
+| *Plasmodium falciparum* | 1000 | 0.0014 | pass | 13/14 | 13/14 | 14/14 | 14/14 | 13/14 pass |
+| *Bombyx mori* | 2000 | 0.842 | fail | 0 confident / 29 | 0 confident / 29 | 0 confident / 29 | 0 confident / 29 | 2/12 fail |
 
 - From the FASTA alone: *P. falciparum* 13/14, *N. crassa* 7/7 and *M. sympodialis* 8/8 right (all `low`; 0.11: 0 of 29).
 - With Hi-C, the prior-free peaks test the troughs: where both agree, the call takes the trough's interval and rises a level (40 calls,
@@ -786,7 +781,7 @@ on each of these genomes: no test passes and no Hi-C-alone call is made.
 No right call became wrong and no confident error was added in any of them. Three libraries are shallower than
 downloaded (sorghum, *Ae. tauschii*, mouse: a mate file was damaged in transfer and only its intact part was mapped).
 
-### Held out from the 0.12 rules
+### Genomes first scored after the 0.12 rules
 
 The 0.12 rules were frozen before any of these arms was scored: LTRquest annotations made for this release on genomes whose `tes/`
 arms had never been run, and two genomes new to the benchmark (grape PN40024 and cucumber 9930, CENH3 ChIP-seq from their authors,
@@ -1155,7 +1150,7 @@ test); the call lies at the chromosome's start, the satellome locus 83 Mb inside
 
   1. No call may change on the benchmark (0.14 changed no rule): **met** (260 arms, 2292 tables compared; 11 tables differ, in 19 cells of the column caveat only; the cells that differ are caveat sentences only: the new one for `hic_near`).
   2. The held-out genomes (*Ae. geniculata*, *S. verrucosum*, each from the FASTA and with `tes/`): calls equal to 0.13's: **met**
-     (every table of the four arms is identical, cell by cell). Their scores, first reported here, are in [section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato).
+     (every table of the four arms is identical, cell by cell). Their scores, first reported here, are in [section 3](#an-allotetraploid-and-a-wild-potato).
   3. Randomized Hi-C controls: no test passes and no call changes; holocentric genomes: no confident call: **met** (57 randomized runs: the gate passes in 0, a call differs from the partner run in 0; holocentric: 0 confident calls of 196 chromosome-runs).
   4. A code or input change recomputes exactly the stages it should, and a resume uses its checkpoints: **met** (unit and end-to-end
      tests, tests/fuse/test_checkpoints.py and test_fuse_e2e.py).
@@ -1164,11 +1159,20 @@ test); the call lies at the chromosome's start, the satellome locus 83 Mb inside
      of the 125 right `te_concordant` calls drops below `medium`: **not met** (3 would), so not built.
   7. Thirteen held-out tomatoes (named before any run; no rule changed on them), expected as the benchmark's tomato: from the FASTA most calls `low` and wrong: **met** (20 of
      156 right, none confident); with `tes/`, about half right with confident errors: **as expected, and reported as a limit** (70 of 156 right, 15 of 69 confident calls wrong;
-     the benchmark's tomato: 6 of 12, 2 of 8) ([section 3](#held-out-from-014-thirteen-tomatoes)).
+     the benchmark's tomato: 6 of 12, 2 of 8) ([section 3](#thirteen-tomatoes)).
   8. The changes made after the release pass (atomic writes, the merged Hi-C bootstrap and resampler, the fast leave-one-out) change no number: **met** (every table of the 260
      runs and the four held-out arms, and again of the 138 runs with Hi-C).
   9. A folder copied with hard links and recomputed leaves the original as it was: **met** (four held-out arms recomputed from classify in such copies: every file of the originals
      unchanged, md5).
+
+- **The 0.15 checks** (PLAN.md, 2026-11-08), with the results:
+
+  1. Do no harm (future.md, Rules): no right call becomes wrong and no confident error is added on the benchmark, or each change is listed: **met** (101 calls changed on the 258 arms of the release, 89 more right; 2 right calls lost, in *C. sativus* (cucumber chr1, a `low` satellite call replaced by a minority core); confident errors unchanged).
+  2. The 13 tomatoes and their relatives gain right calls with no added confident error: **met** (70 to 115 of 156; confident errors 15 to 14).
+  3. Randomized Hi-C controls stay silent and no holocentric genome gets a confident call: **met** (57 randomized runs: the gate passes in 0, a call differs from the partner run in 0; holocentric: 0 confident calls of 196 chromosome-runs).
+  4. Shuffled LTR positions produce no signature (the new pooled seed included): **met** (270 shuffles of 54 tes/ genomes: no candidate, no pooled candidate, no seed).
+  5. The AT test passes in *V. dahliae* and fails in *Z. tritici*, *C. tropicalis* and the holocentric genomes, and passes on at most its nominal 5% of GC-shuffled genomes: **met** (*V. dahliae* P 0.010; the others fail; 3.9% of 3,336 shuffled genomes; two false passes on benchmark genomes, TC1 and LA0426, where the gate stays closed and no call changes). *C. neoformans* still fails.
+  6. The LTR changes do not lower homoeolog agreement on the polyploid panel (no truth; agreement within 5% of chromosome length between homoeologs through collinear anchors): 663 of 1,103 homoeologous pairs agree over 105 species with anchors, against 657 under the 0.14 rules (60.1% against 59.6%); of the 26 pairs whose call changed, 14 agree against 8 before, 17 lie closer and 9 farther.
 
 - **Rules changed after a result was seen.** Each change has a reason independent of the case that prompted it, and
   was rechecked on cases not used to make it:
@@ -1209,7 +1213,26 @@ test); the call lies at the chromosome's start, the satellome locus 83 Mb inside
 | 0.13: that line acts only at pass | randomized soybean Hi-C reached support (6 of 20 dips, P 3e-5) | every randomized library and every mammal: none reaches pass |
 | 0.13: it neither supports, opposes nor moves a call in a terminal eighth | consistency: the line cannot see there | the release: tomato keeps 2 wrong `low` calls there ([future.md #32](future.md#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts)) |
 
-## 13. What changed from 0.13
+## 13. What changed from 0.14
+
+0.15 changes how the LTR and AT-trough lines recognize and act on centromeres, and leaves the other lines as they were. Against 0.14,
+the 258 release arms, 89 more right calls, confident errors unchanged; 101 calls changed in position or confidence; the changed calls are listed in `dev15.vs_prev.changes.tsv` of the release tables (the 13 tomatoes and *S. verrucosum*, *Ae.
+geniculata* are compared in the sections above). No right call became a confident error, and the controls stay silent (**met** (57 randomized runs: the gate passes in 0, a call differs from the partner run in 0; holocentric: 0 confident calls of 196 chromosome-runs)).
+
+- **A significant core that holds under half of the signature's elements replaces a call that is `low` on its own**, and stays `low` (`minority_core`). In the 13 tomatoes
+  it was right on 41 of the 58 chromosomes it touched, where the arrays it replaced were right on few (development data; on the polyploid panel the 11 homoeolog pairs it touches agree in 7 against 3 before; the one scored chromosome outside *Solanum*, cucumber chr1, went from right to wrong, still `low`).
+- **Insertion age chooses between density peaks of the signature's elements** on a chromosome (`signature.age_choice`, flag `te_age_core`, column `core_age_from` of the signature table): where
+  a comparable peak is significantly younger than the highest, it is the core. Across the 32 genomes with truth and an LTR annotation this moved 27 cores: 12 wrong to right, 1 right to wrong. A moved core must pass the same test as any core, and the age test is corrected for the peaks compared. The second comparable peak is reported beside the
+  core (`core_alt`). On *P. annua* Pa1A the age rule puts the LTR core at the site validated Hi-C and earlier analyses pointed to (163.0-169.4 Mb): Hi-C now agrees with the sequence call, and the `moved_with_age` move is no longer needed there.
+- **A family concentrated across the chromosomes can seed the signature** where no other candidate can decide, if its core is significant at the 5% level on more than half of the chromosomes (`signature.pooled_candidates`; *S. chmielewskii*: 1 to 8 of 12 right).
+- **A signature whose cores are not specific on their chromosomes does not decide** (median core fold under 10), whatever its seed; found on the polyploid panel (*Arachis*).
+- **The AT test is new**: the genome's deepest class of troughs (its size read off the depth ladder, N to 1.5 N) is tested for falling too evenly over the chromosomes against a room-aware random deal (Freeman-Tukey, mid-P).
+  *V. dahliae* now passes (8 of 8 chromosomes right from the FASTA, `low`); *C. neoformans* still does not. On a `low` call with a competing cluster, the trough's deepest window on that cluster and not on the call chooses it, `low` unless another line agrees there (`at_chose_alt`, mouse: 1 to 18 of 20 from the FASTA; a named heuristic on the evidence of one genome, future.md #70).
+- **Hi-C alone** counts a prior-free peak held at `medium` only because its null test cannot be run (`null_untestable`, few chromosomes): *C. tropicalis* 0 to 6 of 7, `low`.
+- **New table fields:** flags `minority_core`, `te_age_core`, `at_chose_alt`; `core_age_from` and `core_alt` in the signature table; AT troughs' deepest window in the fuse input.
+- **Docs:** the genomes held out until now are development data ([what changed in the benchmark](#how-calls-are-scored)).
+
+### From 0.13 to 0.14
 
 0.14 changed no rule. On all 260 release runs, every table cenfuse writes (calls, summary, loci, feature tables, line tests,
 LTR signature, provenance, plants; and the calls' BED and GFF3) equals 0.13.0's cell by cell, apart from the new columns
@@ -1234,8 +1257,8 @@ LTR signature, provenance, plants; and the calls' BED and GFF3) equals 0.13.0's 
   ([outputs.md](outputs.md), [plants.md](plants.md)).
 - **The benchmark in the repository** ([benchmark/](../benchmark/README.md)): the truth manifest, the frozen scorer as a tested
   module, and the chain that writes this page's tables and fills it from templates, reproducing 0.13's tables byte for byte.
-- **New truth, held out:** *Ae. geniculata* and *S. verrucosum* ([section 3](#held-out-from-014-an-allotetraploid-and-a-wild-potato)), and 13 tomatoes
-  ([section 3](#held-out-from-014-thirteen-tomatoes)).
+- **New truth, held out:** *Ae. geniculata* and *S. verrucosum* ([section 3](#an-allotetraploid-and-a-wild-potato)), and 13 tomatoes
+  ([section 3](#thirteen-tomatoes)).
 - **The benchmark's scoring, measured:** how close a right call is ([How calls are scored](#how-calls-are-scored)), and the truth rule's two numbers changed: no outcome moves.
 
 ### From 0.12 to 0.13

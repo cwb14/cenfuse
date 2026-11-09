@@ -1,6 +1,6 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.13.0
+Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.15.0
 with the genome's richest benchmarked inputs. Counts: right / chromosomes with truth (for mammals without
 CENP-A data: agreement with an independent satellite caller). Every number: [benchmark.md](benchmark.md).
 
@@ -43,7 +43,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [HG002 (diploid human)](#hg002-diploid-human) | FASTA, ONT CpG methylation | 46/46 | both haplotypes; CpG kinetochores on 40, all inside the active array |
 | [horse (EquCab3)](#horse-equcab3) | FASTA, Hi-C | 3/5 | older assembly; right calls are `low`; chr11 has no call |
-| [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 1/20 | all acrocentric: every call `low` on the major satellite, the CENP-A minor satellite reported beside it |
+| [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 18/20 | all acrocentric: every call `low` on the major satellite, the CENP-A minor satellite reported beside it |
 | [chicken](#chicken) | FASTA, Hi-C | 27/33 | CENP-A windows on 33 of 40 chromosomes; every call `low` (no satellite family dominates) |
 
 ## Plants with satellite centromeres
@@ -79,19 +79,19 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | FASTA, Hi-C | 3/3 | chr2's Hi-C peak is too weak for a call; its AT trough, which Hi-C's peaks validate, places it |
 | [*Neurospora crassa*](#neurospora-crassa) | FASTA, Hi-C | 7/7 | the arm fold validates Hi-C; AT troughs alone place all 7 |
 | [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | AT troughs from the FASTA alone (13/14); Hi-C at 10-kb bins agrees with them |
-| [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 | held out |
-| [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | held out; 8 accessory chromosomes |
-| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | held out; Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more (0.13) |
-| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | held out; Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` (0.13) |
-| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | held out; truth is a kinetochore protein (Mtw1) |
-| [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 0/7 | held out; 3C-seq: no test passes |
+| [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 |  |
+| [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | 8 accessory chromosomes |
+| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more (0.13) |
+| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` (0.13) |
+| [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | truth is a kinetochore protein (Mtw1) |
+| [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 6/7 | 3C-seq: no test passes |
 
 ## Holocentric controls (any confident call is wrong)
 
 | genome | inputs | right | note |
 |---|---|---|---|
 | [*Caenorhabditis elegans*](#caenorhabditis-elegans) | FASTA, Hi-C | 0 confident / 6 | every call `low` |
-| [*Caenorhabditis nigoni*](#caenorhabditis-nigoni) | FASTA, Hi-C | 0 confident / 6 | held out; every call `low` |
+| [*Caenorhabditis nigoni*](#caenorhabditis-nigoni) | FASTA, Hi-C | 0 confident / 6 | every call `low` |
 | [*Bombyx mori*](#bombyx-mori) | FASTA, Hi-C | 0 confident / 29 | no CenH3; 13 `low`, 16 without a call |
 | [*Rhynchospora breviuscula*](#rhynchospora-breviuscula) | FASTA, Hi-C | 0 confident / 5 | Tyba arrays along every chromosome; every call `low` |
 
