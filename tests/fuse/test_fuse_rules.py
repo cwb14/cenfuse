@@ -500,6 +500,15 @@ def test_hic_alone_places_a_low_call_where_no_test_is_possible():
     assert fuse.decide(_alone(flags="no_rabl"))["flags"] == ["hic_denovo_only"]     # Rabl test: uninformative
 
 
+def test_hic_alone_counts_a_medium_peak_whose_null_cannot_be_tested():
+    """A prior-free peak at engine level medium because its null test could not run (null_untestable: too few chromosomes to
+    resample; C. tropicalis, 0.15) passed every test it could take; a medium peak for any other reason does not count."""
+    d = fuse.decide(_alone(conf="medium", flags="no_rabl,null_untestable"))
+    assert d["call"] == (140_000, 170_000) and d["confidence"] == "low" and d["flags"] == ["hic_denovo_only"]
+    assert fuse.decide(_alone(conf="medium", flags="no_rabl"))["flags"] == []
+    assert fuse.decide(_alone(conf="medium", flags="no_rabl,not_converged,null_untestable"))["flags"] == []
+
+
 def test_hic_alone_never_where_a_sequence_call_or_a_test_exists():
     d = fuse.decide(_alone(seq=(1_000_000, 1_400_000), conf="high"))
     assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "sequence_only" and not d["flags"]

@@ -22,7 +22,7 @@ SHORT = {"scer": "yeast", "pfal": "*Plasmodium*", "ncra": "*Neurospora*", "spom"
 FUNGI1, FUNGI_HELD = ["scer", "spom", "pfal", "ncra"], ["vdah", "ztri", "cneoA", "msym", "ctro"]
 CTRL = {"NEG", "NEG2", "TNEG"}
 GROUPS = [("Type I fungi and *Plasmodium*", lambda a, g, L: a not in CTRL and g in FUNGI1),
-          ("Type I fungi, held out in 0.10", lambda a, g, L: a not in CTRL and g in FUNGI_HELD),
+          ("Type I fungi", lambda a, g, L: a not in CTRL and g in FUNGI_HELD),
           ("*C. neoformans* in G1 (centromeres unclustered)", lambda a, g, L: a not in CTRL and g == "cneoG1"),
           ("barley", lambda a, g, L: a not in CTRL and g == "barley"),
           ("*P. annua* and *P. infirma* (no ChIP truth)", lambda a, g, L: a not in CTRL and g in ("annua", "infirma")),

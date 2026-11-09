@@ -53,8 +53,11 @@ STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "ou
 # classify 0.14.0: the LTR signature (families recruited leave one chromosome out; a specific lineage other than CRM may
 # decide). centromeres 0.14.0: the one-per-chromosome test of the centromeric satellites caps calls; a core must be specific on
 # its chromosome to overrule a confident call; chain calls narrow to a decisive core. output 0.14.0: te_signature, satellite_test.
-STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.14.0",
-                 "centromeres": "0.14.0", "hor": "0.3.0", "output": "0.14.0", "plot": "0.4.1"}
+# classify 0.15.0: the LTR signature's core is the youngest of several comparable peaks (age_choice), a family concentrated over the
+# chromosomes can seed it (pooled_candidates), a signature whose cores are not specific on their chromosomes does not decide; centromeres
+# 0.15.0: a significant minority core replaces a call that is low on its own (minority_core); output 0.15.0: core_age_from, core_alt.
+STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.15.0",
+                 "centromeres": "0.15.0", "hor": "0.3.0", "output": "0.15.0", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
 STAGE_PARAMS = {
     "seeds": ["seed_engine", "seed_chunk", "seed_overlap"],

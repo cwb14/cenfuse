@@ -102,7 +102,7 @@ def basis(r, ctx: dict) -> str:
         elif ev == "long_unit_tandem":
             out.append(f"long-unit tandem array, {size(ctx['sat_bp'](r.chrom, s, e))} of satellite in the call")
         elif ev == "retrotransposon":
-            replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core"}
+            replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core", "minority_core"}
             seed = getattr(r, "te_seed", ".")
             k, n = _int(getattr(r, "te_core_elements", None)), _int(getattr(r, "te_chrom_elements", None))
             out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)") +
@@ -115,10 +115,17 @@ def basis(r, ctx: dict) -> str:
         if "satellite_beside_core" in sflags:
             out.append(f"the {r.te_clade} core replaced a satellite array beside it that holds significantly fewer "
                        f"{r.te_clade} elements" + where)
+        if "minority_core" in sflags:
+            out.append(f"the {r.te_clade} core replaced a low-confidence satellite array elsewhere" + where)
+        if "te_age_core" in sflags:
+            out.append(f"the {r.te_clade} core is the youngest of several comparable peaks of the signature's copies on this chromosome")
         if "hic_chose_alt" in flags:
             out.append("the second satellite cluster, chosen by a strong Hi-C peak (Hi-C finds the other chromosomes' centromeres "
                        "beyond chance, but not on most)" if "hic_support" in flags else
                        "the second satellite cluster, chosen by validated Hi-C")
+        if "at_chose_alt" in flags:
+            out.append(f"the second satellite cluster, chosen by the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), "
+                       "in a genome whose deepest troughs fall one per chromosome")
         if "acrocentric" in sflags:
             out.append("the family sits at one end of most chromosomes (acrocentric karyotype)")
     elif r.call_source == "composition":
@@ -227,7 +234,7 @@ def caveat(r, ctx: dict) -> str:
     te_iv = (_int(r.te_start), _int(r.te_end))
     alt_iv = (_int(r.seq_alt_start), _int(r.seq_alt_end))
     te_in_alt = None not in te_iv + alt_iv and te_iv[0] <= alt_iv[1] and te_iv[1] >= alt_iv[0]
-    if r.call_source == "sequence" and "competing_cluster" in sflags and "hic_chose_alt" not in flags:
+    if r.call_source == "sequence" and "competing_cluster" in sflags and "hic_chose_alt" not in flags and "at_chose_alt" not in flags:
         alt = f" ({interval(*alt_iv)})" if alt_iv[0] is not None else ""
         where = f", where the {r.te_clade} core lies" if te_in_alt else ""
         out.append(f"another satellite cluster{alt} competes{where}: the sequence cannot tell which is active")
@@ -565,7 +572,7 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                  f"the core on {summ.get('te_hic')}. The contact crossing each bin (cis): {summ.get('cis_line', '.')}.")
     if summ.get("at_gate", ".") not in (".", None):
         hic_at = str(summ.get("at_hic", "."))
-        L.append(f"- **AT troughs** (most chromosomes have no sequence call): the genome's deepest GC troughs "
+        L.append(f"- **AT troughs** (most chromosomes have no sequence call, or a low one with a competing cluster): the genome's deepest GC troughs "
                  + ("fall one per chromosome" if summ.get("at_gate") == "pass" else
                     "do not fall one per chromosome" if summ.get("at_gate") == "fail" else
                     "cannot be tested from the FASTA (too few chromosomes)")

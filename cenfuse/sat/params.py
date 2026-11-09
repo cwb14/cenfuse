@@ -73,6 +73,16 @@ TE_RECRUIT_MIN = 5             # elements of a family on the other chromosomes: 
                                # few percent (0.05^5 = 3e-7, before the Bonferroni correction)
 TE_RECRUIT_ROUNDS = 5          # recruitment repeats until its significant cores stop changing, this many rounds at most (a bound
                                # on the time: the development genomes settle within 3)
+TE_POOLED_BREADTH = 0.05       # a pooled family's core P on more than half of the chromosomes, each by itself: conventional level (its concentration
+                               # is broad, not the work of a few chromosomes, as Fisher's P alone could be)
+TE_POOLED_MIN_CORES = 3        # a family seeded by its pooled concentration needs this many significant cores to recruit from, as a CRM
+                               # seed (TE_SEED_MIN_CORES)
+TE_PEAK_SHARE = 0.5            # a second density peak of the signature's elements on a chromosome is comparable to the highest when at
+                               # least half as high (the half-maximum convention of te.core)
+TE_AGE_ALPHA = 0.01            # copies younger at a comparable peak than at the highest: one-sided Mann-Whitney at this level (the LTR
+                               # line's level for overruling a call, TE_CONTRA_ALPHA; cenfuse.ageline)
+TE_AGE_MIN = 3                 # dated copies needed at each peak (as the three insertions that make an LTR core, TE_MIN_SITES)
+TE_PEAK_MAX = 8                # density peaks of one chromosome examined (more than any genome's real clusters)
 TE_CENTROMERIC_CLADE = "CRM"   # CR chromoviruses (CRM maize, CRR rice, CRB Brassica, CRS sugarcane) are
                                # centromere-specific in plants; other clades are often pericentromeric
 

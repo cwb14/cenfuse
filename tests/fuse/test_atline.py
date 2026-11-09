@@ -100,6 +100,73 @@ def test_too_few_chromosomes_are_untested(tmp_path):
     assert atline.scan(atline.gc_bins(f, ch), ch)["status"] == "untested"
 
 
+def _synth_bins(lengths, troughs=(), gc=0.45, seed=3):
+    """GC bins of 1 kb with noise: {chrom: (GC counts, called)}; troughs: (chrom, start bin, bins, gc)."""
+    rng = np.random.default_rng(seed)
+    out = {}
+    for c, L in lengths.items():
+        nb = L // atline.BIN + 1
+        g = rng.binomial(atline.BIN, gc, nb).astype(np.int32)
+        for t_c, s, n, t_gc in troughs:
+            if t_c == c:
+                g[s:s + n] = rng.binomial(atline.BIN, t_gc, n)
+        out[c] = (g, np.full(nb, atline.BIN, dtype=np.int32))
+    return out
+
+
+def test_deepest_class_is_the_largest_step_in_depth():
+    d = np.array([0.1] * 8 + [0.30, 0.31, 0.32, 0.33])
+    assert atline.deepest_class(d, 6) == 8                    # the step lies after the eighth deepest, between N and 1.5 N
+    d = np.array([0.10, 0.11, 0.12, 0.13, 0.14, 0.30, 0.31, 0.32, 0.33, 0.34])
+    assert atline.deepest_class(d, 5) == 5                    # already at N
+    assert atline.deepest_class(np.array([0.1, 0.2]), 5) == 2 # no more troughs than that
+
+
+def test_a_chromosome_never_holds_more_deepest_troughs_than_it_has_room_for():
+    cap = np.array([1, 1, 4])
+    n = atline._counts(atline._deal(np.array([10, 10, 40]), cap, 6), 3)
+    assert (n <= cap).all() and (n.sum(axis=1) == 6).all()
+
+
+def test_more_than_the_chromosomes_of_a_karyotype_are_not_tested():
+    lengths = {f"s{i}": 200_000 for i in range(atline.MAX_CHROMS + 1)}
+    r = atline.scan(_synth_bins(lengths), lengths)
+    assert r["status"] == "untested" and r["scales"] == {}
+
+
+def test_contigs_are_not_tested_at_the_windows_only_some_of_them_reach():
+    """The count of sequences decides: 300 contigs, of which 180 reach ten windows at the smaller sizes, are contigs."""
+    lengths = {f"s{i}": 200_000 if i < 180 else 3_000 for i in range(300)}
+    r = atline.scan(_synth_bins(lengths), lengths)
+    assert r["status"] == "untested" and r["scales"] == {}
+
+
+def test_evenness_ranks_even_counts_below_piled_ones_and_shares_by_length():
+    share = np.ones(5) / 5
+    even, piled = np.array([2, 2, 2, 2, 2]), np.array([10, 0, 0, 0, 0])
+    assert atline.evenness(even, 10, share) < atline.evenness(piled, 10, share)
+    # one centromere on each of 8 chromosomes, the longest with its extra troughs as its length allows
+    share = np.array([9.3, 4.3, 4.2, 4.2, 4.1, 3.5, 3.4, 3.3])
+    share = share / share.sum()
+    fair, clumped = np.array([3, 1, 1, 1, 1, 1, 1, 1]), np.array([4, 4, 1, 1, 0, 0, 0, 0])
+    assert atline.evenness(fair, 10, share) < atline.evenness(clumped, 10, share)
+
+
+def test_a_chromosome_with_extra_deep_troughs_still_passes_if_its_extra_share_is_fair():
+    """V. dahliae-like: 8 chromosomes, the longest holds three deep AT troughs, the others one each. The N deepest cover 6 of 8
+    (the former test failed), but the deepest class falls more evenly than in proportion to length."""
+    lengths = {"a": 9_300_000, "b": 4_300_000, "c": 4_200_000, "d": 4_150_000, "e": 4_100_000, "f": 3_500_000, "g": 3_400_000, "h": 3_300_000}
+    tr = [("a", 2900, 100, 0.20), ("a", 7000, 100, 0.20), ("a", 500, 100, 0.20)] + [(c, 1800, 100, 0.20) for c in lengths if c != "a"]
+    r = atline.scan(_synth_bins(lengths, tr), lengths)
+    assert r["status"] == "pass" and r["scales"][r["best"]]["m"] >= 8
+
+
+def test_troughs_that_fall_at_random_rarely_pass():
+    lengths = {f"c{i}": 300_000 + 20_000 * i for i in range(1, 11)}
+    passes = sum(atline.scan(_synth_bins(lengths, seed=200 + i), lengths)["status"] == "pass" for i in range(20))
+    assert passes <= 4              # about the level, in pure noise: the calibration is measured on the benchmark's GC shuffles
+
+
 def _peaks(calls, shift=0):
     return {c: (x["start"] + shift, x["start"] + shift + BIN) for c, x in calls.items()}
 
@@ -133,6 +200,8 @@ def test_on_chromosome(planted):
     res = dict(r, window=r["best"], hic=None)
     x = atline.on_chromosome(res, "c1")
     assert x["status"] == "pass" and not x["validated"] and not x["agrees"]
+    k, s0 = r["best"], res["scales"][r["best"]]["calls"]["c1"]                   # the deepest window, inside the half-depth run
+    assert s0["start"] <= x["trough_start"] and x["trough_end"] <= s0["end"] and x["trough_end"] - x["trough_start"] == k
     assert atline.on_chromosome(None, "c1") is None and atline.on_chromosome(res, "zz") is None
 
 
@@ -174,6 +243,85 @@ def test_a_trough_validated_by_hic_places_a_medium_call():
 def test_a_trough_never_replaces_a_sequence_call():
     d = fuse.decide(ev(at=dict(TROUGH, validated=True, agrees=True), seq=(700_000, 900_000)))
     assert d["call"] == (700_000, 900_000) and "at" not in d["support"] and "at_only" not in d["flags"]
+
+
+def _low_alt(alt=(100_000, 900_000)):
+    """Evidence of a low sequence call at 2-5 Mb with a competing cluster alt."""
+    return dict(start=2_000_000, end=5_000_000, evidence="satellite", confidence="low", flags="competing_cluster", main_family="A",
+                alt_start=alt[0], alt_end=alt[1])
+
+
+def test_a_passing_trough_chooses_the_competing_cluster_of_a_low_call():
+    e = fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0, at=dict(TROUGH, start=300_000, end=500_000))
+    d = fuse.decide(e)
+    assert d["call"] == (100_000, 900_000) and d["confidence"] == "low" and d["rule"] == "at_chose_alt"
+    assert "at_chose_alt" in d["flags"] and "at" in d["support"]
+
+
+def test_the_deepest_window_decides_where_the_half_depth_run_touches_both_clusters():
+    at = dict(TROUGH, start=0, end=4_000_000, trough_start=300_000, trough_end=500_000)  # a broad run over both, its deepest window on the alt
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0, at=at))
+    assert d["call"] == (100_000, 900_000) and d["rule"] == "at_chose_alt"
+    at = dict(TROUGH, start=0, end=4_000_000, trough_start=3_000_000, trough_end=3_200_000)                # its deepest window on the call
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0, at=at))
+    assert d["call"] == (2_000_000, 5_000_000) and "at_chose_alt" not in d["flags"]
+
+
+def test_a_failing_or_elsewhere_trough_leaves_a_low_call_as_it_is():
+    fail = fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0,
+                         at=dict(TROUGH, status="fail", start=300_000, end=500_000))
+    assert fuse.decide(fail)["call"] == (2_000_000, 5_000_000)
+    elsewhere = fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0,
+                              at=dict(TROUGH, start=8_000_000, end=8_100_000))
+    assert fuse.decide(elsewhere)["call"] == (2_000_000, 5_000_000)
+    on_call = fuse.Evidence("c", 10_000_000, _low_alt(), None, None, None, lambda a, b: 0,
+                            at=dict(TROUGH, start=3_000_000, end=3_100_000))
+    assert fuse.decide(on_call)["call"] == (2_000_000, 5_000_000)
+
+
+def _validated_hic(peak):
+    """A strong validated Hi-C peak at `peak`, as the anchored line reports one."""
+    return dict(callable=True, bin_size=HB, gate_pass=True, gate_support=True, gate_genome_untested=False, anch_strong=True, anch_level="high",
+                anch_peak_start=peak, anch_peak_end=peak + HB, anch_core_start=peak, anch_core_end=peak + HB, masked=(), denovo_peak_start=-1,
+                denovo_peak_end=-1, denovo_core_start=-1, denovo_core_end=-1, denovo_confidence="none", denovo_flags="")
+
+
+def test_a_validated_peak_beside_a_low_call_keeps_it_from_the_trough():
+    h = _validated_hic(5_000_000 + 2 * HB)                                       # beyond the agreement tolerance, not far
+    e = fuse.Evidence("c", 10_000_000, _low_alt(), None, h, None, lambda a, b: 0, at=dict(TROUGH, start=300_000, end=500_000))
+    d = fuse.decide(e)
+    assert "hic_near" in d["flags"] and "at_chose_alt" not in d["flags"] and d["call"] == (2_000_000, 5_000_000)
+
+
+def test_the_trough_still_chooses_where_hic_cannot_tell_the_two_clusters_apart():
+    """A peak on the call, with no mappable bin between the call and its competing cluster: Hi-C has no say (mouse: T2T arrays)."""
+    h = dict(_validated_hic(2_000_000), masked=[(900_000, 2_000_000)])
+    at = dict(TROUGH, start=300_000, end=500_000)
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, h, None, lambda a, b: 0, at=at))
+    assert "hic_alt_ambiguous" in d["flags"] and d["rule"] == "at_chose_alt" and d["call"] == (100_000, 900_000)
+
+
+def test_methylation_is_read_at_the_cluster_the_trough_chose():
+    """The verdict on the abandoned call says nothing about the chosen cluster: the provisional item (the call as it stands) does."""
+    at = dict(TROUGH, start=300_000, end=500_000)
+    like, empty = dict(label="centromere_like", score=0.9), dict(label="", score=float("nan"))
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, None, dict(sequence_call=like, provisional=empty), lambda a, b: 0, at=at))
+    assert d["rule"] == "at_chose_alt" and "meth" not in d["support"] and d["confidence"] == "low" and d["meth_call"]["label"] == ""
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, None, dict(sequence_call=empty, provisional=like), lambda a, b: 0, at=at))
+    assert d["rule"] == "at_chose_alt" and "meth" in d["support"] and d["confidence"] == "medium"
+
+
+def test_methylation_is_read_at_the_cluster_hic_chose():
+    h = _validated_hic(400_000)                                                   # on the competing cluster
+    like, empty = dict(label="centromere_like", score=0.9), dict(label="", score=float("nan"))
+    d = fuse.decide(fuse.Evidence("c", 10_000_000, _low_alt(), None, h, dict(sequence_call=like, provisional=empty), lambda a, b: 0))
+    assert "hic_chose_alt" in d["flags"] and d["call"] == (100_000, 900_000) and "meth" not in d["support"]
+
+
+def test_a_trough_never_moves_a_confident_call_to_its_competing_cluster():
+    high = dict(_low_alt(), confidence="medium")
+    e = fuse.Evidence("c", 10_000_000, high, None, None, None, lambda a, b: 0, at=dict(TROUGH, start=300_000, end=500_000))
+    assert fuse.decide(e)["call"] == (2_000_000, 5_000_000)
 
 
 def test_hic_alone_with_an_agreeing_trough_rises_a_level_and_takes_its_interval():

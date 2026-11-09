@@ -297,6 +297,9 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     rival acrocentric; reported in alt_start/alt_end): two satellites both occur once per chromosome at its
     centromeric end, and which carries the kinetochore is not in the sequence (T2T mouse: the 234-bp major
     satellite out-sizes the 120-bp minor satellite that carries CENP-A).
+    A significant core of a decisive signature that holds under half the signature's elements on its chromosome (strong False) may
+    not replace a confident call; a call that is low on its own it does replace, and the call stays low (minority_core, 0.15): a
+    core that passed its test is the better candidate than a call the satellite line itself holds at low, and nothing rises.
     not_one: the centromeric satellites failed the one-per-chromosome test (finalize). weak_cores: {chrom: core} of a decisive
     signature where its core is too thin to be significant: such a core is the better candidate where nothing else stands, on a
     chromosome without a call or with a satellite call of a family that failed the test. The call stays low (weak_core; potato:
@@ -354,7 +357,12 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                         # the array lies beside the CRM centromere (Ae. tauschii Chr2, Chr4)
                         te_flag, call = "satellite_beside_core", te_call(core, call)
                 elif call and call["evidence"] != "long_unit_tandem" and (not decisive or borrowed):
-                    te_flag = "te_discordant"
+                    if decisive_all and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \
+                            finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
+                                     None, capped, decisive, acro, not_one)["confidence"] == "low":
+                        te_flag, call = "minority_core", te_call(core, call)   # a low call, and a significant core of a decisive
+                    else:                                                      # signature that holds under half its elements
+                        te_flag = "te_discordant"
                 elif not borrowed:
                     if call and call["evidence"] in ("satellite", "weak_satellite"):
                         alone = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
@@ -371,6 +379,8 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                 te_flag, call, core, decisive = "weak_core", te_call(thin, call) if call else te_call(thin), thin, False
             rows[c] = finalize(c, L, call, fa, gc, (len(gc) / L) if gc is not None else None, p, borrowed,
                                te_flag, capped, decisive, acro, not_one)
+            if core and core.get("age_from") and rows[c]["evidence"] != "none":      # signature.age_choice: the youngest of several comparable peaks
+                rows[c]["flags"] = "te_age_core" if rows[c]["flags"] in (".", "") else rows[c]["flags"] + ",te_age_core"
             if core:
                 rows[c].update(te_clade=core.get("clade", clade), te_core_start=int(core["start"]),
                                te_core_end=int(core["end"]))

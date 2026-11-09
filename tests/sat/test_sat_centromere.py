@@ -252,6 +252,36 @@ def test_a_decisive_core_replaces_a_distant_call_that_is_low_on_its_own(tmp_path
     assert [rows["c1"][k] for k in ("overruled_start", "overruled_end", "overruled_family")] == [0, 60_000, "A"]
 
 
+def test_a_minority_core_of_a_decisive_signature_replaces_a_low_call(tmp_path, monkeypatch):
+    """A significant core of a decisive signature that holds under half the signature's elements on its chromosome (strong
+    False) may not replace a confident call (te_discordant, nothing overruled) but replaces a call that is low on its own, and
+    the call stays low (minority_core: 0.15; 13 tomatoes)."""
+    import numpy as np
+    from cenfuse.sat import centromere, longunit
+    from cenfuse.sat.seeds import COLS
+    from cenfuse.sat.te import Mids
+    g, arrays = _contigs(tmp_path)
+    monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
+    trf = pd.DataFrame(columns=COLS)
+    weak = dict(start=150_000, end=170_000, k=12, share=0.3, strong=False, significant=True,
+                mids=Mids(sorted(list(np.linspace(5_000, 55_000, 10).astype(int)) + list(range(151_000, 170_000, 1_600))), 22))
+    over = ("overruled_start", "overruled_end", "overruled_family")
+    alone = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t0", 1, Params())[0]["c1"]["confidence"]
+    assert alone in ("high", "medium")                                  # the array is confident on its own: the core may not touch it
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t1", 1, Params(),
+                                      te=("Tekay", {"c1": weak}, True))
+    assert rows["c1"]["evidence"] == "satellite" and "te_discordant" in rows["c1"]["flags"]
+    assert all(rows["c1"][k] == "." for k in over)
+    p = Params(low_sat_bp=100_000)                                      # now the same array is low on its own (low_satellite)
+    assert centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t2", 1, p)[0]["c1"]["confidence"] == "low"
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t3", 1, p,
+                                      te=("Tekay", {"c1": weak}, True))
+    assert rows["c1"]["evidence"] == "retrotransposon" and "minority_core" in rows["c1"]["flags"]
+    assert rows["c1"]["confidence"] == "low"                            # replaced, and it stays low
+    assert (rows["c1"]["cen_start"], rows["c1"]["cen_end"]) == (150_000, 170_000)
+    assert [rows["c1"][k] for k in over] == [0, 60_000, "A"]
+
+
 def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_the_core(tmp_path, monkeypatch):
     """A strong satellite call that agrees with a decisive (CRM) core without overlapping it moves to the core when
     the clade's elements sit there significantly more (satellite_beside_core; Ae. tauschii Chr2/Chr4: 332 vs 11 and

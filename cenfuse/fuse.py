@@ -77,7 +77,9 @@ The integrated call is the sequence call unless a validated functional line move
   (at_pair: low -> medium, medium -> high), one in disagreement is flagged (at_elsewhere), and a chromosome nothing else
   places takes its trough at medium. Agreement beyond chance but on a minority (atline.validate: support) allows at_pair,
   and (0.13) a chromosome nothing else places takes its trough, low, where a clean prior-free peak that placed no call of its
-  own agrees with it (at_denovo_pair). A trough never moves or opposes a satellite or LTR call.
+  own agrees with it (at_denovo_pair). A trough never moves or opposes a confident satellite or LTR call; a passing genome's
+  trough at the competing cluster of a low satellite call (its deepest window there, not at the call) chooses that cluster, still
+  low (0.15, at_chose_alt; mouse: the minor satellite, not the pericentromeric major satellite).
 
 Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
 unmappable arrays, so a peak at an array's edge is adjacent to a call inside it. Agreement discounts at most
@@ -213,11 +215,14 @@ DENOVO_UNCLEAN = ("not_converged", "cycle_unstable")     # with NOT_STRONG_FLAGS
 
 
 def _clean_denovo(h) -> bool:
-    """A prior-free Hi-C call at engine level high without a hub, rDNA, telomeric, not_converged or cycle_unstable
-    flag."""
+    """A prior-free Hi-C call at engine level high without a hub, rDNA, telomeric, not_converged or cycle_unstable flag. A call
+    held at medium only because its null test cannot be run has passed every test it could take, and counts (null_untestable,
+    hic.confidence.level; 0.15, C. tropicalis: too few partner chromosomes with bins to resample; the same flag marks the rarer
+    degenerate case of a non-finite observed ratio, not separated here: future.md #69)."""
     fl = str(h.get("denovo_flags") or "")
-    return bool(h.get("denovo_confidence") == "high" and clean_peak(fl)
-                and not set(fl.split(",")) & set(DENOVO_UNCLEAN))
+    level = h.get("denovo_confidence")
+    tested = level == "high" or (level == "medium" and "null_untestable" in fl.split(","))
+    return bool(tested and clean_peak(fl) and not set(fl.split(",")) & set(DENOVO_UNCLEAN))
 
 
 def _clean_flags(h) -> bool:
@@ -564,7 +569,13 @@ def _cis(c: _Ctx, s: _Call) -> None:
 def _at_places(c: _Ctx, s: _Call) -> None:
     """A chromosome nothing else places takes its AT trough: where the genome's troughs passed their test (at_only), or where
     the trough and a clean prior-free Hi-C peak that placed no call of its own agree, in a genome where the two agree beyond
-    chance (0.13, at_denovo_pair; C. neoformans in anaphase: 3)."""
+    chance (0.13, at_denovo_pair; C. neoformans in anaphase: 3). Where the troughs passed their test and the sequence call
+    is low and has a competing cluster, the trough's deepest window lying on that cluster and not on the call chooses it
+    (0.15, at_chose_alt, as Hi-C does with hic_chose_alt): a tested line picks between the sequence line's own two candidates.
+    Not where validated Hi-C has a peak on this chromosome and can tell the two apart: it has chosen already, or the call stands
+    beside its peak. A heuristic, named as such (design.md): two satellites differ in composition whatever their centromeres do,
+    so the deepest trough can lie on the inactive one; only T2T mouse exercises the rule, and the call stays low unless another
+    line agrees at the chosen cluster."""
     ev, h = c.ev, c.h
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
                   and h.get("denovo_confidence", "none") != "none")
@@ -572,6 +583,11 @@ def _at_places(c: _Ctx, s: _Call) -> None:
         s.call, s.relation, s.source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
         s.flags.append("at_only" if c.at_ok else "at_denovo_pair")
         s.rule = s.flags[-1]
+    elif c.at_ok and c.sconf == "low" and c.alt_iv and s.rule == "sequence" and (c.amb or not (c.valid and c.peak)):
+        lo, hi = ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"])    # the deepest window itself
+        if gap(lo, hi, *c.alt_iv) == 0 and gap(lo, hi, *s.call) > 0:
+            s.call, s.rule = c.alt_iv, "at_chose_alt"
+            s.flags.append("at_chose_alt")
 
 
 PHASES = (_te_hic_pair, _cis, _at_places)
@@ -611,7 +627,7 @@ def _refine(c: _Ctx, s: _Call) -> None:
 def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
     """The lines that agree with the call."""
     ev, flags = c.ev, s.flags
-    support = ["at"] if s.at_pair or {"at_only", "at_denovo_pair"} & set(flags) else []
+    support = ["at"] if s.at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if ev.sat_bp and ev.sat_bp(*s.call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (s.source == "sequence" and _te_agrees(ev, s.call)) or (s.source == "hic" and "te" in s.second) or "te_hic_pair" in flags:
@@ -672,7 +688,8 @@ def _decide(ev: Evidence) -> dict:
     """The rules in their declared order: the first rule of CASCADE that applies sets the call; the PHASES then act on it in
     turn; then the call is refined or contested (_refine), and its support, what is against it and its confidence follow. The
     order is the specification (design.md, Integration): a later reading may override an earlier one, as the LTR-core and cis
-    readings override a plain sequence call, and the AT trough places only what nothing else did. `rule` names the last rule
+    readings override a plain sequence call, and the AT trough places what nothing else did or chooses a low call's competing
+    cluster. `rule` names the last rule
     that set the call's place or relation."""
     c, s = _context(ev)
     next(r for r in CASCADE if r(c, s))
@@ -682,8 +699,10 @@ def _decide(ev: Evidence) -> dict:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=s.flags, rule="none", second=s.second, meth_call={"label": "", "score": np.nan})
     _refine(c, s)
-    at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags)   # the call sits at the prior-free
-    m_call = _meth(ev, "provisional") if at_core else c.m_hic if s.source == "hic" else c.m_seq   # core: its own item
+    # methylation is read where the call now is: its own item (the provisional call) where that is not the sequence call or Hi-C's
+    # peak, as at the prior-free core or at a competing cluster that was chosen (the verdict on the abandoned call says nothing)
+    at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags) or "at_chose_alt" in s.flags or c.chose
+    m_call = _meth(ev, "provisional") if at_core else c.m_hic if s.source == "hic" else c.m_seq
     support = _support(c, s, m_call)
     against = _against(c, s)
     conf = _confidence(c, s, support)

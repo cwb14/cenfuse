@@ -389,7 +389,8 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     f["scale"] = scale
     axis = [x for x in ("fold", "align", "at", "age") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
     f["lines"] = LINES[:3] + axis + LINES[3:]                                                             # the line acted
-    label_mm = 3 + 1.1 * max(len(r["chrom"]) for r in rows)            # rotated chromosome names under panel C
+    label_mm = 3 + max(max(1.1 * len(r["chrom"]), _text_mm(r["chrom"], 5.5)) for r in rows)    # rotated chromosome names under panel C
+    left = max(0.11, (max(_text_mm(r["chrom"], 6.5) for r in rows) + 1.5) / (WIDTH / MM))      # panel A's names sit left of its axis
     # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
     b_xmax = len(f["lines"]) - 0.35 + (max(_text_mm(_rel_label(r), 6) for r in rows) + 1.0) / B_COL_MM
     b_mm = (b_xmax + 0.6) * B_COL_MM
@@ -406,7 +407,7 @@ def _page_iter(f: dict) -> Iterator[Figure]:
         height = (gtop + gal_mm + 12 + bottom_mm) * MM
         fig = plt.figure(figsize=(WIDTH, height))
         H = height / MM
-        ax = fig.add_axes([0.11, 1 - (gtop + gal_mm) / H, b_left - 0.015 - 0.11, gal_mm / H])
+        ax = fig.add_axes([left, 1 - (gtop + gal_mm) / H, b_left - 0.015 - left, gal_mm / H])
         axb = fig.add_axes([b_left, 1 - (gtop + gal_mm) / H, b_mm / (WIDTH / MM), gal_mm / H])
         _gallery(ax, axb, chunk, f, scale, has_hic, has_meth, Lmax, b_xmax)
         _key(fig, 1 - 2 / H, has_hic, has_meth, roles, rdna, rows)
@@ -415,7 +416,7 @@ def _page_iter(f: dict) -> Iterator[Figure]:
         if last:
             yb = yb_mm / H
             hb = 44 / H
-            axc = fig.add_axes([0.11, yb, 0.5 if has_hic else 0.85, hb])
+            axc = fig.add_axes([left, yb, (0.61 if has_hic else 0.96) - left, hb])
             _offsets(axc, rows)
             fig.text(0.01, yb + hb + 3 / H, "C", fontsize=9, fontweight="bold", va="bottom")
             if has_hic:
@@ -594,7 +595,7 @@ def _plants_page(f):
     n_pl = ptab.plant.nunique()
     has_f = focus is not None and f["meth"] is not None
     grid_mm = 4.6 * n_pl
-    top = 17                                               # mm: verdict key, letter E, chromosome labels
+    top = max(17.0, 6 + max(_text_mm(c, 5.5) for c in chroms))  # mm: verdict key, letter E, chromosome labels
     f_mm = (12 + 8.5 * n_pl + 9) if has_f else 0
     H = top + grid_mm + (13 + f_mm if has_f else 0) + 4
     fig = plt.figure(figsize=(WIDTH, H * MM))

@@ -6,21 +6,27 @@ genome, so a trough means nothing until the genome shows its troughs behave like
 chromosome, anything else falls in proportion to length. So the test is about the karyotype, not about any one locus
 (cenfuse.sat.karyotype).
 
-For each window size (their width is not known in advance, from 3 kb in Malassezia to 300 kb in Neurospora): take the N
-deepest independent troughs of the whole genome (N = chromosomes long enough for that window) and count the chromosomes
-they cover. Under the null N troughs fall in proportion to chromosome length, and cover fewer. The window size with the
-smallest P is kept, corrected for the sizes tried. The call on a chromosome is its deepest trough at that size, widened to
-the half-depth run around it.
+For each window size (their width is not known in advance, from 3 kb in Malassezia to 300 kb in Neurospora): rank the
+genome's independent troughs by depth, and take the deepest class the depths themselves set apart (the largest step between
+consecutive troughs, the class holding between N, the chromosomes long enough for that window, and 1.5 N troughs: the
+centromeres and a minority of others; read off the depths alone, blind to the chromosomes, so it needs no correction for having
+been looked for). Under the null the deepest troughs fall as a random deal: each next trough on a chromosome in proportion to
+the windows it has left, a trough there taking its room. One centromere per chromosome makes the class fall more evenly than
+such a deal can; the test is the lower tail of how evenly it falls (the Freeman-Tukey statistic of the counts per chromosome
+against each chromosome's share, as in a test of a too-good fit; its mid-P over the deals, the statistic taking few values on few
+chromosomes). The window size with the smallest P is kept, corrected for the sizes tried. The call on a chromosome is its
+deepest trough at that size, widened to the half-depth run around it.
 
 Where Hi-C is given, the prior-free Hi-C peaks test the troughs directly (agreement), an independent line. Alone, the line
-gives `low` calls on chromosomes without a sequence call. It never moves a satellite or TE call: satellites are AT-rich or
-GC-rich whatever their centromeres do."""
+gives `low` calls on chromosomes without a sequence call, and in a passing genome chooses a `low` sequence call's competing
+cluster when its deepest window lies there and not on the call (fuse._at_places). It never moves a confident satellite or TE
+call: satellites are AT-rich or GC-rich whatever their centromeres do."""
 from __future__ import annotations
 
 import numpy as np
 import pysam
 
-from .sat.karyotype import covered_test
+from .sat.karyotype import SEED
 from .util import gap, log, poisson_binomial_sf
 
 BIN = 1_000             # GC per 1 kb: the finest window (Malassezia's 3-5 kb centromeres need it), and 1 MB of memory per
@@ -31,6 +37,13 @@ MIN_WINDOWS = 10        # a chromosome takes part at a size when it holds at lea
 MIN_CALLED = 0.8        # a window counts with >= 80% of its bases called (not N)
 APART = 5               # independent troughs lie >= 5 windows apart: one regional centromere gives several troughs
                         # closer than that (C. neoformans at 10 kb: 13 of the top 14 lie on centromeres, on 9 chromosomes)
+CLASS_MAX = 1.5         # the deepest class of troughs holds at most 1.5 N of them: a chromosome's one centromere and a minority
+                        # of others (chromosome ends, AT-rich at both ends, make two per chromosome: Chlamydomonas; heuristic)
+PACKING = 0.7476        # Renyi's parking constant: independent troughs >= r windows apart found deepest first fill a stretch
+                        # at 0.7476 of the closest possible packing (checked: 1.4-1.7 x n / (2r + 1) on real chromosomes)
+AT_DRAWS = 10_000       # null deals per window: P resolution 1e-4, as the karyotype test's
+MAX_CHROMS = 200        # more sequences than this are contigs, not chromosomes: no test (the deal of many short sequences passed
+                        # noise genomes of 300 contigs: no room to tell one trough per chromosome from one per contig)
 AT_ALPHA = 0.05         # conventional level, after the correction for the sizes tried. The line alone gives `low` calls
 MIN_AGREE = 3           # agreements needed to speak of a test at all (cenfuse's GATE_MIN_REF)
 CHUNK = 10_000_000      # bp read at a time: streaming, never a whole chromosome string above this
@@ -93,30 +106,109 @@ def half_depth_run(f: np.ndarray, j: int, k: int) -> tuple:
     return lo, hi + k
 
 
+def _capacity(tr: dict, prof: dict, k: int, kept: int) -> tuple:
+    """(windows, capacity) per chromosome of tr: its called windows, and the independent troughs it can hold: all of them where its
+    list ended before `kept`, else from its windows at the packing density of troughs >= APART windows apart."""
+    room = np.array([int(np.isfinite(prof[c]).sum()) for c in tr], dtype=np.int64)
+    r = APART * k
+    cap = [len(x) if len(x) < kept else max(len(x), int(PACKING * w / (r + 1)) + 1) for w, x in zip(room, tr.values())]
+    return room, np.array(cap, dtype=np.int64)
+
+
+def _deal(room: np.ndarray, capacity: np.ndarray, m: int) -> np.ndarray:
+    """(AT_DRAWS, m) array: the chromosome of each of the m deepest troughs of the genome when they fall at random: each next trough
+    on a chromosome in proportion to the windows it has left, a trough there taking the room of one of its capacity[c] places (the
+    deepest trough lands anywhere; a chromosome with little room left takes fewer: the greedy choice of independent troughs)."""
+    rng = np.random.default_rng(SEED)
+    m = min(m, int(capacity.sum()))
+    per_place = room / capacity
+    left, out, rows = np.tile(capacity, (AT_DRAWS, 1)), np.zeros((AT_DRAWS, m), dtype=np.int32), np.arange(AT_DRAWS)
+    for t in range(m):
+        weight = (left * per_place).cumsum(axis=1)
+        pick = (weight > (rng.random(AT_DRAWS) * weight[:, -1])[:, None]).argmax(axis=1)
+        out[:, t] = pick
+        left[rows, pick] -= 1
+    return out
+
+
+def deepest_class(depths: np.ndarray, n: int) -> int:
+    """The size M of the deepest class of the genome's troughs (depths sorted deepest first): where the troughs leave their largest
+    step in depth, for M from N to CLASS_MAX * N. Read off the depths alone, blind to the chromosomes, so the test at
+    that M needs no correction for having looked for it."""
+    top = min(int(CLASS_MAX * n), len(depths) - 1)
+    if top <= n:
+        return min(n, len(depths))
+    return n + int(np.argmax(depths[n:top + 1] - depths[n - 1:top]))
+
+
+def evenness(counts: np.ndarray, m: int, share: np.ndarray) -> np.ndarray:
+    """How evenly m troughs fall on the chromosomes: the Freeman-Tukey deviates of the counts (..., N) from m x each chromosome's
+    share, summed over chromosomes; small = more even than in proportion to length, which one centromere per chromosome makes.
+    The double-root form (sqrt(c) + sqrt(c + 1) - sqrt(4e + 1), Bishop, Fienberg & Holland 1975) is stable for counts of 0, 1, 2."""
+    z = np.sqrt(counts) + np.sqrt(counts + 1.0) - np.sqrt(4.0 * m * share + 1.0)
+    return (z * z).sum(axis=-1)
+
+
+def _counts(labels: np.ndarray, n: int) -> np.ndarray:
+    """Counts per chromosome of each row of labels (rows x m, chromosome numbers < n): (rows, n)."""
+    rows = len(labels)
+    i = labels.ravel().astype(np.int64) + np.repeat(np.arange(rows, dtype=np.int64), labels.shape[1]) * n
+    return np.bincount(i, minlength=rows * n).reshape(rows, n)
+
+
+def _window_test(depths: np.ndarray, labels: np.ndarray, room: np.ndarray, capacity: np.ndarray) -> dict:
+    """One window: depths (GC of the kept troughs) and their chromosome numbers (0 to n - 1, n = len(capacity)); room and capacity
+    per chromosome. Returns dict(p, best_possible, m, null_median): the mid-P that a random deal gives counts at the deepest class
+    as even as observed (few chromosomes give few possible values, and the observed one should not count in full);
+    best_possible, the same for the evenest deal drawn; m, the class size; null_median, the chromosomes the N deepest cover in the
+    deals (for the log)."""
+    n = len(capacity)
+    order = np.lexsort((np.random.default_rng(SEED).random(len(depths)), depths))      # ties broken at random, reproducibly
+    depths, labels = depths[order], labels[order]
+    m = deepest_class(depths, n)
+    share = room / room.sum()
+    dealt = _deal(room, capacity, m)
+    sim = evenness(_counts(dealt, n), m, share)
+    obs = evenness(np.bincount(labels[:m], minlength=n), m, share)
+    tol = 1e-9
+    mid = lambda x: (1 + int((sim < x - tol).sum()) + 0.5 * int((np.abs(sim - x) <= tol).sum())) / (1 + len(sim))
+    top_n = dealt[:, :n]
+    return dict(p=mid(obs), best_possible=mid(sim.min()), m=m,
+                null_median=float(np.median((np.diff(np.sort(top_n, axis=1), axis=1) != 0).sum(axis=1) + 1)))
+
+
 def scan(bins: dict, chroms: dict) -> dict:
-    """{'scales': {window: dict(n, covered, p, null_median, calls {chrom: dict(start, end, gc, first (covered by the N
-    deepest))})}, 'best': the window with the smallest P or None, 'p': its P corrected for the sizes tried (Sidak), 'status':
-    pass / fail / untested (even complete coverage could not pass)}."""
+    """{'scales': {window: dict(n, m (size of the deepest class), covered (chromosomes holding the N deepest), p (of the test
+    of one per chromosome), best_possible, null_median, calls {chrom: dict(start, end, gc, first (held among the N deepest))})},
+    'best': the window with the smallest P or None, 'p': its P corrected for the sizes tried (Sidak), 'status': pass / fail /
+    untested (even the most even deal could not pass)}."""
+    if len(chroms) > MAX_CHROMS:
+        return dict(scales={}, best=None, p=1.0, status="untested")
     scales = {}
     for w in SCALES:
         k = w // BIN
         use = [c for c, L in chroms.items() if L >= MIN_WINDOWS * w]
         if len(use) < 3 or 2 * len(use) <= len(chroms):
             continue
-        n = len(use)
-        prof = {c: _windows(*bins[c], k) for c in use}
-        tr = {c: troughs(prof[c], k, n) for c in use}
-        pool = sorted((v, c) for c, x in tr.items() for v, _ in x)[:n]
-        covered = {c for _, c in pool}
-        t = covered_test([c for _, c in pool], [chroms[c] for c in use])
+        kept = int(np.ceil(CLASS_MAX * len(use))) + 2                  # the deepest M + 1 of the genome are among each chromosome's
+        prof = {c: _windows(*bins[c], k) for c in use}                 # deepest `kept`
+        tr = {c: x for c in use if (x := troughs(prof[c], k, kept))}
+        if len(tr) < 3:
+            continue
+        n = len(tr)
+        depths = np.array([g for x in tr.values() for g, _ in x])
+        labels = np.array([i for i, x in enumerate(tr.values()) for _ in x], dtype=np.int32)
+        room, capacity = _capacity(tr, prof, k, kept)
+        t = _window_test(depths, labels, room, capacity)
+        first = {c for _, c in sorted((g, c) for c, x in tr.items() for g, _ in x)[:n]}
         calls = {}
         for c, x in tr.items():
-            if x:
-                gc, j = x[0]
-                lo, hi = half_depth_run(prof[c], j, k)
-                calls[c] = dict(start=lo * BIN, end=min(chroms[c], hi * BIN), gc=gc, first=c in covered)
-        scales[w] = dict(n=n, covered=len(covered), p=t["p"], best_possible=t["best_possible"], null_median=t["null_median"],
-                         calls=calls)
+            gc, j = x[0]
+            lo, hi = half_depth_run(prof[c], j, k)
+            calls[c] = dict(start=lo * BIN, end=min(chroms[c], hi * BIN), gc=gc, first=c in first, trough_start=j * BIN,
+                            trough_end=min(chroms[c], (j + k) * BIN))
+        scales[w] = dict(n=n, m=t["m"], covered=len(first), p=t["p"], best_possible=t["best_possible"],
+                         null_median=t["null_median"], calls=calls)
     if not scales:
         return dict(scales={}, best=None, p=1.0, status="untested")
     best = min(scales, key=lambda w: (scales[w]["p"], w))
@@ -125,7 +217,8 @@ def scan(bins: dict, chroms: dict) -> dict:
     possible = 1 - (1 - min(s["best_possible"] for s in scales.values())) ** m
     status = "pass" if padj <= AT_ALPHA else "untested" if possible > AT_ALPHA else "fail"
     log.info(f"AT troughs: window {best} bp: the deepest {scales[best]['n']} cover {scales[best]['covered']} chromosomes "
-             f"(null {scales[best]['null_median']:.0f}, P {padj:.2g} after {m} sizes): {status}")
+             f"(null {scales[best]['null_median']:.0f}), the deepest {scales[best]['m']} fall one per chromosome at P {padj:.2g} "
+             f"after {m} sizes: {status}")
     return dict(scales=scales, best=best, p=padj, status=status)
 
 
@@ -189,4 +282,5 @@ def on_chromosome(res: dict | None, chrom: str) -> dict | None:
     v = res.get("hic") or {}
     return dict(start=int(x["start"]), end=int(x["end"]), gc=float(x["gc"]), status=res["status"], window=res["window"],
                 validated=v.get("status") == "pass", support=v.get("status") == "support",
-                agrees=bool((v.get("by_window") or {}).get(res["window"], {}).get(chrom)))
+                agrees=bool((v.get("by_window") or {}).get(res["window"], {}).get(chrom)),
+                trough_start=int(x.get("trough_start", x["start"])), trough_end=int(x.get("trough_end", x["end"])))

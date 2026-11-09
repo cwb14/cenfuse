@@ -157,6 +157,10 @@ def decide_014(ev: Evidence) -> dict:
         call, relation, source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
         flags.append("at_only" if at_ok else "at_denovo_pair")
         rule = flags[-1]
+    elif at_ok and sconf == "low" and alt_iv and rule == "sequence" and (amb or not (valid and peak)) and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *alt_iv) == 0 \
+            and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *call) > 0:     # 0.15: the trough on a low call's competing cluster chooses it
+        call, rule = alt_iv, "at_chose_alt"
+        flags.append("at_chose_alt")
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, rule="none", second=second, meth_call={"label": "", "score": np.nan})
@@ -184,9 +188,9 @@ def decide_014(ev: Evidence) -> dict:
     elif fo and "hic_denovo_only" in flags and _fold_far(ev, f_core, call):
         f_opp = True                                       # the axis line passed genome-wide but points elsewhere
         flags.append(f"{axis}_offset")                     # here: said, not hidden (the call is low already)
-    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags)   # the call sits at the prior-free
-    m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # core: its own item
-    support = ["at"] if at_pair or {"at_only", "at_denovo_pair"} & set(flags) else []
+    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags) or "at_chose_alt" in flags or chose   # 0.15: the call sits at
+    m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # the prior-free core or a chosen competing cluster: its own item
+    support = ["at"] if at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second) or "te_hic_pair" in flags:

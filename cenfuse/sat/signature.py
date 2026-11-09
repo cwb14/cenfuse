@@ -27,12 +27,13 @@ import gzip
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import binom
+from scipy.stats import binom, chi2, mannwhitneyu
 
 from ..runtime import atomic_open
-from .params import (TE_ALPHA, TE_CENTROMERIC_CLADE, TE_MAJOR_SHARE, TE_MIN_SITES, TE_RECRUIT_MIN, TE_RECRUIT_ROUNDS,
-                     TE_SEED_MIN_CORES, TE_SPECIFIC_FOLD)
-from .te import IGNORED_CLADES, Coords, Mids, core
+from .params import (TE_AGE_ALPHA, TE_AGE_MIN, TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_MAJOR_SHARE, TE_MIN_BIN, TE_MIN_SITES,
+                     TE_PEAK_MAX, TE_PEAK_SHARE, TE_POOLED_BREADTH, TE_POOLED_MIN_CORES, TE_RECRUIT_MIN, TE_RECRUIT_ROUNDS, TE_SEED_MIN_CORES,
+                     TE_SMOOTH, TE_SPECIFIC_FOLD)
+from .te import IGNORED_CLADES, Coords, Mids, binom_sf, core
 from .util import log
 
 NO_FAMILY = {"", ".", "na", "none", "unknown"}
@@ -65,6 +66,7 @@ class Signature:
     seed_cores: dict               # {chrom: te.core} significant cores of the seed
     cores: dict                    # {chrom: te.core + source ('signature'/'seed') and families (names)}; significant or not
     candidates: list               # the candidates, most specific first: dicts without their cores
+    pooled: bool = False           # seeded by a family's concentration pooled over the chromosomes (seed_of)
     age_core: float = float("nan")  # median K2P time of the signature's elements inside / outside its cores
     age_out: float = float("nan")
     young_old: float = float("nan")   # share of the younger half in the cores / share of the older half
@@ -219,14 +221,60 @@ def candidates(t: Table) -> list:
     return out
 
 
-def seed_of(cands: list, n_chroms: int):
+def pooled_candidates(t: Table) -> list:
+    """Families (with a lineage) too thin to be significant on most chromosomes one by one, but significantly concentrated at one
+    locus per chromosome taken together: more than half of the chromosomes show the family's core at the conventional level by
+    themselves (TE_POOLED_BREADTH: a few strong chromosomes do not make it, as they could for Fisher's P alone), Fisher's combination
+    of the core P of every chromosome holding one (te.core, TE_MIN_SITES sites) is at P <= TE_ALPHA after Bonferroni over the
+    families tested, TE_POOLED_MIN_CORES cores are significant to recruit from, and the family is at least TE_SPECIFIC_FOLD enriched
+    in its cores. A centromeric family of 120 elements on 12 chromosomes has about 10 copies per chromosome: too few for te.core to
+    be significant on most (tomato LA1028), whereas a family's concentration across chromosomes has power to spare. The fold is an
+    effect size, not a test: core windows fitted to few copies reach 10-fold by chance (uniform positions, 10 copies per
+    chromosome, all reach it); the tests are the others (none of 2,500 such uniform families passed them).
+    Each: as candidates(), plus n_cores_any (chromosomes with a core, significant or not)."""
+    n_chr, n_fam = len(t.names), max(1, len(t.families))
+    most = n_chr // 2 + 1
+    order = np.argsort(t.family, kind="stable")
+    fam_sorted = t.family[order]
+    out = []
+    for code, name in enumerate(t.families):
+        lin = int(t.family_lineage[code])
+        if lin < 0:
+            continue
+        lo, hi = np.searchsorted(fam_sorted, code), np.searchsorted(fam_sorted, code, side="right")
+        sel = order[lo:hi]
+        if len(sel) < most * TE_MIN_SITES:
+            continue
+        every = {}
+        for k in np.unique(t.chrom[sel]):
+            c = _core_of(t, sel, int(k))
+            if c:
+                every[int(k)] = c
+        if 2 * sum(c["p"] <= TE_POOLED_BREADTH for c in every.values()) <= n_chr:
+            continue
+        stat = -2 * sum(np.log(max(c["p"], 1e-300)) for c in every.values())
+        pval = float(chi2.sf(stat, 2 * len(every))) * n_fam
+        sig = {k: c for k, c in every.items() if c["significant"]}
+        sp, share, width = specificity(t, sel, every)
+        if pval <= TE_ALPHA and sp >= TE_SPECIFIC_FOLD and len(sig) >= TE_POOLED_MIN_CORES:
+            out.append(dict(level="family", name=name, lineage=t.lineages[lin], n=len(sel), cores=sig, specificity=sp,
+                            share=share, width=width, pooled_p=pval, n_cores_any=len(every)))
+    out.sort(key=lambda z: (-len(z["cores"]), -z["specificity"], z["name"]))
+    return out
+
+
+def seed_of(cands: list, n_chroms: int, pooled: list | None = None):
     """The most specific CRM candidate with cores on most chromosomes, else the most specific CRM candidate, else the most
     specific candidate, else None. A small CRM family on a few chromosomes can be more specific than the CRM lineage on
-    most of them (rice: 26-fold on 3, 16-fold on 8), and the seed's cores stand wherever recruitment finds nothing."""
+    most of them (rice: 26-fold on 3, 16-fold on 8), and the seed's cores stand wherever recruitment finds nothing.
+    pooled (0.15): where no CRM candidate exists and the most specific candidate is under TE_SPECIFIC_FOLD (it could not decide) or
+    there is none, the pooled family with the most significant cores (pooled_candidates; its Signature is marked pooled)."""
     crm = [z for z in cands if z["lineage"].lower() == TE_CENTROMERIC_CLADE.lower()]
     most = [z for z in crm if 2 * len(z["cores"]) > n_chroms]
     if most or crm:
         return (most or crm)[0]
+    if pooled and (not cands or cands[0]["specificity"] < TE_SPECIFIC_FOLD):
+        return dict(pooled[0], pooled=True)
     return cands[0] if cands else None
 
 
@@ -272,6 +320,89 @@ def recruit(t: Table, anchors: dict) -> dict:
     return out
 
 
+def _peaks(t: Table, sel: np.ndarray, k: int) -> list:
+    """The density peaks of elements sel on chromosome index k, highest first: te.core's profile and half-height run, a
+    peak's bins taken from those of the higher peaks (so two peaks never share a bin). Each: start, end, height, sites,
+    ages (the finite K2P times inside it)."""
+    L = int(t.lengths[k])
+    b = max(TE_MIN_BIN, L // TE_BINS)
+    nb = L // b + 1
+    mids = t.mid[sel]
+    h = np.bincount(np.minimum(mids // b, nb - 1), minlength=nb).astype(float)
+    sm = np.convolve(h, np.ones(TE_SMOOTH), mode="same")
+    used, out = np.zeros(nb, dtype=bool), []
+    for i in np.argsort(-sm, kind="stable"):
+        if sm[i] <= 0 or len(out) >= TE_PEAK_MAX:
+            break
+        if used[max(0, i - TE_SMOOTH // 2 - 1):min(nb, i + TE_SMOOTH // 2 + 2)].any():
+            continue                                    # within reach of a higher peak: its shoulder
+        half, lo, hi = sm[i] / 2, int(i), int(i)
+        while lo > 0 and sm[lo - 1] >= half and not used[lo - 1]:
+            lo -= 1
+        while hi < nb - 1 and sm[hi + 1] >= half and not used[hi + 1]:
+            hi += 1
+        used[lo:hi + 1] = True
+        s, e = lo * b, min(L, (hi + 1) * b)
+        ins = (mids >= s) & (mids < e)
+        out.append(dict(start=s, end=e, height=float(sm[i]), sites=_sites(t.start[sel][ins], t.end[sel][ins]),
+                        ages=t.age[sel][ins][np.isfinite(t.age[sel][ins])]))
+    return out
+
+
+def _peak_core(t: Table, sel: np.ndarray, k: int, p: dict) -> dict:
+    """The density peak p of elements sel on chromosome index k as a core: te.core's fields and te.core's test."""
+    mids = np.sort(t.mid[sel])
+    kin = int(np.searchsorted(mids, p["end"]) - np.searchsorted(mids, p["start"]))
+    q = (p["end"] - p["start"]) / float(t.lengths[k])
+    pval = min(1.0, binom_sf(kin, len(mids), q) / q)
+    return dict(start=p["start"], end=p["end"], k=kin, n=len(mids), share=kin / len(mids), p=pval, significant=pval < TE_ALPHA, mids=mids)
+
+
+def age_choice(t: Table, sel: np.ndarray, k: int) -> dict | None:
+    """The peak to use instead of the highest, or None to keep the highest (te.core's own choice). Where the signature's copies
+    form several comparable peaks (at least half the height of the highest, TE_PEAK_SHARE, with TE_MIN_SITES sites), the youngest
+    significantly younger than the highest marks where the centromere is now: copies insert into the active kinetochore, so
+    the older peak is where it was (young CRM subgroups colonize the present maize centromeres, older ones their flanks,
+    Wolfgruber et al. 2009; P. annua Pa1A, future.md #31). A peak must itself be a significant core (te.core's test), or the move
+    would swap a tested core for an untested one. One-sided Mann-Whitney P <= TE_AGE_ALPHA, Bonferroni over the peaks compared on
+    this chromosome, TE_AGE_MIN dated copies at each peak, the same test as ageline's. Returns the chosen peak as a core (te.core's
+    fields). Unlike ageline it needs no premise that young copies concentrate in the cores: within a genome whose young copies are
+    spread out (tomato, young_old 1.0) this picks the younger of two clusters, and the density maximum is then the old cluster.
+    Limits: recruited families are pooled, and families burst at different times, so a peak of a younger family reads as younger."""
+    ps = _peaks(t, sel, k)
+    if len(ps) < 2:
+        return None
+    top = ps[0]
+    if len(top["ages"]) < TE_AGE_MIN:
+        return None
+    tested = []
+    for p in ps[1:]:
+        if p["height"] >= TE_PEAK_SHARE * top["height"] and p["sites"] >= TE_MIN_SITES and len(p["ages"]) >= TE_AGE_MIN:
+            c = _peak_core(t, sel, k, p)
+            if c["significant"]:
+                tested.append((p, c))
+    best, best_age = None, np.median(top["ages"])
+    for p, c in tested:
+        a = float(np.median(p["ages"]))
+        if a < best_age and mannwhitneyu(p["ages"], top["ages"], alternative="less").pvalue * len(tested) <= TE_AGE_ALPHA:
+            best, best_age = c, a
+    return best
+
+
+def second_peak(t: Table, sel: np.ndarray, k: int, pick: dict):
+    """(start, end) of the highest density peak of elements sel on chromosome index k other than the one the core is, when at
+    least half as high as it (TE_PEAK_SHARE) and with TE_MIN_SITES sites: reported only, a second place to look (a chromosome's
+    signature elements can lie at the old and the present centromere), else None."""
+    if not len(sel):
+        return None
+    ps = _peaks(t, sel, k)
+    if not ps:
+        return None
+    here = max(ps, key=lambda p: min(p["end"], pick["end"]) - max(p["start"], pick["start"]))
+    other = [p for p in ps if p is not here and p["height"] >= TE_PEAK_SHARE * here["height"] and p["sites"] >= TE_MIN_SITES]
+    return (int(other[0]["start"]), int(other[0]["end"])) if other else None
+
+
 def _age_columns(t: Table, cores: dict, fams: dict) -> tuple:
     """(median K2P time inside the cores, outside them, share of the younger half inside / share of the older half) of
     the signature's elements on the chromosomes with a core."""
@@ -299,9 +430,11 @@ def build(gff, chroms: dict):
     if t is None:
         return None
     cands = candidates(t)
-    seed = seed_of(cands, len(t.names))
+    seed = seed_of(cands, len(t.names), pooled_candidates(t))
     if seed is None:
         return None
+    seed_elements = (np.flatnonzero(t.family == t.families.index(seed["name"])) if seed["level"] == "family"
+                     else np.flatnonzero(t.lineage == t.lineages.index(seed["name"])))
     anchors, rounds, seen = seed["cores"], {}, None
     for _ in range(TE_RECRUIT_ROUNDS):
         rounds = recruit(t, anchors)
@@ -324,18 +457,24 @@ def build(gff, chroms: dict):
             pick, src = c, "signature"
         else:
             continue
+        # the copies this core is read from, whose ages may choose another of their density peaks
+        sel = np.flatnonzero((t.chrom == k) & np.isin(t.family, f)) if src == "signature" and len(f) else seed_elements[t.chrom[seed_elements] == k]
+        if len(sel) and (moved := age_choice(t, sel, k)) is not None:
+            pick = dict(moved, age_from=(int(pick["start"]), int(pick["end"])))
+        alt = second_peak(t, sel, k, pick)
         cores[name] = dict(pick, source=src, families=[t.families[i] for i in f] if src == "signature" else [seed["name"]],
-                           fold=pick["share"] / ((pick["end"] - pick["start"]) / float(t.lengths[k])))
+                           fold=pick["share"] / ((pick["end"] - pick["start"]) / float(t.lengths[k])), alt=alt)
         fams[k] = f
     sig = {k: dict(cores[t.names[k]]) for k in range(len(t.names)) if t.names[k] in cores and cores[t.names[k]]["significant"]}
     ages = _age_columns(t, sig, fams) if sig else (float("nan"),) * 3
     s = Signature(lineage=seed["lineage"], level=seed["level"], seed=seed["name"], specificity=float(seed["specificity"]),
-                  seed_cores={t.names[k]: c for k, c in seed["cores"].items()}, cores=cores,
+                  seed_cores={t.names[k]: c for k, c in seed["cores"].items()}, cores=cores, pooled=bool(seed.get("pooled")),
                   candidates=[{k: v for k, v in z.items() if k != "cores"} | {"n_cores": len(z["cores"])} for z in cands],
                   age_core=ages[0], age_out=ages[1], young_old=ages[2], n_chroms=len(t.names))
     s.decisive = bool(s.crm and 2 * len(s.significant()) > s.n_chroms)
     s.why = (f"{'CRM' if s.crm else s.lineage} seed {s.seed}, {s.specificity:.1f}-fold in its cores, significant signature "
-             f"cores on {len(s.significant())}/{s.n_chroms} chromosomes")
+             f"cores on {len(s.significant())}/{s.n_chroms} chromosomes" + ("; a family concentrated across chromosomes, too few "
+             "copies per chromosome to be significant on most" if s.pooled else ""))
     log.debug(f"te: signature: {s.why}; {len(cands)} candidates")
     return s
 
@@ -347,17 +486,23 @@ def rejecting_cores(cores: dict) -> dict:
 
 
 def decisive(s: Signature, dominant: bool = False, satellite_status: str = "none") -> Signature:
-    """Complete s.decisive. CRM decides on most chromosomes (build). Another lineage needs a majority of significant cores and
+    """Complete s.decisive. CRM decides on most chromosomes (build). Another lineage needs a majority of significant cores (a pooled
+    seed has shown its majority at TE_POOLED_BREADTH instead, pooled_candidates: it is the case where most chromosomes hold too few
+    copies to be significant at TE_ALPHA) and
     TE_SPECIFIC_FOLD, and must not stand against a satellite line that has shown itself: a dominant satellite whose largest clusters
     fall one per chromosome (karyotype.satellite_test, status pass, or too few chromosomes to tell). Tomato's dominant satellite
     fails that test and its Tekay family decides; Arabidopsis' CEN180 passes and Athila only flags; moss has no dominant satellite."""
     if s.crm:
         s.why += "; decisive" if s.decisive else "; flags only (cores on too few chromosomes)"
         return s
-    if 2 * len(s.significant()) <= s.n_chroms:
+    sig = s.significant()
+    med = float(np.median([x.get("fold", TE_SPECIFIC_FOLD) for x in sig.values()])) if sig else 0.0
+    if 2 * len(sig) <= s.n_chroms and not s.pooled:
         s.why += "; flags only (cores on too few chromosomes)"
     elif s.specificity < TE_SPECIFIC_FOLD:
         s.why += f"; flags only (under {TE_SPECIFIC_FOLD:.0f}-fold)"
+    elif med < TE_SPECIFIC_FOLD:                       # the seed is specific but the recruited families' cores are not (Arachis:
+        s.why += f"; flags only (its cores are {med:.1f}-fold on their chromosomes, under {TE_SPECIFIC_FOLD:.0f})"  # 11.6-fold seed, cores 1.5-fold)
     elif dominant and satellite_status in ("pass", "untested"):
         s.why += "; flags only (a dominant satellite falls one per chromosome)"
     else:
@@ -366,12 +511,24 @@ def decisive(s: Signature, dominant: bool = False, satellite_status: str = "none
     return s
 
 
+def _age_from(x: dict) -> str:
+    """Where the density maximum lay when age_choice moved the core (1-based inclusive), else '.'."""
+    a = x.get("age_from")
+    return f"{int(a[0]) + 1}-{int(a[1])}" if a else "."
+
+
+def _alt(x: dict) -> str:
+    """The second comparable density peak (second_peak), 1-based inclusive, else '.'."""
+    a = x.get("alt")
+    return f"{int(a[0]) + 1}-{int(a[1])}" if a else "."
+
+
 def write_table(s: Signature, path) -> None:
     """One row per chromosome: the seed and what the signature found there (0-based half-open coordinates become 1-based
     inclusive, as in the satellite engine's summary)."""
     cols = ["chrom", "marker_lineage", "seed_level", "seed", "seed_specificity", "decisive", "core_start", "core_end",
             "core_elements", "chrom_elements", "core_p", "significant", "source", "n_families", "families", "why",
-            "age_in_cores", "age_outside", "young_old", "core_fold"]
+            "age_in_cores", "age_outside", "young_old", "core_fold", "core_age_from", "core_alt"]
     fmt = lambda x: "." if x != x else f"{x:.0f}" if abs(x) >= 100 else f"{x:.3g}"
     with atomic_open(path) as f:
         f.write("\t".join(cols) + "\n")
@@ -380,7 +537,7 @@ def write_table(s: Signature, path) -> None:
             row = [c, s.lineage, s.level, s.seed, f"{s.specificity:.1f}", str(s.decisive), str(int(x["start"]) + 1), str(int(x["end"])),
                    str(int(x["k"])), str(int(x["n"])), f"{x['p']:.3g}", str(bool(x["significant"])), x.get("source", "."),
                    str(len(fams)), ",".join(fams[:20]) or ".", s.why, fmt(s.age_core), fmt(s.age_out), fmt(s.young_old),
-                   f"{x.get('fold', float('nan')):.1f}"]
+                   f"{x.get('fold', float('nan')):.1f}", _age_from(x), _alt(x)]
             f.write("\t".join(row) + "\n")
 
 

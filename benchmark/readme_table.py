@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The README's results table, from a release's runs table (held-out arms included).
+"""The README's results table, from a release's runs table (every arm).
 
   python -m benchmark.readme_table OUT.md [PREFIX]
 PREFIX: score.py output prefix [paths.SCORES]. Cells are computed, but the row texts are typed in, a few of them
@@ -38,13 +38,13 @@ def table(r):
          "+ CpG: a kinetochore on 40, all in the active array"),
         ("rice", "CentO satellite", cell(tot(["S"], ["rice"])), "+ Hi-C, `tes/`, genes: " + cell(tot(["TGH"], ["rice"]))),
         ("*Brassica rapa*, 11 accessions", "satellite", cell(tot(["S"], BRAPA)),
-         f"+ `tes/` (4 accessions): {cell(tot(['T'], BRAPA))}; held out ({tot(['HT'], BRAPA)[3]} more): "
+         f"+ `tes/` (4 accessions): {cell(tot(['T'], BRAPA))}; {tot(['HT'], BRAPA)[3]} more accessions: "
          f"{cell(tot(['HT'], BRAPA))}"),
         ("soybean", "satellite", cell(tot(["S"], ["gmX26"])),
          "+ Hi-C: " + cell(tot(["SH"], ["gmX26"])) + "; + `tes/`: " + cell(tot(["T"], ["gmX26"]))),
         ("sorghum, *Brachypodium*, *Arabidopsis*", "satellite", cell(tot(["S"], ["sbBTx623", "brachy", "colcc"])),
          "+ `tes/`, Hi-C, methylation: " + cell(add(tot(["THn"], ["sbBTx623", "brachy"]), tot(["M"], ["colcc"])))),
-        ("grape (held out)", "satellite", cell(tot(["HS"], ["vvPN"])),
+        ("grape", "satellite", cell(tot(["HS"], ["vvPN"])),
          "; ".join(f"+ {w}: " + cell(tot([a], ["vvPN"])) for a, w in (("HT", "`tes/`"), ("HSH", "Hi-C"), ("HTH", "both"))
                    if tot([a], ["vvPN"])[3])),
         ("maize (Mo17), with knobs", "CentC satellite", cell(tot(["S"], ["mo17"])),
@@ -52,7 +52,7 @@ def table(r):
         ("chicken", "chromosome-specific satellites", cell(tot(["S"], ["ggswu"]), True),
          "+ Hi-C: " + cell(tot(["SH"], ["ggswu"]), True)),
         ("mouse, all acrocentric", "minor satellite beside the major satellite",
-         cell(tot(["S"], ["mmT2T"])) + " (all 20 at the right end, `low`)", "+ Hi-C: unchanged"),
+         cell(tot(["S"], ["mmT2T"])) + " (`low`; since 0.15 the AT trough chooses the minor satellite array on most chromosomes)", "+ Hi-C: unchanged"),
         ("barley", "CRM retrotransposons", cell(tot(["S"], ["barley"])),
          "+ `tes/`: " + cell(tot(["T"], ["barley"])) + "; + Hi-C: " + cell(tot(["SH"], ["barley"])) + "; both: "
          + cell(tot(["TH"], ["barley"]))),
@@ -72,7 +72,7 @@ def table(r):
         ("horse EquCab3 (older assembly)", "satellites; chr11 none", cell(tot(["S"], ["horse"]), True), "+ Hi-C: unchanged"),
         ("budding and fission yeast, *Plasmodium*, *Neurospora*", "point, regional, AT-rich", cell(tot(["S"], SMALL)),
          "+ Hi-C: " + cell(tot(["SH"], SMALL))),
-        ("5 more fungi, held out in 0.10 (6 Hi-C libraries)", "regional", cell(tot(["S"], FUNGI)),
+        ("5 more fungi (6 Hi-C libraries)", "regional", cell(tot(["S"], FUNGI)),
          "+ Hi-C: " + cell(tot(["SH"], FUNGI))),
     ]
     L = ["| genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |",

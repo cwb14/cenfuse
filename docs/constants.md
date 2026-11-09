@@ -12,6 +12,10 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `MIN_WINDOWS` | `10` | a chromosome takes part at a size when it holds at least 10 windows (a trough needs flanks) |  |
 | `MIN_CALLED` | `0.8` | a window counts with >= 80% of its bases called (not N) |  |
 | `APART` | `5` | independent troughs lie >= 5 windows apart: one regional centromere gives several troughs closer than that (C. neoformans at 10 kb: 13 of the top 14 lie on centromeres, on 9 chromosomes) |  |
+| `CLASS_MAX` | `1.5` | the deepest class of troughs holds at most 1.5 N of them: a chromosome's one centromere and a minority of others (chromosome ends, AT-rich at both ends, make two per chromosome: Chlamydomonas; heuristic) | heuristic |
+| `PACKING` | `0.7476` | Renyi's parking constant: independent troughs >= r windows apart found deepest first fill a stretch at 0.7476 of the closest possible packing (checked: 1.4-1.7 x n / (2r + 1) on real chromosomes) |  |
+| `AT_DRAWS` | `10_000` | null deals per window: P resolution 1e-4, as the karyotype test's |  |
+| `MAX_CHROMS` | `200` | more sequences than this are contigs, not chromosomes: no test (the deal of many short sequences passed noise genomes of 300 contigs: no room to tell one trough per chromosome from one per contig) |  |
 | `AT_ALPHA` | `0.05` | conventional level, after the correction for the sizes tried. The line alone gives `low` calls |  |
 | `MIN_AGREE` | `3` | agreements needed to speak of a test at all (cenfuse's GATE_MIN_REF) |  |
 | `CHUNK` | `10_000_000` | bp read at a time: streaming, never a whole chromosome string above this |  |
@@ -301,6 +305,12 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `TE_SEED_MIN_CORES` | `3` | a CRM seed needs this many cores: fewer leave a chromosome under 2 others to learn from |  |
 | `TE_RECRUIT_MIN` | `5` | elements of a family on the other chromosomes: fewer cannot reach P <= 1e-3 at a core share of a few percent (0.05^5 = 3e-7, before the Bonferroni correction) |  |
 | `TE_RECRUIT_ROUNDS` | `5` | recruitment repeats until its significant cores stop changing, this many rounds at most (a bound on the time: the development genomes settle within 3) |  |
+| `TE_POOLED_BREADTH` | `0.05` | a pooled family's core P on more than half of the chromosomes, each by itself: conventional level (its concentration is broad, not the work of a few chromosomes, as Fisher's P alone could be) |  |
+| `TE_POOLED_MIN_CORES` | `3` | a family seeded by its pooled concentration needs this many significant cores to recruit from, as a CRM seed (TE_SEED_MIN_CORES) |  |
+| `TE_PEAK_SHARE` | `0.5` | a second density peak of the signature's elements on a chromosome is comparable to the highest when at least half as high (the half-maximum convention of te.core) |  |
+| `TE_AGE_ALPHA` | `0.01` | copies younger at a comparable peak than at the highest: one-sided Mann-Whitney at this level (the LTR line's level for overruling a call, TE_CONTRA_ALPHA; cenfuse.ageline) |  |
+| `TE_AGE_MIN` | `3` | dated copies needed at each peak (as the three insertions that make an LTR core, TE_MIN_SITES) |  |
+| `TE_PEAK_MAX` | `8` | density peaks of one chromosome examined (more than any genome's real clusters) |  |
 | `TANDEM_FRAC` | `0.5` | a satellite is tandem: a family with neither the majority of its array bp inside de novo tandem repeats (seeds) nor the majority of its hit bp in whole units is a dispersed (interspersed) repeat annotated as chains of partial hits (majority rule) |  |
 | `LOCUS_FOLD` | `2.0` | heuristic (as the Hi-C engine's HUB_FOLD): a non-tandem family whose main cluster is less than twice as dense as the family's average along the chromosome is spread along it, not concentrated at a locus. T2T mammal interspersed families: 1.1-1.3; plant TE-derived centromeric arrays (Coffea, Glycine CRM-derived): 2.5-3.4; satellites >= 15 | heuristic |
 | `ACRO_ALPHA` | `0.01` | acrocentric test: so few chromosomes carry a terminal block at both ends that ends cannot be independent (binomial lower tail; conventional level) |  |

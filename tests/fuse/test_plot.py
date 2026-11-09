@@ -77,6 +77,30 @@ def test_relation_labels_end_inside_the_page():
     plt.close(fig)
 
 
+def test_long_chromosome_names_stay_on_the_page():
+    """Panel A's names and panel C's rotated names are drawn whole, however long (a GWH accession has 17 characters; the left margin
+    held about 15). The two left edges stay aligned with each other."""
+    f = _fig(dict(nors=[], five_s=[]), n=4)
+    long = {f"c{i}": f"GWHERKE0000000{i}.1" for i in range(1, 5)}
+    f["calls"]["chrom"] = f["calls"]["chrom"].map(long)
+    f["seq"].arrays["chrom"] = f["seq"].arrays["chrom"].map(long)
+    pages = plot._pages(f)
+    fig = pages[-1]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    width, height = fig.get_size_inches() * fig.dpi
+    seen = 0
+    for ax in fig.axes:
+        for t in ax.texts + ax.get_xticklabels():
+            if t.get_text().startswith("GWH"):
+                box = t.get_window_extent(renderer)
+                assert box.x0 >= 0 and box.y0 >= 0 and box.x1 <= width and box.y1 <= height, t.get_text()
+                seen += 1
+    assert seen == 8                                       # every name in panel A and in panel C
+    assert fig.axes[0].get_position().x0 == pytest.approx(fig.axes[2].get_position().x0)   # panels A and C share their left edge
+    plt.close("all")
+
+
 @pytest.fixture
 def quick_pages(monkeypatch):
     """Pages of 2 rows and a fixed label width. The page lifecycle depends on neither, and measuring each chromosome's

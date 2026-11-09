@@ -15,7 +15,7 @@ import pandas as pd
 from benchmark import paths
 from benchmark.md_tables import canonical, label
 
-HELD_LABEL = {"csat9930": "cucumber 9930 (held out from 0.12)", "vvPN": "grape PN40024 (held out from 0.12)"}
+HELD_LABEL = {"csat9930": "cucumber 9930", "vvPN": "grape PN40024"}
 REAL = ("SH", "HSH", "FULL")     # CPG repeats FULL's Hi-C, HTH the SH library with a tes/ that gave no signature; NEG,
                                  # NEG2, TNEG are the randomized libraries
 INP = {"SH": "FASTA, Hi-C", "HSH": "FASTA, Hi-C", "HTH": "FASTA, `tes/`, Hi-C", "FULL": "FASTA, genes, Hi-C"}

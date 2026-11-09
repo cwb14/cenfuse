@@ -464,9 +464,10 @@ class Run:
 
     def stage_attrough(self, g, seq: seqcalls.SeqLine) -> dict | None:
         """The AT-trough line (atline.py), only in a genome where most chromosomes have no sequence call (a long-unit
-        array alone is none: fuse.decide): elsewhere the line would never act, and it reads the whole genome. Checkpointed
-        by the assembly index and the code."""
-        missing = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem")
+        array alone is none: fuse.decide) or a low one with a competing cluster the line could choose (fuse._at_places): elsewhere
+        the line would never act, and it reads the whole genome. Checkpointed by the assembly index and the code."""
+        missing = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem") | \
+            (seq.calls.confidence.eq("low") & seq.calls.alt_start.ge(0))
         if 2 * int(missing.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
             return None
         fp = dict(version=__version__, code=code_key("atline.py", "sat/karyotype.py", stage="attrough"), fai=self._assembly(g),
