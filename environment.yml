@@ -1,5 +1,5 @@
 # mamba env create -f environment.yml && mamba activate cenfuse && pip install --no-deps .
-# Versions as in cenfuse 0.14.0's benchmark (major.minor pinned); the exact linux-64 environment: environment.lock.txt.
+# Versions as in the benchmark (major.minor pinned); the exact linux-64 environment: environment.lock.txt.
 # Each run records what it actually used in OUT/run_info.json.
 name: cenfuse
 channels: [conda-forge, bioconda]

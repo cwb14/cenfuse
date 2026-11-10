@@ -12,7 +12,7 @@
 #   docs/README.md  docs/docs/benchmark.md   the filled templates (DOCS=<repo root> rewrites the repo's own)
 # Inputs default to the 0.13.0 release (python -m benchmark.paths); set any to override, even to empty: RUNS (release
 # root, RUNS/<arm>/<id>), JOBS, JOBS_CMP, JOBS_RABL, PREV (previous release's scores, a prefix), PREV_RUNS, PREV_REDO
-# (empty: none), EXTRA_REF (empty: skipped), CIS_SURVEY, VERSIONS ("OLD NEW" for md_013's headers), DOCS,
+# (empty: none), EXTRA_REF (empty: skipped), CIS_SURVEY, DOCS,
 # CENFUSE_BENCH_DATA (data root), PY (a python with numpy and pandas; default python). Stops if that python imports
 # cenfuse from anywhere but this repository.
 set -uo pipefail
@@ -25,7 +25,6 @@ export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" OMP_NUM_THREADS=1 NUMPY_MAD
 got=$("$PY" -c 'import os, cenfuse; print(os.path.realpath(os.path.dirname(os.path.dirname(cenfuse.__file__))))') || exit 2
 [ "$got" = "$REPO" ] || { echo "release.sh: $PY imports cenfuse from $got, not $REPO" >&2; exit 2; }
 eval "$("$PY" -m benchmark.paths --shell)" || exit 2
-VERSIONS=${VERSIONS-0.12 0.13}
 DOCS=${DOCS-$OUT/docs}
 fail=()
 run() { "$PY" -m "benchmark.$1" "${@:2}"; }
@@ -39,8 +38,7 @@ S=$OUT/release$TAG M=$OUT/md$TAG
 step compare_rel "$JOBS_CMP" "$RUNS" "$OUT/cmp$TAG" > "$OUT/cmp$TAG.txt" 2>&1
 step rows "$S" "$PREV" > "$OUT/rows_release$TAG.txt" 2>&1
 step md_tables "$S" "$M" --runs "$RUNS" > "$M.log" 2>&1
-step md_013 "$M" --scores "$S" --prev "$PREV" --runs "$RUNS" --jobs "$JOBS" --cis-survey "$CIS_SURVEY" \
-    --versions $VERSIONS >> "$M.log" 2>&1
+step md_013 "$M" --scores "$S" --runs "$RUNS" --jobs "$JOBS" --cis-survey "$CIS_SURVEY" >> "$M.log" 2>&1
 step readme_table "$M/README_TABLE.md" "$S" >> "$M.log" 2>&1
 step rabl_table "$M/TABLE_RABL.md" --runs "$RUNS" --jobs "$JOBS_RABL" >> "$M.log" 2>&1
 step precision "$S.chrom.tsv" "$M/TABLE_PRECISION.md" --tsv "$OUT/precision$TAG.tsv" >> "$M.log" 2>&1

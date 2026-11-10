@@ -44,12 +44,12 @@ csNS42	Chlorella sorokiniana	algae	2-7 Copia (Osser) insertions	S	T
 scer	Saccharomyces cerevisiae	fungi	point (125 bp)	S	SH
 spom	Schizosaccharomyces pombe	fungi	regional	S	SH
 ncra	Neurospora crassa	fungi	regional, RIP-mutated TE relics	S	SH
-vdah	Verticillium dahliae	fungi (held out)	regional	S	SH
-ztri	Zymoseptoria tritici	fungi (held out)	regional	S	SH
-cneoA	Cryptococcus neoformans (anaphase Hi-C)	fungi (held out)	regional, retrotransposon-rich	S	SH
-cneoG1	Cryptococcus neoformans (G1 Hi-C)	fungi (held out)	regional, retrotransposon-rich	S	SH
-msym	Malassezia sympodialis	fungi (held out)	short regional	S	SH
-ctro	Candida tropicalis	fungi (held out)	regional (3C-seq)	S	SH
+vdah	Verticillium dahliae	fungi	regional	S	SH
+ztri	Zymoseptoria tritici	fungi	regional	S	SH
+cneoA	Cryptococcus neoformans (anaphase Hi-C)	fungi	regional, retrotransposon-rich	S	SH
+cneoG1	Cryptococcus neoformans (G1 Hi-C)	fungi	regional, retrotransposon-rich	S	SH
+msym	Malassezia sympodialis	fungi	short regional	S	SH
+ctro	Candida tropicalis	fungi	regional (3C-seq)	S	SH
 pfal	Plasmodium falciparum	protists	AT-rich core	S	SH
 celegans	Caenorhabditis elegans	nematodes (holocentric control)	holocentric	S	SH
 cnig	Caenorhabditis nigoni	nematodes (holocentric control)	holocentric	S	SH

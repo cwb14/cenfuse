@@ -4,7 +4,7 @@ table, grouped by nucleus type, how many pass the trans arm alignment, with k/n 
 
   python -m benchmark.rabl_table OUT.md [--runs ROOT] [--jobs JOBS] [--canonical FILE]
 Reads ROOT/<arm>/<id>/cenfuse_summary.tsv; writes OUT.md and RABL_RUNS.md (the run count) beside it.
-JOBS defaults to the 220 arms of 0.12's own run (paths.JOBS_RABL), as the 0.13 docs used.
+JOBS defaults to the 220 arms of 0.12's own run (paths.JOBS_RABL), as the docs since 0.13 use.
 Port of v12 bench/rabl_table.py."""
 import argparse
 from pathlib import Path
@@ -19,10 +19,9 @@ SHORT = {"scer": "yeast", "pfal": "*Plasmodium*", "ncra": "*Neurospora*", "spom"
          "msym": "*M. sympodialis*", "ctro": "*C. tropicalis*", "celegans": "*C. elegans*", "cnig": "*C. nigoni*",
          "bmori": "*B. mori*", "rbrev": "*R. breviuscula*", "chm13": "CHM13", "annua": "*P. annua*",
          "infirma": "*P. infirma*", "barley": "barley", "colcc": "*Arabidopsis*"}
-FUNGI1, FUNGI_HELD = ["scer", "spom", "pfal", "ncra"], ["vdah", "ztri", "cneoA", "msym", "ctro"]
+FUNGI = ["scer", "spom", "pfal", "ncra", "vdah", "ztri", "cneoA", "msym", "ctro"]
 CTRL = {"NEG", "NEG2", "TNEG"}
-GROUPS = [("Type I fungi and *Plasmodium*", lambda a, g, L: a not in CTRL and g in FUNGI1),
-          ("Type I fungi", lambda a, g, L: a not in CTRL and g in FUNGI_HELD),
+GROUPS = [("fungi and *Plasmodium*", lambda a, g, L: a not in CTRL and g in FUNGI),
           ("*C. neoformans* in G1 (centromeres unclustered)", lambda a, g, L: a not in CTRL and g == "cneoG1"),
           ("barley", lambda a, g, L: a not in CTRL and g == "barley"),
           ("*P. annua* and *P. infirma* (no ChIP truth)", lambda a, g, L: a not in CTRL and g in ("annua", "infirma")),

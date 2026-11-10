@@ -8,7 +8,7 @@ The integrated call is the sequence call unless a validated functional line move
   and with a core that does not reach the call) replaces a low or medium sequence call, and places a call on a
   chromosome without one. Closer than that, Hi-C neither supports nor opposes the call (flag hic_near).
 - It replaces a high sequence call only with a second line at the Hi-C peak and not at the sequence call: a decisive
-  (CRM) TE core within HIC_FAR_BINS of the peak and beyond it from the call, or methylation `centromere_like` at the
+  TE core within HIC_FAR_BINS of the peak and beyond it from the call, or methylation `centromere_like` at the
   peak with a measured non-centromere-like `dip` at the call (no data is not evidence), or (0.13, ageline) copies of the
   chromosome's signature families significantly younger at the peak than at the call (moved_with_age: the centromere
   moved and left its satellite and old copies behind). Without one the call stays and is `contested`.
@@ -804,7 +804,7 @@ def sequence_conflict(t: pd.DataFrame) -> dict:
     """Genome-level diagnostic. Hi-C's prior-free calls are confident (Hi-C high/medium) on most chromosomes but agree
     with the sequence calls on fewer than half, and the gate fails on most: the two lines disagree genome-wide, so at
     least one is wrong everywhere, and two lines cannot tell which. A third line decides: the arm fold (fold.py, from
-    the same Hi-C; Rabl nuclei only), tes/ (CRM cores) or methylation; without one the sequence calls are kept. Seen
+    the same Hi-C; Rabl nuclei only) or tes/ (Hi-C tested on the LTR cores); without one the sequence calls are kept. Seen
     both ways: barley (satellite line wrong, prior-free Hi-C right; the fold sides with Hi-C) and S. orangutan /
     giraffe (the reverse; no fold)."""
     s = t[t.seq_start.ge(0) & t.callable]

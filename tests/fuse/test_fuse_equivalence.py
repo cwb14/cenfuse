@@ -1,5 +1,5 @@
-"""fuse._decide, split into ordered rule functions (future.md #63), decides every chromosome exactly as the single cascade of
-0.14.0 did (ref_decide_014.py): the same call, relation, confidence, source, support, against, flags, rule, second lines and
+"""fuse._decide, split into ordered rule functions (future.md #63), decides every chromosome exactly as the single cascade
+(ref_decide_014.py: 0.14.0's, with the rules added since): the same call, relation, confidence, source, support, against, flags, rule, second lines and
 methylation item, on random evidence drawn so that the lines agree, sit near each other or point elsewhere often."""
 import math
 import random

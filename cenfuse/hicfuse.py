@@ -306,7 +306,7 @@ def _end_score(v: np.ndarray) -> tuple:
 
 def end_test(t: pd.DataFrame, S, bins) -> pd.DataFrame:
     """Which end? (future.md #15) A call in the terminal eighth of a chromosome (Levan's telocentric bound, fold.CI_MIN) sits where a
-    peak cannot count: chromosome ends cluster in 3D whatever the centromere, so such a peak is flagged telomeric. But the two ends of a
+    peak cannot count: chromosome ends cluster in 3D whatever the centromere. But the two ends of a
     chromosome can be told apart: the anchored score, made from the other chromosomes' calls only, is about twice as high at the end
     holding the call in goat (28 of 30), sheep (22/23), horse (18/19) and mouse (19/19). Per chromosome x: on the OTHER chromosomes
     with such a call, is the call's end the higher one, on most of them, beyond the 1/2 of chance (binomial, P <= GATE_P)?
@@ -643,7 +643,8 @@ def cis_acts(cis: dict | None) -> bool:
 
 
 def add_denovo(t: pd.DataFrame, rows: list, bins) -> pd.DataFrame:
-    """The prior-free Hi-C calls next to the anchored ones (reported; never used to decide)."""
+    """The prior-free Hi-C calls next to the anchored ones (they act only through fuse's rules for Hi-C alone, the Rabl-axis pairs
+    and the AT-trough pairs)."""
     by = {r["chrom"]: r for r in rows}
     idx = {n: i for i, n in enumerate(bins.names)}
     cols = {c: [] for c in HIC_COLS if c.startswith("denovo_")}

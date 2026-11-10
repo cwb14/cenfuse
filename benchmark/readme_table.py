@@ -38,8 +38,7 @@ def table(r):
          "+ CpG: a kinetochore on 40, all in the active array"),
         ("rice", "CentO satellite", cell(tot(["S"], ["rice"])), "+ Hi-C, `tes/`, genes: " + cell(tot(["TGH"], ["rice"]))),
         ("*Brassica rapa*, 11 accessions", "satellite", cell(tot(["S"], BRAPA)),
-         f"+ `tes/` (4 accessions): {cell(tot(['T'], BRAPA))}; {tot(['HT'], BRAPA)[3]} more accessions: "
-         f"{cell(tot(['HT'], BRAPA))}"),
+         "+ `tes/`: " + cell(add(tot(["T"], BRAPA), tot(["HT"], BRAPA)))),
         ("soybean", "satellite", cell(tot(["S"], ["gmX26"])),
          "+ Hi-C: " + cell(tot(["SH"], ["gmX26"])) + "; + `tes/`: " + cell(tot(["T"], ["gmX26"]))),
         ("sorghum, *Brachypodium*, *Arabidopsis*", "satellite", cell(tot(["S"], ["sbBTx623", "brachy", "colcc"])),
@@ -52,7 +51,7 @@ def table(r):
         ("chicken", "chromosome-specific satellites", cell(tot(["S"], ["ggswu"]), True),
          "+ Hi-C: " + cell(tot(["SH"], ["ggswu"]), True)),
         ("mouse, all acrocentric", "minor satellite beside the major satellite",
-         cell(tot(["S"], ["mmT2T"])) + " (`low`; since 0.15 the AT trough chooses the minor satellite array on most chromosomes)", "+ Hi-C: unchanged"),
+         cell(tot(["S"], ["mmT2T"]), True), "+ Hi-C: unchanged"),
         ("barley", "CRM retrotransposons", cell(tot(["S"], ["barley"])),
          "+ `tes/`: " + cell(tot(["T"], ["barley"])) + "; + Hi-C: " + cell(tot(["SH"], ["barley"])) + "; both: "
          + cell(tot(["TH"], ["barley"]))),

@@ -1,5 +1,5 @@
-"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> genotype -> hic -> fold -> karyotype
--> provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> loci -> output -> report -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> genotype -> hic -> karyotype -> fold
+-> provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> output -> loci -> report -> plot.
 
 The satellite engine keeps its own checkpoints (OUT/satellite/work), and next to them the chromosome set they were
 made on (chromosome_set.json): a resume on another set stops (Run._check_chromosome_set). The telomere, rdna, rdna5s,
@@ -870,7 +870,7 @@ class Run:
                                 (f"The {'arm fold (cis Hi-C)' if hic['axis'] == 'fold' else 'trans arm alignment'}"
                                  " sides with the prior-free calls: sequence calls both contradict are moved or "
                                  "lowered" if folded else
-                                 "The sequence calls are kept; give tes/ (LTR cores) or methylation to decide") +
+                                 "The sequence calls are kept; give tes/ (LTR cores, against which Hi-C is then tested) to decide") +
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
             at = atline.with_hic(at, hic, g.chroms)
             ages = ageline.for_genome(g.tes, g.chroms, tel.get("signature"), hic["table"] if hic is not None else None,

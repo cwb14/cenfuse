@@ -214,8 +214,8 @@ def remeasure(r: dict, fa, genes_c, arrays_c: pd.DataFrame, primary: set, p) -> 
 def cap_chain_calls(rows: dict, arrays: pd.DataFrame, primary: set, chains: set, derived: dict, decisive: bool, p,
                     cores: dict = None, fa=None, genes: dict = None) -> int:
     """Calls that stand on a chain of partial hits (classify.partial_chain) are not satellite calls: flag partial_chain,
-    and at most `medium` where a retrotransposon core overlaps the call, `low` otherwise. Only CRM may decide among
-    retrotransposons, so a core of another clade counts only as a second line, not if the family is made of that clade
+    and at most `medium` where a retrotransposon core overlaps the call, `low` otherwise. A decisive signature's core
+    counts whatever its lineage; a core that only flags counts as a second line, not if the family is made of that clade
     (derived: one piece of evidence twice). Overlap, not te.agrees: its gap may be as wide as the call, and a call
     spanning 23% of a chromosome agrees with about 70% of random places. A call holding chrom_min_bp of real satellite is
     a layered satellite call and stays as it is. Applied after finalize, so that the call a core replaces stays what it was:

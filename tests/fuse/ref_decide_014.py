@@ -1,5 +1,6 @@
 """The integration cascade of cenfuse 0.14.0 as one function (fuse._decide before it was split into rule functions; future.md #63),
-kept unchanged as the reference that tests/fuse/test_fuse_equivalence.py compares the split rules against."""
+plus the rules added since (0.15: at_chose_alt, and the methylation item of a chosen competing cluster): the reference that
+tests/fuse/test_fuse_equivalence.py compares the split rules against."""
 import numpy as np
 
 from cenfuse.ageline import AGE_ALPHA
