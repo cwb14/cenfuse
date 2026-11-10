@@ -1,1 +1,0 @@
-**not met** with `tes/`: 3 confident calls on 92 chromosome-runs (*C. elegans*, *C. nigoni*, *Bombyx mori*, *R. breviuscula*, with and without Hi-C), all in *R. breviuscula* with Hi-C; after the rule change this result prompted ([section 12](#12-how-the-benchmark-was-run)), 0; from the FASTA and with Hi-C, 0 confident calls in all 4

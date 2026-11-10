@@ -1,1 +1,0 @@
-*B. rapa* with `tes/` 70/70 right, 0 confidently wrong (7 accessions); grape, new to the benchmark, 18/18 from the FASTA and 18/18 with `tes/`; holocentric genomes with `tes/` 3 confident calls (*R. breviuscula* with Hi-C), 0 after the rule change it prompted; CHM13 with `tes/` unchanged.

@@ -36,11 +36,11 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `start`, `end`, `length` | the final call |
 | `call_source` | where the final call comes from: `sequence` (satellite or TE line), `hic`, `composition` (an AT trough) or `none` |
 | `relation` | how the final call relates to the sequence call (below) |
-| `confidence` | `high`, `medium`, `low` (unsure) or `none` |
+| `confidence` | `high`, `medium`, `low` (unsure) or `none` (no call) |
 | `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call) |
-| `flags` | the integration's flags (below) |
+| `flags` | the integration's flags ([Flags](#flags)) |
 | `rule` | the rule of the integration that set the call's place or relation (below); `sequence` = the sequence line's call as it is |
-| `offset_bp` | distance between the final and the sequence call (0 when they overlap) |
+| `offset_bp` | distance between the final and the sequence call when the call was moved (0 when they overlap); `.` when the call is the sequence call or its competing cluster |
 | `basis` | what the call stands on, in words |
 | `caveat` | why it may be wrong, with where the other evidence points; after `->`, the input that would settle it. `.` = nothing known against it |
 
@@ -48,12 +48,12 @@ The reference for every file, column and flag cenfuse writes, and for running it
 
 | column | meaning |
 |---|---|
-| `seq_start`, `seq_end`, `seq_confidence`, `seq_flags` | the satellite engine's own call, confidence and flags |
+| `seq_start`, `seq_end`, `seq_confidence`, `seq_flags` | the sequence line's own call, confidence and flags ([Flags](#flags)) |
 | `seq_evidence` | what the sequence call stands on: `satellite`, `weak_satellite`, `long_unit_tandem` or `retrotransposon`. With the flag `long_unit_unsupported` the array is a feature, not the call |
 | `main_family` | the satellite family of the call |
 | `seq_spacing` | the median distance between neighboring copies of the main family in the call's arrays (bp); `basis` names it where it differs from the family's unit, since a profile can fit shorter copies with a gap |
 | `seq_alt_start`, `seq_alt_end` | a competing cluster: the place tested Hi-C may move the call to |
-| `seq_overruled_start`, `seq_overruled_end` | the satellite array a decisive LTR core replaced (reported only; Hi-C never moves a call there). `.` also when the satellite outputs were made before cenfuse 0.9 and read with `--satellite-dir` |
+| `seq_overruled_start`, `seq_overruled_end` | the satellite array a decisive LTR core replaced (reported only; Hi-C never moves a call there) |
 | `seq_rejected_family`, `seq_rejected_start`, `seq_rejected_end` | a family the LTR line rejected at classification (its arrays lie away from the decisive cores on most chromosomes), and its largest cluster on this chromosome, outside the call: the array the call would otherwise have stood on |
 | `te_clade`, `te_seed`, `te_start`, `te_end` | the LTR marker's lineage, the lineage or family the signature was seeded by, and the core on this chromosome |
 | `te_share`, `te_chrom_elements` | the share of this chromosome's signature elements inside the core, and how many there are: a lineage other than CRM needs most of them inside to act |
@@ -76,7 +76,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `cis_peak_start`, `cis_peak_end` | the extreme of the contact crossing each bin, where the cis signal passed its test (against the LTR cores, or without them by Hi-C's trans contacts) |
 | `cis_test` | what tested the cis signal: `ltr` (the LTR cores) or `trans` (Hi-C's trans contacts anchored on the cis extremes, read outside the terminal eighths) |
 | `age_peak`, `age_call`, `age_p`, `age_premise_p` | with `tes/` (LTRquest K2P_T) and Hi-C, only where age can break a tie (a `high` sequence call and a strong peak of validated Hi-C more than a bin from it): the median insertion age in years (and the number of copies) of the chromosome's signature families at Hi-C's anchored core and at the sequence call, each widened by 4 bins; the one-sided Mann-Whitney P that the copies at the peak are younger; and the one-sided Fisher P that, on the other chromosomes, the signature's younger copies lie in the cores more often than its older ones (the premise; both must be ≤ 0.01 for `moved_with_age`) |
-| `hic_anch_peak_*`, `hic_anch_core_*`, `hic_anch_level`, `hic_anch_flags` | the anchored Hi-C peak (contacts with the other chromosomes' calls): position, core, strength (`high`, `medium`, `low`) and flags (`hub`, `rDNA`, `telomeric`) |
+| `hic_anch_peak_*`, `hic_anch_core_*`, `hic_anch_level`, `hic_anch_flags` | the anchored Hi-C peak (contacts with the other chromosomes' calls): position, core, strength (`high`, `medium`, `low`) and flags (`hub`, `rDNA`, `telomeric`, `null_untestable`; as for the prior-free peak) |
 | `hic_anch_agrees_seq` | whether the anchored peak agrees with the sequence call |
 | `hic_denovo_peak_*`, `hic_denovo_confidence`, `hic_denovo_flags` | Hi-C's own prior-free peak (no sequence call used), its level and the Hi-C engine's flags: `hub` (2× coverage and 2× trans contacts: a contact hub, not a centromere), `rDNA` (at a 45S array or an rDNA-tagged satellite: NORs meet in the nucleolus), `telomeric` (in an end window: ends cluster too), `no_rabl` (the library shows no Rabl polarity, the engine's premise), `null_untestable` (too few chromosomes for the engine's null: judged on its other two tests, at most `medium`), `not_converged` (the iterative estimate did not settle), `cycle_unstable` (it moves by more than a bin within its cycle), `no_contacts` (the chromosome has no contact with the others' calls). A prior-free peak with `hub`, `rDNA`, `telomeric`, `not_converged` or `cycle_unstable` is not clean, so it never places a call alone |
 | `fold_gate`, `fold_point`, `fold_core_*` | the arm fold (the chromosome's own contact map folding at the centromere): the genome's test result, and this chromosome's fold point and core |
@@ -120,6 +120,9 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `sequence_only` | only the sequence line was usable (no Hi-C, Hi-C failed its test, or its peak was weak), including a call placed by an AT trough alone |
 | `none` | no call |
 
+A call moved to its competing cluster (`rule` `hic_chose_alt` or `at_chose_alt`) keeps the relation `concordant` or
+`sequence_only`: its `start` differs from `seq_start`.
+
 The satellite engine sets the starting confidence. Each agreeing tested line raises a kept call one level (two at
 most); each opposing line lowers it one. A call that Hi-C moved or placed is `medium`, `high` with a second line.
 
@@ -133,11 +136,15 @@ contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis
 
 ## Flags
 
+Two columns hold flags. `seq_flags` holds the sequence line's flags: why the satellite engine set its confidence,
+and what the LTR line did to its call. `flags` holds the integration's flags: what the other lines did. Several flags
+are comma-separated.
+
+**Sequence line (`seq_flags`)**
+
 | flag | meaning |
 |---|---|
 | `competing_cluster` | a second satellite cluster at least half the size, or a second satellite that also marks the chromosome end in an acrocentric genome: the call is `low`, the other is in `seq_alt_*` |
-| `hic_chose_alt` | tested Hi-C chose the competing cluster |
-| `hic_alt_ambiguous` | no mappable DNA separates the call from its competing cluster, so Hi-C cannot tell them apart: no Hi-C support |
 | `acrocentric` | the family sits at one end of most chromosomes (an acrocentric karyotype) |
 | `near_end`, `low_satellite`, `diffuse`, `no_dominant_satellite` | why the satellite engine lowered its confidence: the call is near a chromosome end; it holds little satellite; it is a broad satellite-sparse block; no family is the largest centromeric cluster on most chromosomes (every call `low`) |
 | `not_one_per_chromosome` | the largest clusters of the centromeric families do not fall one per chromosome in this genome, so those arrays may not be centromeres: `low`, unless an LTR core agrees |
@@ -149,6 +156,13 @@ contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis
 | `partial_chain` | the main family is no tandem satellite: less than half of its bp in tandem repeats and less than half in whole-unit hits. The sequence call is `low`, or at most `medium` where a retrotransposon core overlaps it (for a lineage other than CRM, only if the family is not made of it); lines that pass their tests may raise the final call |
 | `chain_to_core` | such a call narrowed to the decisive core inside it |
 | `te_derived`, `gene_rich`, `gaps:N`, `contig_end` | the main family lies mostly inside LTR retrotransposons; the call is more gene-dense than its chromosome; N assembly gaps in the call; the call reaches a contig end (`--classify-from`) |
+
+**Integration (`flags`)**
+
+| flag | meaning |
+|---|---|
+| `hic_chose_alt` | tested Hi-C chose the competing cluster |
+| `hic_alt_ambiguous` | no mappable DNA separates the call from its competing cluster, so Hi-C cannot tell them apart: no Hi-C support |
 | `hic_offset` | strong tested Hi-C points elsewhere but cannot move a `high` call without a second line (`contested`) |
 | `hic_disagrees_weak`, `hic_near` | a tested peak elsewhere too weak to oppose; a peak beside the call but within Hi-C's resolution (no effect) |
 | `hic_support` | Hi-C passed only its support test: its own significant peak agrees, so the call rose one level (on this tier Hi-C never opposes or moves; with `hic_chose_alt`, a strong peak chose the competing cluster) |
@@ -161,7 +175,7 @@ contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis
 | `cis_blind` | the call lies in a terminal eighth, where the cis signal tested by trans contacts cannot see; its extreme lies elsewhere (the caveat says where), and the call is left as it is |
 | `fold_pair`, `align_pair` | Hi-C's prior-free peak and the arm fold (or the trans arm alignment) agree here, away from the sequence call: the call moved, or was placed, at `medium` |
 | `fold_offset`, `align_offset`, `hic_denovo_offset` | the arm fold / the alignment / Hi-C's prior-free peak points elsewhere: one level lower each |
-| `moved_with_te`, `_meth`, `_fold`, `_align`, `_age` | a `high` call moved because a second line (TE core, methylation, arm fold, alignment; or copies of the centromeric LTR families younger at the peak than at the call, in a genome whose young copies mark its cores) agreed with Hi-C |
+| `moved_with_te`, `_meth`, `_fold`, `_align`, `_age` | a `high` call moved because a second line (TE core, methylation, arm fold, alignment; or copies of the centromeric LTR families younger at the peak than at the call, in a genome whose young copies mark its cores) agreed with Hi-C; several are joined by `+` (`moved_with_te+age`) |
 | `hic_medium_peak` | no sequence call; a clean medium-strength Hi-C peak placed a `low` call |
 | `hic_denovo_only` | too few sequence calls to test Hi-C: Hi-C's own clean peak placed this `low` call (untested) |
 | `hic_denovo_elsewhere` | in such a genome, Hi-C's clean peak lies away from the kept sequence call (the caveat says where) |
@@ -334,15 +348,14 @@ keep the plain tenfold rule unless listed.
 | `--satellite-dir DIR` | take the satellite outputs of an earlier run (`satellite/`) as they are, instead of running the satellite engine; cenfuse warns if their chromosomes differ, or if that run's `run_info.json` names another cenfuse version (its satellite rules are kept) |
 | `--seed-engine fastan\|trf` | the tandem-repeat finder that seeds the satellite families [fastan] |
 | `--seed-cache DIR` | a folder of tandem-repeat results shared between runs |
-| `--classify-from T=S[+S2]` | genome T (e.g. a contig assembly) takes the centromeric families of genome(s) S |
+| `--classify-from T=S[+S2],...` | genome T (e.g. a contig assembly) takes the centromeric families of genome(s) S |
 | `--force STAGE` | recompute STAGE: `all` (every stage), `satellite` (the whole satellite engine), `telomere`, `rdna`, `rdna5s`, `gaps`, `attrough`, `genotype`, `hic`, `fold`, `karyotype`, `meth`, `cpg`, or a satellite-engine stage (`seeds`, `families`, `annotate`, `classify`, `centromeres`, `hor`, `output`, `plot`: the engine from there on). A later stage reruns when what it reads changed, as on any rerun |
 | `-v` | per-step progress and sanity checks |
 
-`--force` is needed when the run stops and names a stage: a search stage of the satellite engine (seeds, families,
-annotate) after an upgrade or a parameter change that affects it, or a changed chromosome set (below). Adding or changing
-`genes/` or `tes/` in an earlier run's folder needs nothing: the satellite engine's stages from classify on are keyed on
-those files' content and are recomputed (with a warning that names what changed), and so is every later stage that reads
-their result.
+`--force` is needed only when a run stops and names a stage (see Running, below).
+
+Each engine also runs alone (`python -m cenfuse.sat run`, `python -m cenfuse.hic call`, `python -m cenfuse.meth run`;
+`-h` for its options); the benchmark ran them through `cenfuse run`.
 
 ## Negative controls (`cenfuse control`)
 
@@ -358,46 +371,32 @@ write the same bytes as the benchmark's (NEG, NEG2).
 | `gc-shuffle` | the order of 100-kb blocks across the chromosomes (laid end to end, shuffled, cut again at their lengths) | each chromosome's length, the set's base composition, other sequences; writes OUT's `.fai` |
 | `ltr-shuffle --fai G.fai` | each LTR retrotransposon's position, with its LTRs and domains | lengths, clade, family, age |
 
-The Hi-C controls check their own output for clumped contacts: the dispersion of contacts per pair of genome bins against what a
-random matching (repair) or random placement (relocate) gives is about 1; above 1 + 10 standard deviations of that null the
-command stops and leaves `OUT.part` (a shuffle once used in the benchmark's development made clumped controls that scored
-176-1,712).
+The Hi-C controls check their own output: if contacts come out clumped (more than chance gives), the command stops and
+leaves `OUT.part`.
 
 ## Running
 
-**Resuming.** A rerun in the same output folder resumes from checkpoints. Each of cenfuse's stages is keyed on the code
-it runs (its modules and everything they import inside cenfuse, read without comments or docstrings), on cenfuse's
-version, and on the content of every input it reads (not on file names or time stamps: a folder moved or copied with
-`cp -r` keeps its checkpoints), including the results of the stages it reads, so an upgrade or a changed input recomputes
-only what it changes. A checkpoint that cannot be read (a torn file, a library upgrade) is recomputed with a warning;
-checkpoint stamps are written atomically. The satellite engine keys its stages on its results versions and parameters,
-and from classify on also on `genes/` and `tes/` (above). Its checkpoints also stand on the chromosome set, recorded in
-`satellite/work/chromosome_set.json`: a rerun whose set changed (a genome added or removed, a new or edited
-`chromosomes.txt`) stops, names the genomes, and says to rerun with `--force satellite`.
+**Resuming.** Rerun the same command in the same output folder and cenfuse resumes from its checkpoints. Each stage
+is keyed on the code it runs, cenfuse's version and the content of the inputs it reads (not file names or dates, so a
+moved or copied folder resumes), so an upgrade or a changed input recomputes only what it affects. Adding `tes/`,
+`genes/`, Hi-C or methylation to a finished run needs no option. The run stops and asks for `--force` in two cases: a
+stage of the satellite search (hours of work) is out of date after an upgrade, or the chromosome set changed (a
+genome added or removed, a new or edited `chromosomes.txt`): rerun with `--force satellite`.
 
-**One run per folder.** A run locks its output folder (`.cenfuse.lock`: host, pid, start, command; touched every minute).
-A second run on the same folder stops and names the first. A lock left by a run that died is taken over with a warning:
-on this host when its pid is gone, from another host (a shared filesystem, cluster nodes) once it has not been touched
-for 15 minutes. A shared seed cache (`--seed-cache`) is locked per genome by the same rules, so a run never waits on the
-lock of a job killed elsewhere.
+**One run per folder.** A run locks its output folder (`.cenfuse.lock`); a second run on the same folder stops. A lock
+left by a run that died is taken over with a warning (on another host, after 15 minutes).
 
-**The log.** Without `-v` the log reports the start, milestones, warnings and the end. The genome-wide satellite
-search logs the share of its work done and a rough estimate of the time left at every 10%, and after an hour without
-a line; when it ends, it names the three families that cost the most CPU (all families:
-`satellite/work/annotate/<genome>.search_cost.tsv`) and, before it starts, how many models are searched with their
-low-complexity positions neutral.
+**The log.** Without `-v`: the start, milestones, warnings and the end. The satellite search reports its progress
+with an estimate of the time left at every 10%.
 
-**Reproducibility.** Every run writes `run_info.json` (above): the versions of cenfuse, Python, the packages and every
-external tool, and the fingerprints of the inputs, so two runs can be compared. On Linux, fresh runs give identical
-results apart from the dates and commands in file headers
-(FasTAN runs with address-space randomization off, `setarch -R`). Two kinds of work files can differ: the search
-cost table (CPU times), and the families stage's BLAST scratch under `satellite/work/families/`. Without `setarch`
-(e.g. macOS) cenfuse warns, and about 1% of FasTAN's array cuts can differ between runs.
+**Reproducibility.** Every run writes `run_info.json`: the versions of cenfuse, Python, the packages and every
+external tool, the fingerprints of the inputs, and the run's cost. On Linux, fresh runs give identical results apart
+from dates and commands in file headers. On macOS (no `setarch`), about 1% of the satellite search's array cuts can
+differ between runs; cenfuse warns.
 
-**Memory.** The satellite search holds about one search workspace (up to ~2.4 GB for 2-kb units) per thread.
+**Memory.** The satellite search holds about one search workspace (up to ~2.4 GB for 2-kb units) per thread: lower
+`-t` if memory is short.
 
-**FasTAN crashes.** FasTAN can abort on a large satellite array (`malloc(): corrupted top size`). A piece of the seed
-search on which it dies by a crash signal is split into two overlapping halves and retried, down to 20 kb; a piece
-that still crashes is skipped with a warning, and the crashes are listed in `<seed cache file>.fastan_crashes.tsv`
-(linked under `satellite/work/seeds/`). If FasTAN crashes on every piece of a chunk, the run stops and suggests
-`--seed-engine trf`. A kill (out of memory, the scheduler, Ctrl-C) still stops the run.
+**FasTAN crashes.** FasTAN can abort on a large satellite array. cenfuse splits the piece and retries, skips a piece
+that still crashes (with a warning; listed in `<seed cache file>.fastan_crashes.tsv`), and stops if every piece of a
+chunk crashes: rerun with `--seed-engine trf`.

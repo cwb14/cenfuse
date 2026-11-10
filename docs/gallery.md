@@ -33,7 +33,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [siamang](#siamang) | FASTA, genes, Hi-C | 20/26 agree (2 confident disagreements) |  |
 | [rhesus macaque](#rhesus-macaque) | FASTA, genes, Hi-C | 22/22 agree |  |
-| [sheep](#sheep) | FASTA, genes, Hi-C | 26/28 agree (1 confident disagreements) |  |
+| [sheep](#sheep) | FASTA, genes, Hi-C | 26/28 agree (1 confident disagreement) |  |
 | [goat](#goat) | FASTA, genes, Hi-C | 30/30 agree | all acrocentric |
 | [giraffe](#giraffe) | FASTA, genes, Hi-C | 15/15 agree |  |
 
@@ -43,7 +43,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [HG002 (diploid human)](#hg002-diploid-human) | FASTA, ONT CpG methylation | 46/46 | both haplotypes; CpG kinetochores on 40, all inside the active array |
 | [horse (EquCab3)](#horse-equcab3) | FASTA, Hi-C | 3/5 | older assembly; right calls are `low`; chr11 has no call |
-| [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 18/20 | all acrocentric: every call `low` on the major satellite, the CENP-A minor satellite reported beside it |
+| [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 18/20 | all acrocentric: on 17 chromosomes the AT trough moves the call from the major satellite to the CENP-A minor satellite beside it; every call `low` |
 | [chicken](#chicken) | FASTA, Hi-C | 27/33 | CENP-A windows on 33 of 40 chromosomes; every call `low` (no satellite family dominates) |
 
 ## Plants with satellite centromeres
@@ -81,10 +81,10 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | AT troughs from the FASTA alone (13/14); Hi-C at 10-kb bins agrees with them |
 | [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 |  |
 | [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | 8 accessory chromosomes |
-| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more (0.13) |
-| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` (0.13) |
+| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more |
+| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` |
 | [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | truth is a kinetochore protein (Mtw1) |
-| [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 6/7 | 3C-seq: no test passes |
+| [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 6/7 | 3C-seq: no test passes; Hi-C's own peaks place 6 `low` calls |
 
 ## Holocentric controls (any confident call is wrong)
 

@@ -2,7 +2,7 @@
 
 Methylation samples and Hi-C libraries often come from plants other than the assembled one, and centromeres can sit
 elsewhere in other plants (in *P. annua*, young CRM insertions suggest that other accessions use other Pa1A
-centromeres, [not yet confirmed](future.md#22-pa1a-in-other-p-annua-plants)). cenfuse therefore:
+centromeres; not yet confirmed). cenfuse therefore:
 
 1. **tells where each input comes from**: the assembled (reference) plant, another plant, or unknown;
 2. **lets only reference and unknown inputs decide the reference calls**;
@@ -134,7 +134,7 @@ Every methylation sample is scored at every site of its chromosome (Per-plant ve
 | `test` | the test the row carries: `loss` (the plant's call site), `gain` (a site away from the call that does not come from the plant's own candidates alone), or empty (none: a test needs ≥ 3 plants scored and a reference call) |
 | `q` | the Benjamini-Hochberg q, over every test of the genome; `.` without a test |
 
-## Validation ([benchmark.md](benchmark.md#8-several-plants-poa-annua))
+## Validation ([benchmark.md](benchmark.md#several-plants-poa-annua))
 
 | test | result |
 |---|---|
