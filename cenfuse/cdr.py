@@ -41,7 +41,7 @@ import pysam
 from scipy.signal import find_peaks
 from scipy.stats import binom
 
-from .meth.io import ENCODE_COLS, MODKIT_COLS
+from .meth.io import ENCODE_COLS, MODKIT_COLS, open_tabix
 from .params import GATE_MIN_REF, GATE_P
 from .util import log
 
@@ -62,7 +62,7 @@ class Track:
 
     def __init__(self, path):
         self.path = str(path)
-        self.tb = pysam.TabixFile(self.path)
+        self.tb = open_tabix(self.path)
         self.contigs = set(self.tb.contigs)
         self.kind, self.scale, self.bad, self.read = "bedgraph", 1.0, 0, 0
         first = []
@@ -148,7 +148,7 @@ def bedgraph_on_cpg(path, fasta, windows: list, span: int = 200_000, max_rows: i
     at the row start, or one base later or earlier (public tracks differ by one base), whichever offset fits most rows.
     The bedMethyl check (provenance.check_assembly) reads strands and contexts; a bedGraph has neither."""
     hits, n = np.zeros(3), 0
-    with pysam.FastaFile(str(fasta)) as fa, pysam.TabixFile(str(path)) as tb:
+    with pysam.FastaFile(str(fasta)) as fa, open_tabix(path) as tb:
         contigs = set(tb.contigs)
         for c, s, e in windows:
             if c not in contigs or n >= max_rows:

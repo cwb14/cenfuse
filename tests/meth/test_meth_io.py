@@ -1,4 +1,5 @@
 import gzip
+from pathlib import Path
 
 import numpy as np
 import pysam
@@ -187,3 +188,19 @@ def test_anchors_gzipped_hic_matches_plain(tmp_path):
     d_gz, src_gz = io.read_anchors(gz)
     assert src_gz == "hic" == src_plain
     assert d_gz.mid.tolist() == d_plain.mid.tolist() == [1250]
+
+
+def test_csi_only_track_opens_and_is_read(tmp_path):
+    """Sequences over 512 Mb need a .csi index (tabix -C); pysam looks for .tbi only unless told."""
+    p = tmp_path / "big.bed"
+    with open(p, "w") as f:
+        for c, s, code, nv, nm, nh in ROWS:
+            f.write(f"{c}\t{s}\t{s + 1}\t{code}\t{nv}\t+\t{s}\t{s + 1}\t255,0,0\t"
+                    + "\t".join(map(str, [nv, f"{100 * nm / nv:.2f}", nm, nv - nm - nh, nh, 0, 0, 0, 0])) + "\n")
+    pysam.tabix_index(str(p), preset="bed", force=True, csi=True)
+    f = f"{p}.gz"
+    assert not Path(f + ".tbi").exists() and Path(f + ".csi").exists()
+    assert io.tabix_contigs(f) == ["c1"]
+    assert io.table_layout(f)[0] == "modkit"
+    with io.open_tabix(f) as tb:
+        assert io.read_bedmethyl(tb, "c1", 0, 100, 3)[0].tolist() == [10, 30]

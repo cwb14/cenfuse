@@ -20,6 +20,7 @@ import pandas as pd
 import pysam
 from scipy.stats import poisson
 
+from .meth.io import open_tabix
 from .meth.params import DEPTH_HI
 from .params import (GENO_ALPHA, GENO_FLANK, GENO_MIN_READS, GENO_POWER, GENO_WINDOW, KARYO_ABSENT,
                      KARYO_MIN_WINDOWS, KARYO_PRESENT)
@@ -153,7 +154,7 @@ def sample_genotype(args) -> Genotype:
     """Fixed differences of one sample's CHG file in the genotype windows (worker; picklable arguments)."""
     name, path, fasta, windows, index = args
     tested, fixed, rows, hits, po, mo = [], [], 0, 0, 0, 0
-    with pysam.FastaFile(str(fasta)) as fa, pysam.TabixFile(str(path)) as tb:
+    with pysam.FastaFile(str(fasta)) as fa, open_tabix(path) as tb:
         contigs = set(tb.contigs)
         for c, s, e in windows:
             if c not in contigs:
@@ -186,7 +187,7 @@ def motif_share(path, context: str, fasta, windows: list, max_rows: int = 20_000
     """(share of rows on reference motifs of `context`, rows checked) in the first MOTIF_SPAN of the first windows of a
     methylation file."""
     hits = n = 0
-    with pysam.FastaFile(str(fasta)) as fa, pysam.TabixFile(str(path)) as tb:
+    with pysam.FastaFile(str(fasta)) as fa, open_tabix(path) as tb:
         contigs = set(tb.contigs)
         for c, s, e in windows:
             if c not in contigs or n >= max_rows:

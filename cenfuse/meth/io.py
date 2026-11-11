@@ -79,7 +79,7 @@ def read_samples(path, require_chg: bool = True) -> list[Sample]:
             idx = [x for x in (Path(f"{p}.tbi"), Path(f"{p}.csi")) if x.exists()]
             if not idx:
                 raise InputError(f"sample {r['sample']}: {ctx} file has no tabix index (.tbi/.csi): {p} "
-                                 f"(make one with: tabix -p bed {p})")
+                                 f"(make one with: tabix -p bed {p}; tabix -C -p bed for sequences over 512 Mb)")
             if idx[0].stat().st_mtime < p.stat().st_mtime:
                 log.warning("sample %s: %s index is older than the file (re-index if the file changed): %s",
                             r["sample"], ctx, idx[0])
@@ -90,8 +90,17 @@ def read_samples(path, require_chg: bool = True) -> list[Sample]:
     return out
 
 
+def open_tabix(path) -> pysam.TabixFile:
+    """pysam.TabixFile of a bgzipped table, with its .csi index when it has no .tbi (pysam looks for .tbi only; a .csi
+    is what tabix -C makes for sequences over 512 Mb)."""
+    p = str(path)
+    if not Path(f"{p}.tbi").exists() and Path(f"{p}.csi").exists():
+        return pysam.TabixFile(p, index=f"{p}.csi")
+    return pysam.TabixFile(p)
+
+
 def tabix_contigs(path) -> list[str]:
-    with pysam.TabixFile(str(path)) as tb:
+    with open_tabix(path) as tb:
         return list(tb.contigs)
 
 
@@ -107,7 +116,7 @@ def usual_ncol(lines: list) -> int:
 
 def table_layout(path) -> tuple[str, int]:
     """(bedmethyl_layout, columns) of a tabixed methylation table, from the first rows that hold data."""
-    with pysam.TabixFile(str(path)) as tb:
+    with open_tabix(path) as tb:
         for c in tb.contigs:
             lines = [r for _, r in zip(range(100), tb.fetch(c))]
             if lines:

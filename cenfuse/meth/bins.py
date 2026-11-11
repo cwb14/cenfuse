@@ -16,7 +16,7 @@ import pysam
 from ..runtime import process_pool
 from . import params
 from .classes import ClassMap, classify
-from .io import read_bedmethyl
+from .io import open_tabix, read_bedmethyl
 
 log = logging.getLogger("cenfuse-meth")
 CACHE_VERSION = 1       # the class-bin cache's format: bump when its content changes (fingerprint)
@@ -55,7 +55,7 @@ def bin_chromosome(path, chrom: str, length: int, segs, other: int, n_classes: i
     acc = np.zeros((3, nb * n_classes), dtype=np.int64)
     bad = 0
     pysam.set_verbosity(0)                 # htslib notes (e.g. index age) are reported once by io.read_samples
-    with pysam.TabixFile(str(path)) as tb:
+    with open_tabix(path) as tb:
         for s in range(0, length, params.CHUNK):
             pos, v, m, b = read_bedmethyl(tb, chrom, s, min(s + params.CHUNK, length), params.MIN_CALLS_SITE)
             bad += b
