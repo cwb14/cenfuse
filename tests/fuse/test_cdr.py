@@ -24,27 +24,46 @@ def plateau(n=200, level=0.8, noise=0.03, dip=None, seed=1):
     return y
 
 
-def test_dip_is_the_valley_not_the_edge():
+def flat(n=200):
+    return np.full(n, 0.8), np.ones(n, bool)
+
+
+def test_dip_is_a_run_below_half_its_background():
     y = plateau(dip=(90, 110))
-    run, lo, hi = cdr.dip(y)
-    assert (lo, hi) == (90, 109) and run == 20
-    y = np.linspace(0.8, 0.1, 100)                       # monotone fall to the array edge: no valley there
-    assert cdr.best_valley(y) is None or cdr.dip(y)[2] < 99
+    bg, m = flat()
+    d = cdr.dips(y, bg, m)
+    assert len(d) == 1 and d[0][1:] == (90, 110) and d[0][0] < 0.3        # depth: methylation over background
+    assert cdr.dips(plateau(dip=(90, 92)), bg, m) == []                  # 10 kb: narrower than MIN_RUN
+    m2 = m.copy()
+    m2[95:] = False                                                       # the run ends where the arrays end
+    assert cdr.dips(y, bg, m2)[0][1:] == (90, 95)
+    two = plateau(dip=(90, 110))
+    two[40:50] = 0.3                                                      # a shallower dip
+    assert [x[1:] for x in cdr.dips(two, bg, m)] == [(90, 110), (40, 50)]  # deepest first
 
 
 def test_one_missing_bin_is_bridged_two_break_the_run():
     y = plateau(dip=(90, 110))
+    bg, m = flat()
     y[100] = np.nan
-    assert cdr.dip(y)[1:] == (90, 109)
-    v = cdr.best_valley(np.array([0.8, 0.8, np.nan, np.nan, 0.8, 0.2, 0.8]))
-    assert v is not None and v[1] == 5
+    assert [x[1:] for x in cdr.dips(y, bg, m)] == [(90, 110)]
+    y[101] = np.nan
+    assert sorted(x[1:] for x in cdr.dips(y, bg, m)) == [(90, 100), (102, 110)]
 
 
-def test_permutation_test_separates_a_dip_from_noise():
-    rng = np.random.default_rng(7)
-    assert cdr.dip_test(plateau(dip=(90, 110)), rng)["p"] <= cdr.DIP_P
-    assert cdr.dip_test(plateau(seed=4), rng)["p"] > cdr.DIP_P
-    assert np.isnan(cdr.dip_test(plateau(n=cdr.MIN_BINS - 1), rng)["p"])
+def test_profile_pools_calls_over_three_bins(monkeypatch):
+    monkeypatch.setattr(cdr, "MIN_SITES", 2)
+    b = cdr.bins(np.array([100, 5100, 10100, 10200, 99_999]), np.array([1.0, 0.0, 2.0, 0.0, 1.0]),
+                 np.array([1.0, 1.0, 2.0, 2.0, 1.0]), 3)                  # the last row lies beyond the sequence
+    assert b.shape == (3, 3) and list(b[2]) == [1, 1, 2]
+    y = cdr.profile(b)
+    assert np.allclose(y, [1 / 2, 3 / 6, 2 / 5])                          # (methylated, valid) calls of bins i-1..i+1
+
+
+def test_array_bins_merge_overlaps():
+    a = pd.DataFrame(dict(chrom=["c", "c", "c", "d"], start=[0, 5000, 12000, 0], end=[7500, 9000, 13000, 15000],
+                          role="centromeric"))
+    assert list(cdr.array_bins(a, "c", 3)) == [True, True, False]        # 5000/5000, 4000/5000, 1000/5000
 
 
 def _tabix(path: Path, rows):
@@ -116,10 +135,12 @@ def test_gate():
 L, CALL, NULLS = 4_000_000, (1_000_000, 2_000_000), (3_000_000, 3_400_000)
 
 
-def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False):
+def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0):
     """n chromosomes of L bp: a centromeric array over CALL with a 100-kb dip at 1.4 Mb, an interstitial array over
     NULLS without one; a CpG every 100 bp (bedGraph fractions). shift: positions moved by L/2 (the negative control).
-    everywhere: methylated 0.8 along the whole chromosome with a 100-kb dip every 400 kb (dips are not positional)."""
+    everywhere: methylated 0.8 along the whole chromosome with a 100-kb dip every 400 kb (dips are not positional).
+    moved: chromosomes whose dip lies in the interstitial array (3.1-3.2 Mb) instead. keep_array: the share of the
+    arrays' 50-kb blocks that keep their rows (a coverage hole elsewhere)."""
     rng = np.random.default_rng(seed)
     rows, arrays, calls = [], [], {}
     for i in range(n):
@@ -128,13 +149,17 @@ def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False):
         y = 0.3 + 0.05 * rng.standard_normal(len(pos))           # unmethylated-ish background
         sat = ((pos >= CALL[0]) & (pos < CALL[1])) | ((pos >= NULLS[0]) & (pos < NULLS[1]))
         y[sat] = 0.8 + 0.05 * rng.standard_normal(sat.sum())
-        y[(pos >= 1_400_000) & (pos < 1_500_000)] = 0.15
+        if c in moved:
+            y[(pos >= 3_100_000) & (pos < 3_200_000)] = 0.15
+        else:
+            y[(pos >= 1_400_000) & (pos < 1_500_000)] = 0.15
         if everywhere:
             y = 0.8 + 0.05 * rng.standard_normal(len(pos))
             y[(pos % 400_000) >= 300_000] = 0.15
         p = (pos + L // 2) % L if shift else pos
-        o = np.argsort(p)
-        rows += [(c, int(a), int(a) + 2, round(float(v), 3)) for a, v in zip(p[o], y[o])]
+        keep = ~sat | (rng.random(len(pos) // 500 + 1)[pos // 50_000] < keep_array)
+        o = np.argsort(p[keep])
+        rows += [(c, int(a), int(a) + 2, round(float(v), 3)) for a, v in zip(p[keep][o], y[keep][o])]
         arrays += [(c, CALL[0], CALL[1], "centromeric"), (c, NULLS[0], NULLS[1], "interstitial")]
         calls[c] = (CALL[0], CALL[1], "high")
     f = _tabix(tmp_path / f"cg{int(shift)}.bedgraph.gz", rows)
@@ -145,8 +170,9 @@ def test_run_finds_planted_kinetochores(tmp_path):
     f, calls, arrays = small_genome(tmp_path)
     res = cdr.run([f], calls, arrays)
     t = res["table"].set_index("chrom")
-    assert t.gate_pass.all() and (t.dip_p <= cdr.DIP_P).all() and (t.pos_p <= cdr.DIP_P).all()
+    assert t.gate_pass.all() and (t.dip_depth < cdr.FRAC).all() and (t.pos_p <= cdr.DIP_P).all()
     assert ((t.kt_start - 1_400_000).abs() <= B).all() and ((t.kt_end - 1_500_000).abs() <= B).all()
+    assert (t.alt_start < 0).all() and (t.array_data == 1).all()
     assert (t.kt_meth < 0.3).all() and (t.array_meth > 0.7).all()
     out = cdr.columns(pd.DataFrame(dict(chrom=list(calls))), res)
     assert (out.cpg_gate == "pass").all() and (out.cpg_kt_start.astype(int) == t.kt_start.to_numpy() + 1).all()
@@ -162,7 +188,7 @@ def test_dips_everywhere_are_not_positional(tmp_path):
     """Dips in every array, also far from the calls (methylation from elsewhere makes them too): the gate fails."""
     f, calls, arrays = small_genome(tmp_path, everywhere=True)
     t = cdr.run([f], calls, arrays)["table"]
-    assert (t.dip_p <= cdr.DIP_P).all() and not t.gate_pass.any()
+    assert (t.dip_depth < cdr.FRAC).all() and not t.gate_pass.any()
 
 
 def test_malformed_rows_are_skipped(tmp_path):
@@ -223,15 +249,6 @@ def test_bedgraph_assembly_check(tmp_path):
     assert cdr.track_kind(on) == "bedgraph"
 
 
-def test_dip_stays_inside_its_array_run():
-    """A dip beside DNA between arrays (missing bins) ends at the run's edge, not across the gap."""
-    y = plateau(n=120, dip=(50, 60))
-    y[60:80] = np.nan                                            # 20 non-array bins right after the dip
-    y[80:84] = 0.15                                              # low bins on the far side
-    run, lo, hi = cdr.dip(y)
-    assert (lo, hi) == (50, 59) and run == 10
-
-
 def test_a_malformed_first_row_loses_only_itself(tmp_path):
     f = _tabix(tmp_path / "f.bedgraph.gz", [("c1", 100, 102, ""), ("c1", 200, 202, 0.5), ("c1", 300, 302, 0.7)])
     t = cdr.Track(f)
@@ -260,3 +277,41 @@ def test_low_coverage_dip_is_found_by_pooling_calls(tmp_path):
     f = _tabix(tmp_path / "low.bed.gz", rows)
     t = cdr.run([f], calls, pd.DataFrame(arrays, columns=["chrom", "start", "end", "role"]))["table"].set_index("chrom")
     assert t.gate_pass.all() and ((t.kt_start - 1_400_000).abs() <= 2 * B).all() and ((t.kt_end - 1_500_000).abs() <= 2 * B).all()
+
+
+def test_contest_points_to_the_other_array(tmp_path):
+    """c0's call holds no dip while its interstitial array holds one; the other chromosomes' calls carry theirs (the
+    gate passes, leave-one-out): the line contests c0 and names the other array's dip; no other call is contested."""
+    f, calls, arrays = small_genome(tmp_path, moved=("c0",))
+    res = cdr.run([f], calls, arrays)
+    t = res["table"].set_index("chrom")
+    assert t.gate_pass.all() and t.at["c0", "kt_start"] < 0 and t.at["c0", "pos_p"] == 1.0
+    assert abs(t.at["c0", "alt_start"] - 3_100_000) <= B and abs(t.at["c0", "alt_end"] - 3_200_000) <= B
+    assert (t.drop(index="c0").alt_start < 0).all()
+    ch = res["chroms"]["c0"]
+    assert ch.elsewhere(*CALL) == (t.at["c0", "alt_start"], t.at["c0", "alt_end"])
+    assert res["chroms"]["c1"].elsewhere(*CALL) is None
+    out = cdr.columns(pd.DataFrame(dict(chrom=list(calls))), res).set_index("chrom")
+    assert int(out.at["c0", "cpg_alt_start"]) == t.at["c0", "alt_start"] + 1 and out.at["c1", "cpg_alt_start"] == "."
+
+
+def test_pbcpg_rows_are_read_with_their_coverage(tmp_path):
+    """pb-CpG-tools (9 columns: score, type, coverage, estimated modified and unmodified counts): calls, not a fraction."""
+    f = _tabix(tmp_path / "p.bed.gz", [("c1", 100, 101, 60.0, "Total", 10, 6, 4, 60.0),
+                                       ("c1", 300, 301, 25.0, "hap1", 4, 1, 3, 25.0)])
+    t = cdr.Track(f)
+    p, m, n = t.sites("c1", 0, 1000)
+    assert t.kind == "pbcpg" and list(p) == [100, 300] and np.allclose(m, [6, 1]) and np.allclose(n, [10, 4])
+
+
+def test_coverage_hole_in_the_arrays_is_reported(tmp_path, caplog):
+    """Most array rows missing (as in tracks piled up at MAPQ 60: reads in arrays map at MAPQ 20-59): a warning."""
+    f, calls, arrays = small_genome(tmp_path, keep_array=0.3)
+    with caplog.at_level("WARNING"):
+        res = cdr.run([f], calls, arrays)
+    assert res["array_data"] < cdr.HOLE and any("MAPQ" in r.message for r in caplog.records)
+    caplog.clear()
+    f, calls, arrays = small_genome(tmp_path)
+    with caplog.at_level("WARNING"):
+        res = cdr.run([f], calls, arrays)
+    assert res["array_data"] >= cdr.HOLE and not any("MAPQ" in r.message for r in caplog.records)

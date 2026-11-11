@@ -630,19 +630,19 @@ class Run:
         log.info(f"meth: {g.name} done ({time.time() - t0:.0f} s)")
         return res
 
-    def stage_cpg(self, g, files: list, calls: dict, seq: seqcalls.SeqLine) -> dict:
-        """The CpG line (cdr.py): a kinetochore inside each final call where CpG dips are validated genome-wide.
-        Checkpointed by its CG files, the final calls and the arrays."""
+    def stage_cpg(self, g, files: list, lengths: dict, seq: seqcalls.SeqLine) -> dict:
+        """The CpG line's profiles (cdr.prepare): methylation, background and array bins per chromosome. Checkpointed by
+        its CG files, the chromosomes and the arrays; the calls are judged on them (cdr.assess) in the fusion."""
         arr = seq.arrays[["chrom", "start", "end", "role"]]
         fp = dict(version=__version__, code=code_key("cdr.py", "meth/params.py", "meth/io.py", stage="cpg"),
-                  files=[file_fingerprint(f) for f in files], calls=obj_fingerprint(calls),
+                  files=[file_fingerprint(f) for f in files], lengths=obj_fingerprint(lengths),
                   arrays=obj_fingerprint(arr.values.tolist()))
         hit = self._cached("cpg", g.name, fp)
         if hit is not None:
             log.info(f"cpg: {g.name} checkpoint found")
             return hit
         t0 = time.time()
-        res = cdr.run(files, calls, arr)
+        res = cdr.prepare(files, arr, lengths)
         self._store("cpg", g.name, fp, res)
         log.info(f"cpg: {g.name} done ({time.time() - t0:.0f} s)")
         return res
@@ -903,21 +903,37 @@ class Run:
                 mi = {c: {r.item: dict(label=r.label, score=r.score) for r in d.itertuples(index=False)}
                       for c, d in pooled.groupby("chrom")}
                 evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at, ages=ages)
-            final = [fuse.decide(e) for e in evs]
-            t = fuse.table(evs, final)
-            calls = {e.chrom: d["call"] for e, d in zip(evs, final)}
+            # the CpG line: its gate from the provisional calls (the references that decided them), its contest in the
+            # final fusion (fuse._cpg), its kinetochores on the final calls
             cg = [s.files["CG"] for s in samples if "CG" in s.files and s.name in deciders]
-            cpg = None
+            as_calls = lambda ds: {e.chrom: (*d["call"], d["confidence"]) if d["call"] else (-1, -1, "none")
+                                   for e, d in zip(evs, ds)}
+            prep = gates = None
             if cg:
-                fin = {e.chrom: (*d["call"], d["confidence"]) if d["call"] else (-1, -1, "none")
-                       for e, d in zip(evs, final)}
                 try:
-                    cpg = self.stage_cpg(g, cg, fin, seq)
+                    prep = self.stage_cpg(g, cg, {e.chrom: e.chrom_len for e in evs}, seq)
+                    gates = cdr.assess(prep, as_calls(prov))
                 except (OSError, ValueError) as e:
                     log.warning(f"{g.name}: CpG line skipped: {e}")
                     g.notes.append(f"CpG line skipped: {e}")
+                    prep = None
+                if prep is not None:
+                    passing = set(gates.chrom[gates.gate_pass])
+                    for e in evs:
+                        ch = prep["chroms"].get(e.chrom)
+                        e.cpg = ch.elsewhere if ch is not None and e.chrom in passing else None
             elif samples:
                 log.info(f"{g.name}: no CG file from a deciding methylation sample; CpG line not run")
+            final = [fuse.decide(e) for e in evs]
+            t = fuse.table(evs, final)
+            calls = {e.chrom: d["call"] for e, d in zip(evs, final)}
+            cpg = None
+            if prep is not None:
+                tf = cdr.assess(prep, as_calls(final), gates)
+                cpg = dict(table=tf, bad_rows=prep["bad_rows"], array_data=cdr.summary(tf, prep))
+                if np.isfinite(cpg["array_data"]) and cpg["array_data"] < cdr.HOLE:
+                    g.notes.append(f"CpG coverage hole: the arrays have data in {cpg['array_data']:.0%} of the "
+                                   f"genome's share of bins (pile up at MAPQ >= 1)")
             t = cdr.columns(t, cpg)
             absent = provenance.call_absent(profiles, kar["skip"], segments, calls, kar["w"])
             ptab, psites = plants.score(list(g.chroms), calls, verdicts, meth["sites"] if meth is not None else None,

@@ -756,3 +756,33 @@ def test_rule_names_the_rule_that_set_the_call():
     assert fuse.decide(ev(conf="low", meth=m))["rule"] == "meth_support"
     row = fuse.row(ev(), fuse.decide(ev()))
     assert row["rule"] == "sequence" and list(fuse.FUSED_COLS).index("rule") == list(fuse.FUSED_COLS).index("flags") + 1
+
+
+def test_cpg_contests_a_sequence_call_without_moving_it():
+    """The CpG line (cdr.Chrom.elsewhere) finds the CDR on another array: one level down, never moved."""
+    e = ev()
+    e.cpg = lambda s, t: (30_000_000, 30_050_000)
+    d = fuse.decide(e)
+    assert d["call"] == (1_000_000, 1_400_000) and d["relation"] == "contested" and d["confidence"] == "medium"
+    assert d["against"] == ["cpg"] and "cpg_elsewhere" in d["flags"] and d["rule"] == "cpg_elsewhere"
+    e.cpg = lambda s, t: None
+    d = fuse.decide(e)
+    assert d["confidence"] == "high" and d["relation"] == "sequence_only" and "cpg" not in d["against"]
+    low = ev(conf="low")
+    low.cpg = lambda s, t: (30_000_000, 30_050_000)
+    d = fuse.decide(low)
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "low" and d["against"] == ["cpg"]
+
+
+def test_cpg_and_hic_against_a_kept_call_lower_it_once_each():
+    e = ev(peak=30_000_000)                                       # a contesting Hi-C peak: high -> medium
+    e.cpg = lambda s, t: (40_000_000, 40_050_000)
+    d = fuse.decide(e)
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "low" and set(d["against"]) == {"hic", "cpg"}
+
+
+def test_cpg_has_no_say_on_a_call_hic_placed():
+    e = ev(conf="low", peak=30_000_000, core=(29_500_000, 30_750_000))
+    e.cpg = lambda s, t: (40_000_000, 40_050_000)
+    d = fuse.decide(e)
+    assert d["source"] == "hic" and "cpg" not in d["against"] and "cpg_elsewhere" not in d["flags"]

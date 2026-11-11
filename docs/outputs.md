@@ -8,7 +8,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | file | content |
 |---|---|
 | `asm.centromeres.tsv` | one row per chromosome: the call and everything behind it (columns below) |
-| `asm.centromeres.bed`, `.gff3` | the calls; the GFF3 also holds each CpG kinetochore (`regional_centromere_central_core`, Name=kinetochore) |
+| `asm.centromeres.bed`, `.gff3` | the calls; the GFF3 also holds each CpG kinetochore (`regional_centromere_central_core`, Name=kinetochore; dip_depth, pos_p, kt_meth, array_meth) |
 | `cenfuse_report.md` | per genome, in words: each line's result and test, what the centromeres are made of, the calls that are not `high` with what would settle them, morphology and completeness, the other features and their 3D association, notes on the inputs |
 | `cenfuse_summary.tsv` | one row per genome (columns below); warnings are in the log and the report |
 | `run_info.json` | the run manifest: cenfuse's version and git commit, the command, host, threads and times, Python and package versions, every external tool's path, version and conda package, a content fingerprint of every input, how the run ended (`status`: `running`, `done`, `failed` with the error; `incomplete` outputs), and what it cost (`cost`: `wall_minutes`, `cpu_hours` of cenfuse and every process it started, `peak_memory_gb` of the whole process tree, sampled every 30 s, and `memory`, what that measured; also the run's last log line) |
@@ -37,7 +37,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `call_source` | where the final call comes from: `sequence` (satellite or TE line), `hic`, `composition` (an AT trough) or `none` |
 | `relation` | how the final call relates to the sequence call (below) |
 | `confidence` | `high`, `medium`, `low` (unsure) or `none` (no call) |
-| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call) |
+| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call), `cpg` (against only: the call's arrays hold no CpG dip while another array does) |
 | `flags` | the integration's flags ([Flags](#flags)) |
 | `rule` | the rule of the integration that set the call's place or relation (below); `sequence` = the sequence line's call as it is |
 | `offset_bp` | distance between the final and the sequence call when the call was moved (0 when they overlap); `.` when the call is the sequence call or its competing cluster |
@@ -88,11 +88,13 @@ The reference for every file, column and flag cenfuse writes, and for running it
 |---|---|
 | `meth_seq`, `meth_hic`, `meth_call` (+ `_score`) | the CHG line's label at the sequence call, at the Hi-C peak and at the final call: `centromere_like`, `dip`, `no_signature_data` or `no_data` |
 | `meth_samples` | the methylation samples that decided |
-| `cpg_gate`, `cpg_gate_k`, `cpg_gate_n`, `cpg_gate_p` | the CpG test for this chromosome: do the other chromosomes' calls hold a CpG dip more often than methylation from elsewhere would put one there? |
-| `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the call's CpG dip (shown where the test passes and the dip is significant). It refines the call; it does not check it (an inactive array has dips too) |
-| `cpg_dip_p` | the dip is longer than in the call's own 5-kb bins shuffled |
-| `cpg_pos_p` | the dip is longer than methylation from elsewhere on the chromosome makes on the same bins (the test counts these) |
-| `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore; median over the array |
+| `cpg_gate`, `cpg_gate_k`, `cpg_gate_n`, `cpg_gate_p` | the CpG test for this chromosome: do the other chromosomes' calls hold a CpG dip deeper than methylation from elsewhere would put there, more often than chance? |
+| `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the deepest CpG dip (CDR) in the call's centromeric arrays, shown where the test passes. It refines the call |
+| `cpg_dip_depth` | that dip's methylation over its surroundings' (a dip falls below 0.5; 1 = no dip; `.` = fewer than 50 kb of array with data) |
+| `cpg_pos_p` | the dip is deeper than methylation from elsewhere on the chromosome makes on the same array bins (the test counts these) |
+| `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore; median over the call's arrays |
+| `cpg_array_data` | the share of the call's array bins with CpG data (a low share is a coverage hole: tracks piled up at MAPQ 60 lose most reads in arrays) |
+| `cpg_alt_start`, `cpg_alt_end` | where the test passes and the call's arrays have data but no dip: the CDR-like dip on another satellite array of the chromosome (deeper than methylation from elsewhere makes there). The call is contested (`cpg_elsewhere`) and kept |
 
 **Several plants**: `hic_library`, `hic_provenance`, `plants_shared`, `plants_shifted`, `plants_absent`,
 `plants_unresolved` ([plants.md](plants.md)).
@@ -132,7 +134,7 @@ validated peak moved the call); `hic_offset` (it points elsewhere and cannot mov
 `hic_medium_peak`, `hic_denovo_only` (Hi-C placed a call where the sequence has none); `fold_pair`, `align_pair` (the Rabl-axis
 line and the prior-free peak at one locus); `fold_offset`, `align_offset`, `hic_denovo_offset` (they oppose a kept call:
 contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis_elsewhere` (the cis signal); `at_only`,
-`at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `meth_support` (methylation alone confirms the call); `none` (no call).
+`at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `cpg_elsewhere` (CpG finds the CDR on another array: contested); `meth_support` (methylation alone confirms the call); `none` (no call).
 
 ## Flags
 
@@ -172,6 +174,7 @@ are comma-separated.
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing: it takes the trough's interval, one level up; the trough lies elsewhere |
 | `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
 | `at_chose_alt` | the genome's AT troughs passed their test and this chromosome's deepest trough window lies on the competing cluster of a `low` sequence call and not on the call: the competing cluster, `low` unless another line agrees there; not where validated Hi-C can tell the two clusters apart. A heuristic on the evidence of one genome (design.md) |
+| `cpg_elsewhere` | where the CpG test passes, the call's centromeric arrays hold no dip while another array holds a CDR-like one (`cpg_alt_*`): the call is kept, one level lower (`contested`; with another line against it, one level more). CpG never moves a call: in the truth genomes such a dip was the centromere once and elsewhere twice |
 | `cis_blind` | the call lies in a terminal eighth, where the cis signal tested by trans contacts cannot see; its extreme lies elsewhere (the caveat says where), and the call is left as it is |
 | `fold_pair`, `align_pair` | Hi-C's prior-free peak and the arm fold (or the trans arm alignment) agree here, away from the sequence call: the call moved, or was placed, at `medium` |
 | `fold_offset`, `align_offset`, `hic_denovo_offset` | the arm fold / the alignment / Hi-C's prior-free peak points elsewhere: one level lower each |
@@ -202,7 +205,7 @@ are comma-separated.
 | `te_hic`, `cis_line` | where the Hi-C test failed: with `tes/`, Hi-C's peak at the LTR cores, and the cis signal at the LTR cores (k/n, P, verdict); without LTR cores, the cis signal tested by trans contacts (k/n, P, verdict, and the chromosomes it acts on; `ambiguous` when both signs pass) |
 | `hic_rabl`, `fold_gate`, `fold_on_denovo`, `fold_p`, `align_gate`, `align_on_denovo`, `align_p`, `hic_axis` | the Rabl-axis tests: the arm fold and the trans arm alignment (k/n chromosomes whose prior-free peak lies in the core, P), and the axis that acted (`fold`, `align`) |
 | `hic_3d_centromeres`, `hic_3d_ends`, `hic_architecture` | how strongly the calls and the chromosome ends contact each other in 3D; what the library showed: `rabl_axis`, `centromere_clustering` (test passed), `weak_centromere_clustering` (support tier), `untested`, `not_detected` |
-| `meth_*`, `cpg_*` | the CHG line (samples, anchors, signature, deciding samples) and the CpG line (chromosomes passing, dips, kinetochores) |
+| `meth_*`, `cpg_*` | the CHG line (samples, anchors, signature, deciding samples) and the CpG line (chromosomes passing, dips, kinetochores, calls contested by another array's dip, `cpg_array_data`: the arrays' share of bins with data over the genome's, below 0.8 a coverage hole) |
 | `inputs_reference`, `inputs_other`, `inputs_unknown`, `hic_library`, `plants*` | the inputs by provenance verdict, the deciding Hi-C library, the plants' verdicts ([plants.md](plants.md)) |
 | `incomplete` | outputs that failed for this genome (`report`, `figure`), or `.`: the tables are complete either way, the report says what is missing, and the log ends with a warning |
 

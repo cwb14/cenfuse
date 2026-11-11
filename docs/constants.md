@@ -25,13 +25,20 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | constant | value | reason | mark |
 |---|---|---|---|
 | `BIN` | `5_000` | CDR-Finder's window (Mastrorosa et al. 2024): >= 4 bins across the smallest CDRs (~20 kb) |  |
-| `MIN_SITES` | `10` | CpG rows per bin with data (a 5-kb alpha-satellite bin holds ~30-60 CpGs; heuristic) | heuristic |
+| `SMOOTH` | `3` | bins pooled into each bin's methylation (15 kb): a lone 5-kb bin of a sparse track is noise |  |
+| `MIN_SITES` | `5` | CpG rows in a SMOOTH window for its methylation to count (heuristic; alpha satellite holds ~30-60 per 5 kb, so only bins with almost no data are dropped) | heuristic |
+| `SURR` | `500_000` | the background: running median over +-SURR, wider than CDRs (20-200 kb), narrower than arrays |  |
+| `FRAC` | `0.5` | a dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey) |  |
+| `MIN_RUN` | `3` | bins in a dip (15 kb): the narrowest CDRs are ~20 kb |  |
 | `ARRAY_COVER` | `0.5` | a bin is array sequence when arrays cover most of it (majority rule) |  |
-| `MIN_BINS` | `10` | bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic) | heuristic |
-| `N_PERM` | `200` | shuffles and ... |  |
-| `N_ROT` | `200` | ... rotations per call: P resolution 0.005, ten times finer than DIP_P |  |
+| `MIN_BINS` | `10` | array bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic) | heuristic |
+| `N_ROT` | `200` | rotations per call: P resolution 0.005, ten times finer than DIP_P |  |
+| `ROT_MIN` | `0.1` | a rotation moves the methylation by at least this share of the chromosome (and the window's own length), so a call never meets its own dip again (survey's null) |  |
 | `DIP_P` | `0.05` | a significant dip (conventional level); each reference's chance under the gate's null |  |
+| `BRIDGE` | `2` | bins of non-array sequence an array run spans (an alternative dip's array; heuristic) | heuristic |
+| `HOLE` | `0.8` | arrays with data in < HOLE x the genome's share of bins: a coverage hole (MAPQ-60 tracks: 0.36-0.68, MAPQ >= 1: >= 0.97, four truth genomes) |  |
 | `SEED` | `7` | fixed seed: reruns give identical P values |  |
+| `PBCPG_COLS` | `9` | pb-CpG-tools: score, type (Total/hap1/hap2), coverage (6), estimated modified count (7) |  |
 
 ## `controls.py`
 

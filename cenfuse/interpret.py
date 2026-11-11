@@ -323,6 +323,11 @@ def caveat(r, ctx: dict) -> str:
     if "cis_elsewhere" in flags:
         out.append("the cis Hi-C signal has its extreme elsewhere" + (f" ({interval(r.cis_peak_start, r.cis_peak_end)})"
                                                                       if _int(getattr(r, "cis_peak_start", None)) else ""))
+    if "cpg_elsewhere" in flags:
+        out.append("CpG methylation finds no centromere dip (CDR) in the call's arrays, while another array holds one"
+                   + (f" ({interval(r.cpg_alt_start, r.cpg_alt_end)})" if _int(getattr(r, "cpg_alt_start", None))
+                      else "") + "; the call is kept, as CpG alone does not move a call")
+        hint = hint or "CENP-A/CENH3 data would decide"
     if "cis_blind" in flags:
         out.append(f"the cis Hi-C signal, which passed its test on most chromosomes, has its extreme elsewhere "
                    f"({interval(r.cis_peak_start, r.cis_peak_end)}), but it is read outside the chromosome ends and cannot judge "
@@ -586,9 +591,12 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                                                   f"signature {sig}; supports {f['meth_agree']} calls."))
         if "cpg_gate_pass" in summ:
             gate = _n(summ.get("cpg_gate_pass"))
+            alt = _n(summ.get("cpg_elsewhere"))
             L.append(f"- **CpG methylation**: " + (f"its dips mark the other chromosomes' centromeres on {gate} "
                                                    f"chromosomes (its test); kinetochores inside {f['kinetochores']} "
-                                                   f"calls." if gate else
+                                                   f"calls" + (f"; {alt} call{'s' if alt != 1 else ''} without a dip "
+                                                               f"while another array holds one (contested)"
+                                                               if alt else "") + "." if gate else
                                                    "failed its test (dips do not mark the other chromosomes' "
                                                    "centromeres beyond chance): no kinetochore placed."))
     tested = lines[lines.chromosomes >= 3] if lines is not None and len(lines) else None

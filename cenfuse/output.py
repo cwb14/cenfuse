@@ -66,8 +66,8 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
                      sequence_evidence=r.seq_evidence, main_family=r.main_family, offset_bp=r.offset_bp)
             f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
             if getattr(r, "cpg_kt_start", ".") != ".":           # the CpG line's kinetochore inside the call
-                k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", Name="kinetochore", dip_p=r.cpg_dip_p,
-                         kt_meth=r.cpg_kt_meth, array_meth=r.cpg_array_meth)
+                k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", Name="kinetochore",
+                         dip_depth=r.cpg_dip_depth, pos_p=r.cpg_pos_p, kt_meth=r.cpg_kt_meth, array_meth=r.cpg_array_meth)
                 f.write(f"{r.chrom}\tcenfuse\tregional_centromere_central_core\t{r.cpg_kt_start}\t{r.cpg_kt_end}"
                         f"\t.\t.\t.\t{_attrs(k)}\n")
 
@@ -218,9 +218,10 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
     if cpg is not None:
         c = cpg["table"]
         d.update(cpg_gate_pass=int(c.gate_pass.sum()),
-                 cpg_dips=f"{int((c.dip_p <= DIP_P).sum())}/{int(c.dip_p.notna().sum())}",
+                 cpg_dips=f"{int((c.dip_depth < 1).sum())}/{int(c.dip_depth.notna().sum())}",
                  cpg_positional=f"{int((c.pos_p <= DIP_P).sum())}/{int(c.pos_p.notna().sum())}",
-                 cpg_kinetochores=int((c.kt_start >= 0).sum()))
+                 cpg_kinetochores=int((c.kt_start >= 0).sum()), cpg_elsewhere=int((c.alt_start >= 0).sum()),
+                 cpg_array_data=round(float(cpg["array_data"]), 3) if np.isfinite(cpg["array_data"]) else ".")
     if verdicts:
         for v in ("reference", "other", "unknown"):
             d[f"inputs_{v}"] = ",".join(sorted(f"{k}:{n}" for (k, n), x in verdicts.items() if x["verdict"] == v)) or "."

@@ -142,6 +142,8 @@ class Evidence:
                               # agrees (they do here), or None
     age: dict | None = None   # ageline.compare: insertion ages of the signature's copies at the anchored Hi-C core vs at the
                               # sequence call (n_peak, n_call, med_peak, med_call, p one-sided: younger at the peak), or None
+    cpg: Callable | None = None   # (start, end) -> (start, end) of the CDR-like dip on another array when the CpG line
+                              # contests a call there (cdr.Chrom.elsewhere where the CpG gate passes), else None
 
 
 def _iv(d, s="start", e="end"):
@@ -338,6 +340,8 @@ class _Call:
     at_pair: bool = False      # the AT trough refined a Hi-C call
     f_opp: bool = False        # the axis line, the prior-free peak, oppose the kept call
     d_opp: bool = False
+    c_opp: bool = False        # the CpG line opposes the kept call (its CDR lies on another array) ...
+    c_only: bool = False       # ... and is the only line contesting it
 
 
 def _context(ev: Evidence) -> tuple:
@@ -648,6 +652,19 @@ def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
     return support
 
 
+def _cpg(c: _Ctx, s: _Call) -> None:
+    """The CpG line's contest (cdr.Chrom.elsewhere): where the genome's calls carry CDR dips (the CpG gate), a sequence
+    call whose centromeric arrays have data and no dip while another array of its chromosome holds a CDR-like one. One
+    line against the call; the call is never moved (the dip is reported, cpg_alt_start/cpg_alt_end): in the truth
+    genomes such a dip was the centromere once and elsewhere twice (docs/benchmark.md)."""
+    if s.source != "sequence" or s.call is None or c.ev.cpg is None or not c.ev.cpg(*s.call):
+        return
+    s.flags.append("cpg_elsewhere")
+    s.c_opp = True
+    if s.relation != "contested":
+        s.relation, s.rule, s.c_only = "contested", "cpg_elsewhere", True
+
+
 def _against(c: _Ctx, s: _Call) -> list:
     """The lines that point elsewhere."""
     ev, flags = c.ev, s.flags
@@ -661,15 +678,19 @@ def _against(c: _Ctx, s: _Call) -> list:
     if "cis_elsewhere" in flags:
         against.append("hic")
     against += [x for x, y in ((c.axis, s.f_opp), ("hic", s.d_opp)) if y]
+    if s.c_opp:
+        against.append("cpg")
     return against
 
 
 def _confidence(c: _Ctx, s: _Call, support: list) -> str:
-    """One level up per agreeing tested line (at most MAX_RAISE), down for a contest; a moved or functional-only call is
-    medium, high with a second line; a trough alone low, medium where Hi-C validated the troughs."""
+    """One level up per agreeing tested line (at most MAX_RAISE), down for a contest (and one more when the CpG line
+    contests it too); a moved or functional-only call is medium, high with a second line; a trough alone low, medium
+    where Hi-C validated the troughs."""
     if s.source == "sequence":
         if s.relation == "contested":
-            conf = level_shift(c.sconf, -max(1, int(s.f_opp) + int(s.d_opp)) + int("meth" in support))
+            down = (0 if s.c_only else max(1, int(s.f_opp) + int(s.d_opp))) + int(s.c_opp)
+            conf = level_shift(c.sconf, -down + int("meth" in support))
         else:
             conf = level_shift(c.sconf, min(MAX_RAISE, int("hic" in support) + int("meth" in support)))
         if s.relation == "sequence_only" and "meth" in support:
@@ -699,6 +720,7 @@ def _decide(ev: Evidence) -> dict:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=s.flags, rule="none", second=s.second, meth_call={"label": "", "score": np.nan})
     _refine(c, s)
+    _cpg(c, s)
     # methylation is read where the call now is: its own item (the provisional call) where that is not the sequence call or Hi-C's
     # peak, as at the prior-free core or at a competing cluster that was chosen (the verdict on the abandoned call says nothing)
     at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags) or "at_chose_alt" in s.flags or c.chose

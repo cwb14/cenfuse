@@ -274,17 +274,27 @@ a modkit bedMethyl CHG file for every sample; otherwise it is skipped.
 
 ## CpG kinetochores (`cdr.py`)
 
-In primates CENP-A sits in a CpG-hypomethylated dip of the methylated active array. The other lines find the array; the dip
-finds the kinetochore inside it. Input: the CG file of each deciding sample (modkit or ENCODE bedMethyl, or a bedGraph of
-methylated fraction), on reference CpGs.
-- **Dip.** CpG methylation per 5-kb bin over the centromeric arrays in the final call (pooled per bin, so low coverage works);
-  the most prominent valley (higher on both sides, so never an array edge), widened to its half-depth run. Significant when
-  longer than in the call's own bins shuffled (P ≤ 0.05).
+In primates CENP-A sits in a CpG-hypomethylated dip of the methylated active array (the CDR); stickleback, sparrows, duck
+and some reptiles and amphibians show it too, chicken, bats and many fish do not (VGP survey, benchmark.md). The other lines
+find the array; the dip finds the kinetochore inside it. Input: the CG file of each deciding sample (modkit or ENCODE
+bedMethyl, pb-CpG-tools, or a bedGraph of methylated fraction), on reference CpGs.
+- **Profile.** CpG methylation per 5-kb bin, each pooling the calls of the three bins around it (so low coverage works);
+  its background is the running median over ±500 kb.
+- **Dip.** A run of at least 15 kb of array bins below half the background (one missing bin bridged); its depth is its
+  methylation over the background's. A call's kinetochore candidate is the deepest dip in its centromeric arrays.
+- **Positional test.** The dip is deeper than the deepest dip that the chromosome's methylation, rotated by 200 random
+  offsets of at least a tenth of the chromosome, makes on the same array bins (P ≤ 0.05). Depth, not length: the partially
+  methylated domains of cultured cells (the T2T chimpanzee track) and subtelomeric caps make wide shallow dips anywhere,
+  which failed the length test on every chimpanzee call.
 - **The test (gate).** References: the other chromosomes' `high` calls (with `medium` if fewer than 4 are `high`; fewer than
-  3: `untested`). Their dips must also beat methylation from elsewhere on the chromosome rotated onto their CpGs, more often
-  than chance (binomial at 0.05, P ≤ 0.01).
-- **Role.** Where the gate passes, each call with a significant dip gets its kinetochore (`cpg_kt_*`). It changes no call or
-  confidence, and cannot tell a wrong array: an inactive array has dips too.
+  3: `untested`). Their positional dips must be more common than chance (binomial at 0.05, P ≤ 0.01). It is computed on the
+  provisional calls, before the final integration.
+- **Role.** Where the gate passes, each call with a dip gets its kinetochore (`cpg_kt_*`). A sequence call whose arrays have
+  data and no dip, while another satellite array of its chromosome holds a dip that passes the positional test there, is
+  contested (`cpg_elsewhere`: one level lower, the dip in `cpg_alt_*`). CpG never moves a call: in the truth genomes such a
+  dip was the centromere once (stickleback) and elsewhere twice.
+- **Coverage holes.** Calls whose arrays have data in under 0.8 of the genome's share of bins are reported: tracks piled up
+  at MAPQ 60 keep 34-68% of array bins, at MAPQ ≥ 1 97-100% (most reads in arrays map at MAPQ 20-59).
 
 ## Integration (`fuse.py`)
 
@@ -317,7 +327,7 @@ trough refines it last, and the Rabl axis may contest it. The `rule` column name
 | a Hi-C call on a chromosome without a sequence call; a tested trough agrees | the trough's interval, one level up (`at_pair`; a `cis_only` call stays `low`) |
 | no call from any line; a trough and a clean prior-free peak (that placed no call) agree, in a genome where the two agree beyond chance | the trough, `low` (`at_denovo_pair`) |
 
-CpG kinetochores are added after the integration and change nothing.
+CpG kinetochores are added after the integration. The CpG gate and its contest (`cpg_elsewhere`) enter it as one line against a kept sequence call, as a contesting Hi-C line; CpG never moves or raises a call.
 
 ## Reading the integration (`morphology.py`, `interpret.py`)
 
@@ -382,9 +392,9 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | LTR elements without a lineage (fungi) | not used | pooled, they lifted the honesty cap in fish and *Oryza*, or qualified in 9 fish genomes without truth ([future.md #47](future.md#47-centromeric-retroelements-the-ltr-line-cannot-read)) |
 | several qualifying LTR candidates | CRM first, then the most specific | chromosomes with a core first: agreed less with independent satellite calls |
 | insertion age as a locator | only among comparable peaks, and as a second line for Hi-C | the young copies' core alone lies on CENH3 on 128 of 172 chromosomes, the density core on 155 |
-| CpG dip inside a call | the most prominent valley, its half-depth run | the deepest bin: lands on array edges. The longest run below half the median: on the CDR 52/90 (valley 88/90) |
-| CpG null | positional (rotation) test for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla |
-| CpG choosing between arrays | not done | least-methylated window: on the CDR 3/23; most prominent valley across clusters: wrong cluster on 8-10/25 |
+| CpG dip inside a call | the deepest run below half the ±500-kb running median | the deepest bin: lands on array edges. The longest run below half the array median: on the CDR 52/90. The most prominent valley, its half-depth run (0.10-0.15): on CENP-A 57/67 right calls in five truth genomes (deepest run 61/67, same width) |
+| CpG null | positional (rotation) test of the dip's depth for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla. The dip's length (0.10-0.15): failed on every chimpanzee call (cell-line partially methylated domains) |
+| CpG choosing between arrays | not done; a dipless call is contested where another array holds a positional dip | least-methylated window: on the CDR 3/23; most prominent valley across clusters: wrong cluster on 8-10/25 |
 | a centromeric region (call + nearby clusters) | not reported | precision 0.07 in apes: an interspersed family chains whole chromosomes |
 | the chromosome set | tenfold drop, tapering tail cut, optional list | the drop alone kept 5,614 extra scaffolds over 121 polyploid assemblies; other cuts dropped dot chromosomes or microchromosomes |
 | families pooled for dominance | same sequence, or period within 15% of the shorter | sequence alone: changes the main family on 90 of 3,459 chromosomes, with no truth behind it |
