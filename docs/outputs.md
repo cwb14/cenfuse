@@ -88,7 +88,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 |---|---|
 | `meth_seq`, `meth_hic`, `meth_call` (+ `_score`) | the CHG line's label at the sequence call, at the Hi-C peak and at the final call: `centromere_like`, `dip`, `no_signature_data` or `no_data` |
 | `meth_samples` | the methylation samples that decided |
-| `cpg_gate`, `cpg_gate_k`, `cpg_gate_n`, `cpg_gate_p` | the CpG test for this chromosome: do the other chromosomes' calls hold a CpG dip deeper than methylation from elsewhere would put there, more often than chance? |
+| `cpg_gate`, `cpg_gate_k`, `cpg_gate_n`, `cpg_gate_p` | the CpG test for this chromosome: do the other chromosomes' calls hold CpG dips deeper than methylation from elsewhere would put there, beyond chance? `k` of `n` references with `cpg_pos_p` ≤ 0.05; `p` combines all `n` P values (Fisher's method) |
 | `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the deepest CpG dip (CDR) in the call's centromeric arrays, shown where the test passes. It refines the call |
 | `cpg_dip_depth` | that dip's methylation over its surroundings' (a dip falls below 0.5; 1 = no dip; `.` = fewer than 50 kb of array with data) |
 | `cpg_pos_p` | the dip is deeper than methylation from elsewhere on the chromosome makes on the same array bins (the test counts these) |
@@ -174,7 +174,7 @@ are comma-separated.
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing: it takes the trough's interval, one level up; the trough lies elsewhere |
 | `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
 | `at_chose_alt` | the genome's AT troughs passed their test and this chromosome's deepest trough window lies on the competing cluster of a `low` sequence call and not on the call: the competing cluster, `low` unless another line agrees there; not where validated Hi-C can tell the two clusters apart. A heuristic on the evidence of one genome (design.md) |
-| `cpg_elsewhere` | where the CpG test passes, the call's centromeric arrays hold no dip while another array holds a CDR-like one (`cpg_alt_*`): the call is kept, one level lower (`contested`; with another line against it, one level more). CpG never moves a call: in the truth genomes such a dip was the centromere once and elsewhere twice |
+| `cpg_elsewhere` | where the CpG test passes, the call's centromeric arrays hold no dip while another array holds a CDR-like one (`cpg_alt_*`): the call is kept, one level below what the agreeing lines give (`contested`; with another line against it, one level more). CpG never moves a call: in the truth genomes such a dip was the centromere once and elsewhere twice |
 | `cis_blind` | the call lies in a terminal eighth, where the cis signal tested by trans contacts cannot see; its extreme lies elsewhere (the caveat says where), and the call is left as it is |
 | `fold_pair`, `align_pair` | Hi-C's prior-free peak and the arm fold (or the trans arm alignment) agree here, away from the sequence call: the call moved, or was placed, at `medium` |
 | `fold_offset`, `align_offset`, `hic_denovo_offset` | the arm fold / the alignment / Hi-C's prior-free peak points elsewhere: one level lower each |

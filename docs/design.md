@@ -283,15 +283,16 @@ bedMethyl, pb-CpG-tools, or a bedGraph of methylated fraction), on reference CpG
 - **Dip.** A run of at least 15 kb of array bins below half the background (one missing bin bridged); its depth is its
   methylation over the background's. A call's kinetochore candidate is the deepest dip in its centromeric arrays.
 - **Positional test.** The dip is deeper than the deepest dip that the chromosome's methylation, rotated by 200 random
-  offsets of at least a tenth of the chromosome, makes on the same array bins (P ≤ 0.05). Depth, not length: the partially
-  methylated domains of cultured cells (the T2T chimpanzee track) and subtelomeric caps make wide shallow dips anywhere,
-  which failed the length test on every chimpanzee call.
+  offsets (any offset: the observed window is one of the rotations, so P is exact up to Monte Carlo error), makes on the
+  same array bins. Depth, not length: the partially methylated domains of cultured cells (the T2T chimpanzee track) and
+  subtelomeric caps make wide shallow dips anywhere, which failed the length test on every chimpanzee call. A call spanning
+  much of its chromosome cannot reach a small P (a 3-Mb call on a 60-Mb chromosome: about 0.05 at best).
 - **The test (gate).** References: the other chromosomes' `high` calls (with `medium` if fewer than 4 are `high`; fewer than
-  3: `untested`). Their positional dips must be more common than chance (binomial at 0.05, P ≤ 0.01). It is computed on the
-  provisional calls, before the final integration.
+  3: `untested`). Their positional P values, combined by Fisher's method, must give P ≤ 0.01: many moderate dips count, as
+  wide ape calls rarely reach P ≤ 0.05 one by one. It is computed on the provisional calls, before the final integration.
 - **Role.** Where the gate passes, each call with a dip gets its kinetochore (`cpg_kt_*`). A sequence call whose arrays have
-  data and no dip, while another satellite array of its chromosome holds a dip that passes the positional test there, is
-  contested (`cpg_elsewhere`: one level lower, the dip in `cpg_alt_*`). CpG never moves a call: in the truth genomes such a
+  data and no dip, while the deepest dip on its chromosome's other satellite arrays passes the positional test there, is
+  contested (`cpg_elsewhere`: one level below what the agreeing lines give, the dip in `cpg_alt_*`). CpG never moves a call: in the truth genomes such a
   dip was the centromere once (stickleback) and elsewhere twice.
 - **Coverage holes.** Calls whose arrays have data in under 0.8 of the genome's share of bins are reported: tracks piled up
   at MAPQ 60 keep 34-68% of array bins, at MAPQ ≥ 1 97-100% (most reads in arrays map at MAPQ 20-59).
@@ -393,6 +394,8 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | several qualifying LTR candidates | CRM first, then the most specific | chromosomes with a core first: agreed less with independent satellite calls |
 | insertion age as a locator | only among comparable peaks, and as a second line for Hi-C | the young copies' core alone lies on CENH3 on 128 of 172 chromosomes, the density core on 155 |
 | CpG dip inside a call | the deepest run below half the ±500-kb running median | the deepest bin: lands on array edges. The longest run below half the array median: on the CDR 52/90. The most prominent valley, its half-depth run (0.10-0.15): on CENP-A 57/67 right calls in five truth genomes (deepest run 61/67, same width) |
+| CpG rotations | any offset | offsets at least a tenth of the chromosome away (0.15, the survey's): P ≤ 0.05 for 7%, 15% and 32% of null calls spanning 5%, 15% and 30% of their chromosome |
+| CpG gate pooling | Fisher's method over the references' P | the count of P ≤ 0.05 (binomial at 0.05, 0.10-0.15): with exact rotations it fails chimpanzee and gorilla (P 0.03), whose wide calls rarely reach 0.05 one by one |
 | CpG null | positional (rotation) test of the dip's depth for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla. The dip's length (0.10-0.15): failed on every chimpanzee call (cell-line partially methylated domains) |
 | CpG choosing between arrays | not done; a dipless call is contested where another array holds a positional dip | least-methylated window: on the CDR 3/23; most prominent valley across clusters: wrong cluster on 8-10/25 |
 | a centromeric region (call + nearby clusters) | not reported | precision 0.07 in apes: an interspersed family chains whole chromosomes |

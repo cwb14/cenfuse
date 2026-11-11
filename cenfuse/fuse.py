@@ -661,8 +661,10 @@ def _cpg(c: _Ctx, s: _Call) -> None:
         return
     s.flags.append("cpg_elsewhere")
     s.c_opp = True
-    if s.relation != "contested":
-        s.relation, s.rule, s.c_only = "contested", "cpg_elsewhere", True
+    if s.relation != "contested":            # the only line against it: the lines that agree keep their raise
+        s.relation, s.c_only = "contested", True
+        if s.rule == "sequence":
+            s.rule = "cpg_elsewhere"
 
 
 def _against(c: _Ctx, s: _Call) -> list:
@@ -689,8 +691,10 @@ def _confidence(c: _Ctx, s: _Call, support: list) -> str:
     where Hi-C validated the troughs."""
     if s.source == "sequence":
         if s.relation == "contested":
-            down = (0 if s.c_only else max(1, int(s.f_opp) + int(s.d_opp))) + int(s.c_opp)
-            conf = level_shift(c.sconf, -down + int("meth" in support))
+            if s.c_only:                     # CpG alone against it: one level below what the agreeing lines give
+                conf = level_shift(c.sconf, min(MAX_RAISE, int("hic" in support) + int("meth" in support)) - 1)
+            else:
+                conf = level_shift(c.sconf, -max(1, int(s.f_opp) + int(s.d_opp)) - int(s.c_opp) + int("meth" in support))
         else:
             conf = level_shift(c.sconf, min(MAX_RAISE, int("hic" in support) + int("meth" in support)))
         if s.relation == "sequence_only" and "meth" in support:

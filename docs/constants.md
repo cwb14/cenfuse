@@ -32,8 +32,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `MIN_RUN` | `3` | bins in a dip (15 kb): the narrowest CDRs are ~20 kb |  |
 | `ARRAY_COVER` | `0.5` | a bin is array sequence when arrays cover most of it (majority rule) |  |
 | `MIN_BINS` | `10` | array bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic) | heuristic |
-| `N_ROT` | `200` | rotations per call: P resolution 0.005, ten times finer than DIP_P |  |
-| `ROT_MIN` | `0.1` | a rotation moves the methylation by at least this share of the chromosome (and the window's own length), so a call never meets its own dip again (survey's null) |  |
+| `N_ROT` | `200` | rotations per call: P resolution 0.005, ten times finer than DIP_P (every offset when fewer) |  |
 | `DIP_P` | `0.05` | a significant dip (conventional level); each reference's chance under the gate's null |  |
 | `BRIDGE` | `2` | bins of non-array sequence an array run spans (an alternative dip's array; heuristic) | heuristic |
 | `HOLE` | `0.8` | arrays with data in < HOLE x the genome's share of bins: a coverage hole (MAPQ-60 tracks: 0.36-0.68, MAPQ >= 1: >= 0.97, four truth genomes) |  |

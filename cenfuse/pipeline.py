@@ -748,7 +748,7 @@ class Run:
             warn = geno.get("warnings", []) + (provenance.check_assembly(cg_only, g.fasta, windows) if cg_only else [])
             for smp in samples:                         # bedGraph CG files (no strand or context): CpG positions
                 f = smp.files.get("CG")
-                if f is None or cdr.track_kind(f) != "bedgraph":
+                if f is None or cdr.track_kind(f) not in ("bedgraph", "pbcpg"):   # pb-CpG-tools: no context either
                     continue
                 share, n = cdr.bedgraph_on_cpg(f, g.fasta, windows)
                 if n and share < provenance.MOTIF_MIN:
@@ -929,7 +929,8 @@ class Run:
             calls = {e.chrom: d["call"] for e, d in zip(evs, final)}
             cpg = None
             if prep is not None:
-                tf = cdr.assess(prep, as_calls(final), gates)
+                tf = cdr.assess(prep, as_calls(final), gates,
+                                contested={e.chrom for e, d in zip(evs, final) if "cpg_elsewhere" in d["flags"]})
                 cpg = dict(table=tf, bad_rows=prep["bad_rows"], array_data=cdr.summary(tf, prep))
                 if np.isfinite(cpg["array_data"]) and cpg["array_data"] < cdr.HOLE:
                     g.notes.append(f"CpG coverage hole: the arrays have data in {cpg['array_data']:.0%} of the "

@@ -13,17 +13,21 @@ array (0.8-5.6 Mb in T2T mammals); the dip locates the kinetochore inside it (te
   deepest valleys). A dip's depth is its mean methylation over its mean background; the deepest dip in a call's
   centromeric-role arrays is its kinetochore candidate.
 - **Positional test** (per call): the dip is deeper than the deepest dip that the chromosome's methylation, rotated by
-  N_ROT random offsets, makes on the same array bins. Same bins, same window: only where the methylation comes from
-  differs. Depth, not width or deficit: the partially methylated domains of cultured cells (the T2T chimpanzee track)
-  and subtelomeric caps make wide shallow dips anywhere; a CDR falls to 10-35% of its array (survey of the CENP-A
-  truth genomes, docs/benchmark.md).
+  N_ROT random offsets (any offset, so the observed window is one of the rotations: an exact test up to Monte Carlo
+  error; excluding offsets near the call made P <= 0.05 three times as common as 5% when calls span a sixth of their
+  chromosome), makes on the same array bins. Same bins, same window: only where the methylation comes from differs.
+  Depth, not width or deficit: the partially methylated domains of cultured cells (the T2T chimpanzee track) and
+  subtelomeric caps make wide shallow dips anywhere; a CDR falls to 10-35% of its array (survey of the CENP-A truth
+  genomes, docs/benchmark.md). A call spanning much of its chromosome cannot reach a small P: its test is weak, never
+  anti-conservative.
 - **Gate** (per chromosome, leave-one-chromosome-out as the Hi-C gate): references are the other chromosomes' high
-  calls (high + medium when fewer than GATE_MIN_REF + 1 are high) that can be tested. k of n hold a positional dip (P
-  <= DIP_P); the binomial tail at DIP_P (each reference's chance under the null) must be <= GATE_P. No majority is
-  required: the test is calibrated and conservative.
+  calls (high + medium when fewer than GATE_MIN_REF + 1 are high) that can be tested; their positional P values,
+  combined by Fisher's method (independent chromosomes, valid P values), must give P <= GATE_P. Every reference counts
+  by its P, so many calls with moderate dips (wide ape calls: few can reach P <= 0.05 on their own) pass as well as a
+  few with strong ones; gate_k counts the references with P <= DIP_P.
 - **Kinetochore**: where the gate passes, the deepest dip of every call with one.
-- **Contest**: where the gate passes, a call whose centromeric arrays have data (MIN_BINS) and no dip, while another
-  satellite array of its chromosome holds a dip that passes the positional test on that array, has its CDR elsewhere:
+- **Contest**: where the gate passes, a call whose centromeric arrays have data (MIN_BINS) and no dip, while the
+  deepest dip on the chromosome's other satellite arrays passes the positional test on its array, has its CDR elsewhere:
   the fusion contests the call (fuse._cpg: one level down, as a contesting Hi-C line) and never moves it (in the
   truth genomes such a dip was the centromere once and elsewhere twice, docs/benchmark.md). The dip is reported.
 - **Coverage holes**: arrays with data in fewer than HOLE x the genome's share of bins are reported: tracks piled up
@@ -42,7 +46,7 @@ import io
 import numpy as np
 import pandas as pd
 import pysam
-from scipy.stats import binom
+from scipy.stats import chi2
 
 from .meth.io import ENCODE_COLS, MODKIT_COLS, open_tabix
 from .params import GATE_MIN_REF, GATE_P
@@ -57,9 +61,7 @@ FRAC = 0.5                # a dip: methylation below half its background (CDRs f
 MIN_RUN = 3               # bins in a dip (15 kb): the narrowest CDRs are ~20 kb
 ARRAY_COVER = 0.5         # a bin is array sequence when arrays cover most of it (majority rule)
 MIN_BINS = 10             # array bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic)
-N_ROT = 200               # rotations per call: P resolution 0.005, ten times finer than DIP_P
-ROT_MIN = 0.1             # a rotation moves the methylation by at least this share of the chromosome (and the window's
-                          # own length), so a call never meets its own dip again (survey's null)
+N_ROT = 200               # rotations per call: P resolution 0.005, ten times finer than DIP_P (every offset when fewer)
 DIP_P = 0.05              # a significant dip (conventional level); each reference's chance under the gate's null
 BRIDGE = 2                # bins of non-array sequence an array run spans (an alternative dip's array; heuristic)
 HOLE = 0.8                # arrays with data in < HOLE x the genome's share of bins: a coverage hole (MAPQ-60 tracks: 0.36-0.68,
@@ -206,8 +208,8 @@ def bins(pos: np.ndarray, meth: np.ndarray, cov: np.ndarray, nb: int) -> np.ndar
 def profile(b: np.ndarray) -> np.ndarray:
     """Methylated fraction per bin, pooling the calls of the SMOOTH bins around it; NaN where those hold fewer than
     MIN_SITES rows."""
-    k = np.ones(SMOOTH)
-    m, c, n = (np.convolve(x, k, "same") for x in b)
+    k, h = np.ones(SMOOTH), SMOOTH // 2
+    m, c, n = (np.convolve(x, k)[h:h + len(x)] for x in b)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where((n >= MIN_SITES) & (c > 0), m / c, np.nan)
 
@@ -271,10 +273,11 @@ class Chrom:
     """One chromosome's CpG profile: methylation y and its background bg per BIN, the centromeric-role and all
     satellite-array bins. Its verdicts on an interval are memoized (the fusion asks for a call more than once)."""
 
-    def __init__(self, b: np.ndarray, cen: np.ndarray, sat: np.ndarray):
+    def __init__(self, b: np.ndarray, cen: np.ndarray, sat: np.ndarray, length: int | None = None):
         self.y = profile(b)
         self.bg = background(self.y)
         self.cen, self.sat, self.nb = cen, sat, len(self.y)
+        self.length = length or self.nb * BIN
         self._memo = {}
 
     def window(self, s: int, e: int) -> tuple:
@@ -288,17 +291,16 @@ class Chrom:
 
     def positional_p(self, i: int, j: int, mask: np.ndarray, depth: float) -> float:
         """P that methylation from elsewhere on the chromosome makes a dip at least `depth` deep on the bins [i, j)
-        of mask (N_ROT rotations, each by at least ROT_MIN of the chromosome and the window's length)."""
-        lo = max(int(ROT_MIN * self.nb), j - i, 1)
-        hi = self.nb - lo
-        if hi <= lo:
-            lo, hi = 1, max(2, self.nb)
-        rng = np.random.default_rng([SEED, i, j])
+        of mask: N_ROT rotations by offsets drawn from all others (every one when there are fewer)."""
+        if self.nb < 2:
+            return 1.0
+        offs = np.arange(1, self.nb) if self.nb - 1 <= N_ROT else \
+            np.random.default_rng([SEED, i, j]).integers(1, self.nb, N_ROT)
         ge = 0
-        for o in rng.integers(lo, hi, N_ROT):
+        for o in offs:
             d = self.deepest(i, j, mask, int(o))
             ge += d is not None and d[0] <= depth
-        return (1 + ge) / (1 + N_ROT)
+        return (1 + ge) / (1 + len(offs))
 
     def assess(self, s: int, e: int) -> dict:
         """The call [s, e) on its centromeric arrays: bins with data, the share of array bins with data, the deepest
@@ -341,7 +343,7 @@ class Chrom:
                 depth, a, b = d[0]
                 lo, hi = _run(other, a, b)
                 if self.positional_p(lo, hi, other[lo:hi], depth) <= DIP_P:
-                    out = (a * BIN, min(b * BIN, self.nb * BIN))
+                    out = (a * BIN, min(b * BIN, self.length))
         self._memo[key] = out
         return out
 
@@ -362,7 +364,7 @@ def prepare(files: list, arrays: pd.DataFrame, lengths: dict | None = None, chro
             n = lengths[c] if lengths else max([int(g[0][-1]) + 1 for g in got if len(g[0])] +
                                                [int(x) for x in arrays.end[arrays.chrom == c]])
             nb = -(-n // BIN)
-            ch = Chrom(sum(bins(*g, nb) for g in got), array_bins(cen, c, nb), array_bins(arrays, c, nb))
+            ch = Chrom(sum(bins(*g, nb) for g in got), array_bins(cen, c, nb), array_bins(arrays, c, nb), n)
             out[c] = ch
             with_data += int(np.isfinite(ch.y).sum())
             total += nb
@@ -387,12 +389,11 @@ def gate(t: pd.DataFrame) -> pd.DataFrame:
     ref = t[tested & t.confidence.eq("high")]
     if len(ref) < GATE_MIN_REF + 1:
         ref = t[tested & t.confidence.isin(["high", "medium"])]
-    sig = ref.pos_p <= DIP_P
     ks, ns, ps, ok = [], [], [], []
     for c in t.chrom:
-        r = sig[ref.chrom != c]
-        k, n = int(r.sum()), len(r)
-        p = float(binom.sf(k - 1, n, DIP_P)) if n else np.nan
+        r = ref.pos_p[ref.chrom != c]
+        k, n = int((r <= DIP_P).sum()), len(r)
+        p = float(chi2.sf(-2 * np.log(r.clip(lower=1e-300)).sum(), 2 * n)) if n else np.nan
         ks.append(k)
         ns.append(n)
         ps.append(p)
@@ -401,10 +402,11 @@ def gate(t: pd.DataFrame) -> pd.DataFrame:
     return t
 
 
-def assess(prep: dict, calls: dict, gates: pd.DataFrame | None = None) -> pd.DataFrame:
+def assess(prep: dict, calls: dict, gates: pd.DataFrame | None = None, contested=None) -> pd.DataFrame:
     """One row per chromosome of calls {chrom: (start, end, confidence)} (0-based half-open; start -1 = none): Chrom.assess,
     the gate (computed here, or taken from `gates`: the provisional calls' gate, so the final calls are judged by the
-    references that decided them), the kinetochore where the gate passes and the contest's dip (alt_start, alt_end)."""
+    references that decided them), the kinetochore where the gate passes and the contest's dip (alt_start, alt_end):
+    for the chromosomes in `contested` (the calls the fusion contested), or for every call where the gate passes."""
     rows = []
     for c, (s, e, conf) in calls.items():
         r = dict(chrom=c, confidence=conf, tested_bins=0, array_bins=0, array_data=np.nan, dip_depth=np.nan,
@@ -418,13 +420,13 @@ def assess(prep: dict, calls: dict, gates: pd.DataFrame | None = None) -> pd.Dat
         t = gate(t)
     else:
         g = gates.set_index("chrom")
-        t["gate_k"] = t.chrom.map(g.gate_k).fillna(0).astype(int)
-        t["gate_n"] = t.chrom.map(g.gate_n).fillna(0).astype(int)
-        t["gate_p"] = t.chrom.map(g.gate_p).astype(float)
-        t["gate_pass"] = t.chrom.map(g.gate_pass).fillna(False).astype(bool)
+        t["gate_k"] = t.chrom.map(g.gate_k.to_dict()).fillna(0).astype(int)
+        t["gate_n"] = t.chrom.map(g.gate_n.to_dict()).fillna(0).astype(int)
+        t["gate_p"] = t.chrom.map(g.gate_p.to_dict()).astype(float)
+        t["gate_pass"] = t.chrom.map(g.gate_pass.to_dict()).eq(True)
     t.loc[~t.gate_pass, ["kt_start", "kt_end"]] = -1
-    alt = [prep["chroms"][c].elsewhere(s, e) if ok and s >= 0 and c in prep["chroms"] else None
-           for (c, (s, e, _)), ok in zip(calls.items(), t.gate_pass)]
+    alt = [prep["chroms"][c].elsewhere(s, e) if ok and s >= 0 and c in prep["chroms"] and
+           (contested is None or c in contested) else None for (c, (s, e, _)), ok in zip(calls.items(), t.gate_pass)]
     t["alt_start"] = [a[0] if a else -1 for a in alt]
     t["alt_end"] = [a[1] if a else -1 for a in alt]
     return t

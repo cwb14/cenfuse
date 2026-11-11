@@ -786,3 +786,12 @@ def test_cpg_has_no_say_on_a_call_hic_placed():
     e.cpg = lambda s, t: (40_000_000, 40_050_000)
     d = fuse.decide(e)
     assert d["source"] == "hic" and "cpg" not in d["against"] and "cpg_elsewhere" not in d["flags"]
+
+
+def test_cpg_alone_against_a_call_hic_agrees_with_costs_one_level_of_the_raise():
+    e = ev(conf="medium", peak=1_100_000)                         # validated Hi-C agrees: medium -> high
+    assert fuse.decide(e)["confidence"] == "high"
+    e.cpg = lambda s, t: (30_000_000, 30_050_000)
+    d = fuse.decide(e)
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "medium" and "hic" in d["support"]
+    assert d["against"] == ["cpg"] and d["relation"] == "contested" and d["rule"] == "hic_agrees"

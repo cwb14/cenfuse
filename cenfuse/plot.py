@@ -51,7 +51,7 @@ HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
 BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8", "composition": "#C7E9C0"}
 LINES = ["satellite", "te", "hic", "meth"]
 LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "meth": "meth",
-              "age": "age"}
+              "age": "age", "cpg": "CpG"}
 AT_MARK = "#009E73"                              # an AT trough that acted
 CIS_MARK = "#6A3D9A"                             # the extreme of the cis Hi-C signal, where it passed its test
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
@@ -387,7 +387,7 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     rd = f.get("rdna") or {}
     rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
-    axis = [x for x in ("fold", "align", "at", "age") if any(x in (r["support"] | r["against"]) for r in rows)]  # only where
+    axis = [x for x in ("fold", "align", "at", "age", "cpg") if any(x in (r["support"] | r["against"]) for r in rows)]  # where
     f["lines"] = LINES[:3] + axis + LINES[3:]                                                             # the line acted
     label_mm = 3 + max(max(1.1 * len(r["chrom"]), _text_mm(r["chrom"], 5.5)) for r in rows)    # rotated chromosome names under panel C
     left = max(0.11, (max(_text_mm(r["chrom"], 6.5) for r in rows) + 1.5) / (WIDTH / MM))      # panel A's names sit left of its axis

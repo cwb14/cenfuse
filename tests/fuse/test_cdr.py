@@ -130,34 +130,73 @@ def test_gate():
     assert not g.gate_pass.any() and (g.gate_n == 2).all()
     one = t.assign(pos_p=[0.01] + [0.5] * 5)                     # one positional dip in five: chance
     assert not cdr.gate(one).gate_pass.any()
+    many = pd.DataFrame(dict(chrom=[f"c{i}" for i in range(21)], confidence="high", pos_p=0.1))
+    g = cdr.gate(many)                                           # none <= 0.05, yet 20 references at 0.1: Fisher passes
+    assert g.gate_pass.all() and (g.gate_k == 0).all()
 
 
-L, CALL, NULLS = 4_000_000, (1_000_000, 2_000_000), (3_000_000, 3_400_000)
+def _chrom(y, length=None):
+    b = np.vstack([y * 100, np.full(len(y), 100.0), np.full(len(y), 50.0)])   # 100 calls, 50 rows per bin
+    m = np.ones(len(y), bool)
+    return cdr.Chrom(b, m, m, length)
+
+
+def test_positional_p_is_honest_for_a_call_spanning_much_of_its_chromosome():
+    """One dip on the chromosome, inside a call over 30% of it: rotations that keep the dip in the call count, so P is
+    about the share of such offsets, not the floor 1/(1 + N_ROT) that excluding nearby offsets gave."""
+    y = np.full(1000, 0.8)
+    y[440:460] = 0.1
+    ch = _chrom(y)
+    d = ch.deepest(300, 600, np.ones(300, bool))
+    assert d is not None and ch.positional_p(300, 600, np.ones(300, bool), d[0]) > 0.15
+    small = _chrom(y[:6])                                        # fewer offsets than N_ROT: every one, once
+    assert small.positional_p(0, 6, np.ones(6, bool), 0.5) == 1 / 6
+
+
+def test_profile_keeps_the_length_of_tiny_sequences():
+    assert len(cdr.profile(np.ones((3, 2)) * 10)) == 2 and len(cdr.profile(np.ones((3, 1)) * 10)) == 1
+
+
+def test_alternative_dip_ends_at_the_chromosome_end():
+    """A dipless call on bins 100-200; another array over the last 20 bins of a 9,997,000-bp chromosome ends in a dip."""
+    y = np.full(2000, 0.8)
+    y[1992:2000] = 0.1
+    cen = np.zeros(2000, bool)
+    cen[100:200] = True
+    sat = cen.copy()
+    sat[1980:] = True
+    ch = cdr.Chrom(np.vstack([y * 100, np.full(2000, 100.0), np.full(2000, 50.0)]), cen, sat, 9_997_000)
+    alt = ch.elsewhere(500_000, 1_000_000)
+    assert alt is not None and alt == (1992 * B, 9_997_000)
+
+
+L, CALL, NULLS, STEP = 20_000_000, (1_000_000, 1_500_000), (3_000_000, 3_400_000), 400   # calls over 2.5% of a chromosome
+DIP, MOVED = (1_200_000, 1_300_000), (3_100_000, 3_200_000)
 
 
 def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0):
-    """n chromosomes of L bp: a centromeric array over CALL with a 100-kb dip at 1.4 Mb, an interstitial array over
-    NULLS without one; a CpG every 100 bp (bedGraph fractions). shift: positions moved by L/2 (the negative control).
+    """n chromosomes of L bp: a centromeric array over CALL with a 100-kb dip (DIP), an interstitial array over
+    NULLS without one; a CpG every STEP bp (bedGraph fractions). shift: positions moved by L/2 (the negative control).
     everywhere: methylated 0.8 along the whole chromosome with a 100-kb dip every 400 kb (dips are not positional).
-    moved: chromosomes whose dip lies in the interstitial array (3.1-3.2 Mb) instead. keep_array: the share of the
+    moved: chromosomes whose dip lies in the interstitial array (MOVED) instead. keep_array: the share of the
     arrays' 50-kb blocks that keep their rows (a coverage hole elsewhere)."""
     rng = np.random.default_rng(seed)
     rows, arrays, calls = [], [], {}
     for i in range(n):
         c = f"c{i}"
-        pos = np.arange(50, L, 100)
-        y = 0.3 + 0.05 * rng.standard_normal(len(pos))           # unmethylated-ish background
+        pos = np.arange(50, L, STEP)
+        y = 0.65 + 0.05 * rng.standard_normal(len(pos))          # flanks less methylated than arrays
         sat = ((pos >= CALL[0]) & (pos < CALL[1])) | ((pos >= NULLS[0]) & (pos < NULLS[1]))
         y[sat] = 0.8 + 0.05 * rng.standard_normal(sat.sum())
         if c in moved:
-            y[(pos >= 3_100_000) & (pos < 3_200_000)] = 0.15
+            y[(pos >= MOVED[0]) & (pos < MOVED[1])] = 0.15
         else:
-            y[(pos >= 1_400_000) & (pos < 1_500_000)] = 0.15
+            y[(pos >= DIP[0]) & (pos < DIP[1])] = 0.15
         if everywhere:
             y = 0.8 + 0.05 * rng.standard_normal(len(pos))
             y[(pos % 400_000) >= 300_000] = 0.15
         p = (pos + L // 2) % L if shift else pos
-        keep = ~sat | (rng.random(len(pos) // 500 + 1)[pos // 50_000] < keep_array)
+        keep = ~sat | (rng.random(L // 50_000 + 1)[pos // 50_000] < keep_array)
         o = np.argsort(p[keep])
         rows += [(c, int(a), int(a) + 2, round(float(v), 3)) for a, v in zip(p[keep][o], y[keep][o])]
         arrays += [(c, CALL[0], CALL[1], "centromeric"), (c, NULLS[0], NULLS[1], "interstitial")]
@@ -171,7 +210,7 @@ def test_run_finds_planted_kinetochores(tmp_path):
     res = cdr.run([f], calls, arrays)
     t = res["table"].set_index("chrom")
     assert t.gate_pass.all() and (t.dip_depth < cdr.FRAC).all() and (t.pos_p <= cdr.DIP_P).all()
-    assert ((t.kt_start - 1_400_000).abs() <= B).all() and ((t.kt_end - 1_500_000).abs() <= B).all()
+    assert ((t.kt_start - DIP[0]).abs() <= B).all() and ((t.kt_end - DIP[1]).abs() <= B).all()
     assert (t.alt_start < 0).all() and (t.array_data == 1).all()
     assert (t.kt_meth < 0.3).all() and (t.array_meth > 0.7).all()
     out = cdr.columns(pd.DataFrame(dict(chrom=list(calls))), res)
@@ -262,11 +301,11 @@ def test_low_coverage_dip_is_found_by_pooling_calls(tmp_path):
     rows, arrays, calls = [], [], {}
     for i in range(8):
         c = f"c{i}"
-        pos = np.arange(50, L, 100)
-        frac = np.full(len(pos), 0.3)
+        pos = np.arange(50, L, STEP)
+        frac = np.full(len(pos), 0.65)
         sat = ((pos >= CALL[0]) & (pos < CALL[1])) | ((pos >= NULLS[0]) & (pos < NULLS[1]))
         frac[sat] = 0.8
-        frac[(pos >= 1_400_000) & (pos < 1_500_000)] = 0.15
+        frac[(pos >= DIP[0]) & (pos < DIP[1])] = 0.15
         n = rng.poisson(1.0, len(pos))
         m = rng.binomial(n, frac)
         keep = n > 0
@@ -276,7 +315,7 @@ def test_low_coverage_dip_is_found_by_pooling_calls(tmp_path):
         calls[c] = (CALL[0], CALL[1], "high")
     f = _tabix(tmp_path / "low.bed.gz", rows)
     t = cdr.run([f], calls, pd.DataFrame(arrays, columns=["chrom", "start", "end", "role"]))["table"].set_index("chrom")
-    assert t.gate_pass.all() and ((t.kt_start - 1_400_000).abs() <= 2 * B).all() and ((t.kt_end - 1_500_000).abs() <= 2 * B).all()
+    assert t.gate_pass.all() and ((t.kt_start - DIP[0]).abs() <= 2 * B).all() and ((t.kt_end - DIP[1]).abs() <= 2 * B).all()
 
 
 def test_contest_points_to_the_other_array(tmp_path):
@@ -286,13 +325,16 @@ def test_contest_points_to_the_other_array(tmp_path):
     res = cdr.run([f], calls, arrays)
     t = res["table"].set_index("chrom")
     assert t.gate_pass.all() and t.at["c0", "kt_start"] < 0 and t.at["c0", "pos_p"] == 1.0
-    assert abs(t.at["c0", "alt_start"] - 3_100_000) <= B and abs(t.at["c0", "alt_end"] - 3_200_000) <= B
+    assert abs(t.at["c0", "alt_start"] - MOVED[0]) <= B and abs(t.at["c0", "alt_end"] - MOVED[1]) <= B
     assert (t.drop(index="c0").alt_start < 0).all()
     ch = res["chroms"]["c0"]
     assert ch.elsewhere(*CALL) == (t.at["c0", "alt_start"], t.at["c0", "alt_end"])
     assert res["chroms"]["c1"].elsewhere(*CALL) is None
     out = cdr.columns(pd.DataFrame(dict(chrom=list(calls))), res).set_index("chrom")
     assert int(out.at["c0", "cpg_alt_start"]) == t.at["c0", "alt_start"] + 1 and out.at["c1", "cpg_alt_start"] == "."
+    prep = cdr.prepare([f], arrays, chroms=list(calls))
+    t2 = cdr.assess(prep, calls, res["table"], contested=set()).set_index("chrom")   # the fusion contested none
+    assert (t2.alt_start < 0).all() and t2.gate_pass.all()
 
 
 def test_pbcpg_rows_are_read_with_their_coverage(tmp_path):
