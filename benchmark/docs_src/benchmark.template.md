@@ -453,12 +453,12 @@ read pairs each); CENP-A
 ChIP of other animals of the species (horse, Grevy's zebra, chicken, stickleback, tammar wallaby) or of another species
 (pig-tailed macaque: crab-eating macaque testis, Boukaba et al. 2022). The line was designed on 10 of them; the Sumatran
 orangutan and Grevy's zebra were held out and run once, after the design was final. Calls come from the satellite line
-alone (CpG alone), with Hi-C (10 genomes), and with every line (8 genomes); held-out genomes in all three.
+alone (CpG alone), with Hi-C (10 genomes), and with every line (10 genomes); held-out genomes in all three.
 
 | test | result |
 |---|---|
 | calls moved | 0, in every arm |
-| confidence changed (CpG alone, 81 development genomes) | 6 down one level (8 calls contested, 2 already `low`); with Hi-C (10 genomes), 2 |
+| confidence changed (CpG alone, 81 development genomes) | 6 down one level (8 calls contested, 2 already `low`); with Hi-C or with every line (10 genomes), 2 |
 | wrong confident calls | 2, as before (stickleback chromosome 4 drops from `high` to `medium`; its contesting dip lies at the truth) |
 | genomes where the CpG test passes | 10 of 81 (before: 12): gained human, chimpanzee, opossum; lost pig-tailed macaque, duck, a sparrow, two fish |
 | kinetochores on right calls inside the CENP-A domain (development) | 63 of 69 (before: 54 of 62) |
