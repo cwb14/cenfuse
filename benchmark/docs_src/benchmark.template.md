@@ -442,6 +442,42 @@ kinetochore. Drawn from the 0.10.1 release.*
 - **Wrong calls get kinetochores too** (Bornean orangutan CM054652.2): the line refines a call; it cannot check it.
 - ***Arabidopsis*:** the CpG test is right to fail (the strongest dips lie off CENH3 on 4 of 5).
 
+### PacBio HiFi CpG across 83 vertebrate genomes
+
+Inputs: PacBio HiFi 5mC pileups (pb-CpG-tools) of the assembled individual, on its first haplotype, for 82 VGP genomes
+and HG002 (hg002v1.1, maternal). The VGP tracks were made at MAPQ >= 60, which leaves the HOR arrays 0.36-0.68 of the
+genome's share of bins with data; they were rebuilt at MAPQ >= 1 (0.97 or more), and cenfuse now warns of such holes
+(`cpg_array_data`). Truth on 12 genomes: CENP-A CUT&RUN of five great apes (unpublished; G. Hartley, O'Neill lab,
+UConn, T2T primate browser hub: ask the lab before reuse) and of HG002 (one replicate of CENP-A and of IgG, 25 M
+read pairs each); CENP-A
+ChIP of other animals of the species (horse, Grevy's zebra, chicken, stickleback, tammar wallaby) or of another species
+(pig-tailed macaque: crab-eating macaque testis, Boukaba et al. 2022). The line was designed on 10 of them; the Sumatran
+orangutan and Grevy's zebra were held out and run once, after the design was final. Calls come from the satellite line
+alone (CpG alone), with Hi-C (10 genomes), and with every line (8 genomes); held-out genomes in all three.
+
+| test | result |
+|---|---|
+| calls moved | 0, in every arm |
+| confidence changed (CpG alone, 81 development genomes) | 6 down one level (8 calls contested, 2 already `low`); with Hi-C (10 genomes), 2 |
+| wrong confident calls | 2, as before (stickleback chromosome 4 drops from `high` to `medium`; its contesting dip lies at the truth) |
+| genomes where the CpG test passes | 10 of 81 (before: 12): gained human, chimpanzee, opossum; lost pig-tailed macaque, duck, a sparrow, two fish |
+| kinetochores on right calls inside the CENP-A domain (development) | 63 of 69 (before: 54 of 62) |
+| the same, by the chromosome's own positional P | <= 0.05: 34 of 36; 0.05-0.2: 19 of 19; above 0.2: 10 of 14 |
+| resolution | kinetochores a median 35 kb wide, calls 2.1 Mb (181 kinetochores, 10 genomes) |
+| HG002 | test passes on 23 of 23 (before: 0); kinetochores all inside the CenSat active array, at the 98th percentile of the array's CENP-A (median; top tenth on 20 of 23); on the 4 chromosomes with a clear domain, 4 of 4 |
+| held out: Sumatran orangutan | 25 kinetochores (before: 21); on right calls, 11 of 16 inside the CUT&RUN domain (before: 10 of 15); 4 of the 5 misses are the dips 0.15.0 chose too, 0.1-1 Mb away |
+| held out: Grevy's zebra | the test fails, as before and as in horse |
+| time | CpG stage a median 24 s, at most 129 s |
+
+- **Dipless calls are contested.** Where the test passes, a call whose arrays hold at least 10 bins of data but no dip,
+  while another array holds a dip that passes the positional test, is flagged `cpg_elsewhere` and drops one level; it
+  never moves. In the development set, 8 calls: stickleback chromosome 4 (the dip lies at the truth), two ape calls
+  whose CUT&RUN lies off the satellite arrays, one without CUT&RUN data, four without truth.
+- **Pig-tailed macaque** gets no kinetochores (0.15.0 placed 22, 4 of 9 in the other species' ChIP domain). Its
+  CENP-A domains hold no CpG dip (methylation 0.97-1.02 of the local background), and its arrays' deepest dips sit at the 75th
+  percentile of the ChIP (median; top tenth on 1 of 19). In 8-14 Mb arrays the positional test has no power.
+- **Horse and zebra:** the test fails; horse's CENP-A domains are no less methylated than its arrays (0.80 and 0.79).
+
 ## CHG methylation (plants)
 
 - ***Arabidopsis*** Col-CC, same-genotype ONT (~56×): calls identical with and without methylation. The CHG line finds no

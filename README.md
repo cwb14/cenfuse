@@ -39,8 +39,9 @@ before trusting it.
    chromosomes' centromeres in your library (or the LTR cores, or pass its own internal checks). It can then confirm
    or move a call, or place one where the sequence gives none (yeasts and other fungi; untested Hi-C alone gives only
    `low` calls).
-5. **Methylation** (`meth/`). In primates, a dip in CpG methylation marks the kinetochore inside the call. In plants,
-   CHG methylation can be a second line of evidence.
+5. **Methylation** (`meth/`). In primates and some other vertebrates, a dip in CpG methylation marks the kinetochore
+   inside the call, and a call whose arrays lack one, while another array holds one, is contested (never moved). In
+   plants, CHG methylation can be a second line of evidence.
 6. **Integration.** The sequence call stands unless tested evidence moves it. Agreement raises the confidence,
    disagreement lowers it, and moving a `high` call takes two tested lines. cenfuse prefers an honest `low` to a
    confident error.
@@ -231,8 +232,9 @@ modkit pileup sample1.bam - --ref asm.fa --cpg --combine-strands -t 32 \
 printf 'sample\tCG\nsample1\tsample1.CG.bed.gz\n' > $M/asm.tsv
 ```
 
-A CG file can also be an ENCODE-style bedMethyl (e.g. from bisulfite sequencing) or a bedGraph of methylated fraction
-(a public bigWig through `bigWigToBedGraph`, or PacBio HiFi scores from pb-CpG-tools), sorted, bgzipped and tabixed.
+A CG file can also be an ENCODE-style bedMethyl (e.g. from bisulfite sequencing), the BED of PacBio HiFi pb-CpG-tools
+(made with `--min-mapq 1`: at 60, centromere arrays lose most of their data, and cenfuse warns of the hole) or a
+bedGraph of methylated fraction (a public bigWig through `bigWigToBedGraph`), sorted, bgzipped and tabixed.
 cenfuse pools calls in 5-kb bins, so low coverage works. CHG files must be modkit bedMethyl.
 
 **Genes:** any GFF3 or GTF of this assembly, with sequence names as in the FASTA.
