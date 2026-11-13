@@ -64,6 +64,12 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `CI_MIN` | `0.125` | Levan et al. 1964: centromeric index < 12.5% = telocentric ('t'), no second arm to fold |  |
 | `N_MIN` | `3` | heuristic: fewest anti-diagonal pairs whose mean scores a center | heuristic |
 
+## `hic/confidence.py`
+
+| constant | value | reason | mark |
+|---|---|---|---|
+| `DEGENERATE` | `-1.0` | P of a null that ran but could not score a chromosome (a non-finite observed ratio, or no finite score in any replicate), told apart from NaN (fewer than 2 partners: it could not run at all; future.md #69); not a probability, so no test reads it as one |  |
+
 ## `hic/params.py`
 
 | constant | value | reason | mark |

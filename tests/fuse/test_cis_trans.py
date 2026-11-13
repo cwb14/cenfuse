@@ -122,11 +122,13 @@ def test_a_chromosome_whose_others_fail_is_left_out():
 def test_the_cis_entry_carries_what_tested_it():
     from cenfuse.pipeline import cis_entry
     trans = dict(status="pass", tested_by="trans", interior=True, peaks={"a": (1, 2)}, pairs={"a": True})
-    assert cis_entry(trans, "a") == dict(peak=(1, 2), status="pass", tested_by="trans", interior=True, pair=True)
+    assert cis_entry(trans, "a") == dict(peak=(1, 2), status="pass", tested_by="trans", interior=True, pair=True,
+                                         trans_pair=False)
     assert cis_entry(trans, "b") is None
     assert cis_entry(dict(trans, status="support"), "a") is None
     old = dict(status="support", peaks={"a": (1, 2)})                         # a 0.12 result: the LTR-tested line
-    assert cis_entry(old, "a") == dict(peak=(1, 2), status="support", tested_by="ltr", interior=False, pair=False)
+    assert cis_entry(old, "a") == dict(peak=(1, 2), status="support", tested_by="ltr", interior=False, pair=False,
+                                       trans_pair=False)
 
 
 def test_ltr_tested_cis_acts_at_support_and_trans_tested_only_at_pass():
@@ -263,3 +265,73 @@ def test_a_trough_and_a_prior_free_peak_that_agree_place_a_low_call():
 def test_no_pair_without_agreement_support_or_a_clean_peak():
     for kw in (dict(agrees=False), dict(support=False), dict(dflags="telomeric"), dict(dconf="none")):
         assert _at_ev(**kw)["call"] is None
+
+
+# ---------------------------------------------------------------- 0.16: the cis extreme tested twice; the own trans pair (#27, #32)
+def _cis2(conf, peak, seq, **cis):
+    c = dict(peak=peak, status="pass", tested_by="ltr", interior=False)
+    c.update(cis)
+    h = dict(callable=True, bin_size=SIZE, gate_pass=False, gate_support=False, anch_strong=False, anch_level="none", anch_peak_start=-1,
+             anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1, masked=(), cis=c)
+    s = dict(start=seq[0], end=seq[1], evidence="retrotransposon", confidence=conf, flags=".", main_family=".")
+    return fuse.decide(fuse.Evidence("c", 50_000_000, s, None, h, None, lambda a, b: 0))
+
+
+def test_a_cis_extreme_tested_twice_and_its_own_trans_pair_moves_a_contradicted_call_low():
+    """Tomato with tes/ and Hi-C: the cis signal passes against the LTR cores and by trans contacts; where the chromosome's own trans
+    peak lies at its extreme, the confident call it contradicts moves there, low (a rule shaped on one genome)."""
+    far, ext = (18_000_000, 19_000_000), (25_500_000, 25_510_000)
+    for conf in ("medium", "high"):
+        d = _cis2(conf, ext, far, trans_pair=True)
+        assert d["call"] == ext and d["confidence"] == "low" and d["rule"] == "cis_trans_pair" and d["relation"] == "offset"
+        assert "cis_trans_pair" in d["flags"] and "cis_elsewhere" not in d["flags"] and "hic" in d["support"]
+        d = _cis2(conf, ext, far, trans_pair=False)                          # one test only: kept, contested, one level lower
+        assert d["call"] == far and d["relation"] == "contested" and "cis_elsewhere" in d["flags"] and "cis_trans_pair" not in d["flags"]
+    d = _cis2("medium", ext, far, trans_pair=True, status="support")         # the LTR-tested line on a minority: no move
+    assert d["call"] == far and "cis_trans_pair" not in d["flags"]
+    d = _cis2("medium", (18_500_000, 18_510_000), far, trans_pair=True)     # at the call: it agrees, as before
+    assert d["call"] == far and "cis_agrees" in d["flags"]
+
+
+def test_a_low_call_at_an_end_moves_to_the_interior_extreme_only_with_its_own_trans_pair():
+    end_call, inner = (61_000_000, 61_300_000), (27_000_000, 27_010_000)    # tomato CM175073.1: 61 Mb into 69.5 Mb, a terminal eighth
+    h = lambda pair: dict(callable=True, bin_size=SIZE, gate_pass=False, gate_support=False, anch_strong=False, anch_level="none",
+                          anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1, masked=(),
+                          cis=dict(peak=inner, status="pass", tested_by="trans", interior=True, pair=pair))
+    s = lambda conf: dict(start=end_call[0], end=end_call[1], evidence="satellite", confidence=conf, flags=".", main_family="A")
+    d = fuse.decide(fuse.Evidence("c", 69_500_000, s("low"), None, h(True), None, lambda a, b: 0))
+    assert d["call"] == inner and d["confidence"] == "low" and d["rule"] == "cis_end_pair" and "cis_end_pair" in d["flags"]
+    d = fuse.decide(fuse.Evidence("c", 69_500_000, s("low"), None, h(False), None, lambda a, b: 0))     # no pair: an acrocentric
+    assert d["call"] == end_call and "cis_blind" in d["flags"]
+    for conf in ("medium", "high"):                                         # a confident call at an end is left as it is
+        d = fuse.decide(fuse.Evidence("c", 69_500_000, s(conf), None, h(True), None, lambda a, b: 0))
+        assert d["call"] == end_call and d["confidence"] == conf and "cis_blind" in d["flags"]
+
+
+def test_cis_entry_says_where_the_ltr_tested_extreme_is_its_own_trans_pair():
+    from cenfuse.pipeline import cis_entry
+    trans = dict(status="pass", peaks={"a": (10, 20), "b": (50, 60)}, pairs={"a": True, "b": True, "c": True})
+    cis = dict(status="pass", tested_by="ltr", peaks={"a": (10, 20), "b": (30, 40), "c": (70, 80)}, trans=trans)
+    assert cis_entry(cis, "a")["trans_pair"]                    # same extreme, acting there, a pair
+    assert not cis_entry(cis, "b")["trans_pair"]                # the two tests read different extremes
+    assert not cis_entry(cis, "c")["trans_pair"]                # the trans test does not act on c (left out of its peaks)
+    assert not cis_entry(dict(cis, trans=dict(trans, status="support")), "a")["trans_pair"]
+    assert not cis_entry(dict(cis, trans=None), "a")["trans_pair"]
+
+
+# ---------------------------------------------------------------- 0.16: a degenerate Hi-C null is told apart (future.md #69)
+def test_a_degenerate_null_is_flagged_apart_and_never_counts_as_tested():
+    from cenfuse.hic.confidence import DEGENERATE, level
+    from cenfuse.hic.qc import call_flags
+    from cenfuse.hic.bins import Bins
+    assert level(1.0, True, float("nan")) == "medium" and level(1.0, True, DEGENERATE) == "medium"   # same level either way
+    assert level(1.0, False, DEGENERATE) == "low"
+    b = Bins({"c": 1_000_000}, 10_000)
+    pc = dict(peak=50, core_lo=49, core_hi=51)
+    hub = np.zeros(b.N, dtype=bool)
+    assert "null_untestable" in call_flags(0, pc, b, hub, {}, True, float("nan"), True)
+    f = call_flags(0, pc, b, hub, {}, True, DEGENERATE, True)
+    assert "null_degenerate" in f and "null_untestable" not in f
+    assert not {"null_untestable", "null_degenerate"} & set(call_flags(0, pc, b, hub, {}, True, 0.01, True))
+    assert fuse._clean_denovo(dict(denovo_confidence="medium", denovo_flags="null_untestable"))
+    assert not fuse._clean_denovo(dict(denovo_confidence="medium", denovo_flags="null_degenerate"))

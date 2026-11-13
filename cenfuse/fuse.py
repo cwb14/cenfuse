@@ -219,8 +219,9 @@ DENOVO_UNCLEAN = ("not_converged", "cycle_unstable")     # with NOT_STRONG_FLAGS
 def _clean_denovo(h) -> bool:
     """A prior-free Hi-C call at engine level high without a hub, rDNA, telomeric, not_converged or cycle_unstable flag. A call
     held at medium only because its null test cannot be run has passed every test it could take, and counts (null_untestable,
-    hic.confidence.level; 0.15, C. tropicalis: too few partner chromosomes with bins to resample; the same flag marks the rarer
-    degenerate case of a non-finite observed ratio, not separated here: future.md #69)."""
+    hic.confidence.level; 0.15, C. tropicalis: too few partner chromosomes with bins to resample). A null that ran but could not
+    score the chromosome (a non-finite observed ratio, or no finite score in any replicate) is flagged null_degenerate since 0.16
+    and does not count: that peak is not tested (future.md #69)."""
     fl = str(h.get("denovo_flags") or "")
     level = h.get("denovo_confidence")
     tested = level == "high" or (level == "medium" and "null_untestable" in fl.split(","))
@@ -559,6 +560,12 @@ def _cis(c: _Ctx, s: _Call) -> None:
         elif c.sconf == "low":               # elsewhere, the call unsure: the better candidate, still unsure
             s.call, s.relation, s.source, s.rule = cis["peak"], "offset", "hic", "cis_only"
             s.flags.append("cis_only")
+        elif cis["status"] == "pass" and cis.get("trans_pair"):
+            # 0.16 (future.md #27): the extreme passed two tests, against the LTR cores and against Hi-C's trans contacts, and this
+            # chromosome's own trans peak lies at it: the better candidate than the call it contradicts. A rule shaped on one genome
+            # (tomato with tes/ and Hi-C, the only one whose cis signal passes both tests): it makes no confident call
+            s.call, s.relation, s.source, s.rule = cis["peak"], "offset", "hic", "cis_trans_pair"
+            s.flags.append("cis_trans_pair")
         else:
             s.flags.append("cis_elsewhere")
             if cis["status"] == "pass":      # a line at the LTR cores on most chromosomes lies elsewhere: one line against one
@@ -567,7 +574,14 @@ def _cis(c: _Ctx, s: _Call) -> None:
         s.call, s.relation, s.source, s.rule = cis["peak"], "functional_only", "hic", "cis_only"
         s.flags.append("cis_only")
     elif blind and not c.valid and s.source == "sequence" and _vgap(ev, cis["peak"], s.call, False) > _bins(ev, HIC_FAR_BINS):
-        s.flags.append("cis_blind")          # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
+        if c.sconf == "low" and cis.get("pair") and s.relation != "contested":
+            # 0.16 (future.md #32): a low call in a terminal eighth, where the line cannot judge, moves to the interior extreme when
+            # the chromosome's own trans peak lies there (an acrocentric chromosome among metacentric ones has no such pair and
+            # keeps its call). Shaped on tomato without tes/, the only genome with the case: it makes no confident call
+            s.call, s.relation, s.source, s.rule = cis["peak"], "offset", "hic", "cis_end_pair"
+            s.flags.append("cis_end_pair")
+        else:
+            s.flags.append("cis_blind")      # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
 
 
 def _at_places(c: _Ctx, s: _Call) -> None:
@@ -645,7 +659,8 @@ def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
     if c.valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, s.call) or
                                                          (s.source == "hic" and c.h.get("anch_level") != "none")):
         support.append("hic")
-    elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only", "at_denovo_pair"} & set(flags):
+    elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only", "at_denovo_pair", "cis_trans_pair",
+          "cis_end_pair"} & set(flags):
         support.append("hic")
     if c.axis and f"{c.axis}_pair" in flags:
         support += ["hic", c.axis]
@@ -706,6 +721,8 @@ def _confidence(c: _Ctx, s: _Call, support: list) -> str:
         return conf
     if s.source == "composition":
         return "medium" if c.ev.at.get("validated") else "low"
+    if {"cis_trans_pair", "cis_end_pair"} & set(s.flags):
+        return "low"                                 # 0.16: rules shaped on one genome make no confident call (future.md, rule 3)
     if "cis_only" in s.flags or "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
         return "medium" if s.at_pair else "low"      # one Hi-C readout alone is unsure; with the trough, two lines (0.16: cis too)
     return "high" if s.second or s.at_pair else "medium"

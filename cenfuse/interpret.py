@@ -142,6 +142,12 @@ def basis(r, ctx: dict) -> str:
             how = ("the extreme of the contact crossing each bin, a cis signal that Hi-C's trans contacts confirm on most chromosomes"
                    if _cis_trans(r) else
                    "the extreme of the contact crossing each bin, a cis signal that agrees with the LTR cores beyond chance genome-wide")
+        elif "cis_trans_pair" in flags:
+            how = ("the extreme of the contact crossing each bin, a cis signal tested twice genome-wide (against the LTR cores and by "
+                   "Hi-C's trans contacts), where this chromosome's own trans contacts peak too")
+        elif "cis_end_pair" in flags:
+            how = ("the interior extreme of the contact crossing each bin, where this chromosome's own trans contacts peak (the "
+                   "sequence call lay in a terminal eighth, where that signal cannot judge)")
         elif "fold_pair" in flags:
             how = "the arm fold and Hi-C's prior-free peak, which agree here"
         elif "align_pair" in flags:
@@ -334,6 +340,9 @@ def caveat(r, ctx: dict) -> str:
                    f"a call this close to one")
     if "cis_only" in flags:
         out.append("a cis Hi-C signal alone")
+        hint = hint or "CENP-A/CENH3 data would decide"
+    if {"cis_trans_pair", "cis_end_pair"} & flags:
+        out.append("one library's two readouts (cis and trans), by a rule shaped on one genome (tomato), so the call stays low")
         hint = hint or "CENP-A/CENH3 data would decide"
     n = _int(getattr(r, "call_gaps", None))
     if n:

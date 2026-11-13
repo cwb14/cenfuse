@@ -211,8 +211,11 @@ def cis_entry(cis: dict | None, chrom: str) -> dict | None:
     chromosome's own trans peak lies at its extreme (pair)."""
     if not hicfuse.cis_acts(cis) or chrom not in cis.get("peaks", {}):
         return None
+    tr = cis.get("trans") or {}          # 0.16: the LTR-tested line's extremes tested by trans contacts too (hicfuse.run)
+    twice = bool(tr.get("status") == "pass" and (tr.get("peaks") or {}).get(chrom) == cis["peaks"][chrom]
+                 and (tr.get("pairs") or {}).get(chrom))
     return dict(peak=cis["peaks"][chrom], status=cis["status"], tested_by=cis.get("tested_by", "ltr"),
-                interior=bool(cis.get("interior")), pair=bool((cis.get("pairs") or {}).get(chrom)))
+                interior=bool(cis.get("interior")), pair=bool((cis.get("pairs") or {}).get(chrom)), trans_pair=twice)
 
 
 def plant_sites(seq: seqcalls.SeqLine, hic, others: dict) -> dict:

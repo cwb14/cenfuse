@@ -96,7 +96,9 @@ def call_flags(k, pc, bins, hub, rdna_iv, rabl_passed, p_null, converged, cycle_
     if not rabl_passed:
         f.append("no_rabl")
     if not np.isfinite(p_null):
-        f.append("null_untestable")
+        f.append("null_untestable")          # too few partner chromosomes for the null to run (C. tropicalis)
+    elif p_null < 0:
+        f.append("null_degenerate")          # the null ran but could not score this chromosome (future.md #69)
     if not converged:
         f.append("not_converged")
     if cycle_unstable:

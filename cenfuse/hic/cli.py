@@ -305,7 +305,8 @@ def run_call(args) -> dict:
             g = lambda j: int(bins.off[k] + j)
             bk, lk = boot[k][boot[k] >= 0], lopo[k][lopo[k] >= 0]     # -1 = no finite score (kept as outside the core)
             r.update(peak_over_median=round(pc["ratio"], 3), boot_in_core=round(inside, 3), lopo_stable=stable,
-                     null_p=pnull[k], confidence=conf, rounds=loc.rounds, converged=loc.converged,
+                     null_p=pnull[k] if np.isfinite(pnull[k]) and pnull[k] >= 0 else float("nan"), confidence=conf,
+                     rounds=loc.rounds, converged=loc.converged,
                      flags=",".join(qc.call_flags(k, pc, bins, hub, rdna, rabl["passed"], pnull[k], loc.converged,
                                                   cycle_unstable=k in unstable, good=good)))
             if len(bk):

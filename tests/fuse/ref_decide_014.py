@@ -141,6 +141,9 @@ def decide_014(ev: Evidence) -> dict:
         elif sconf == "low":                 # elsewhere, the call unsure: the better candidate, still unsure
             call, relation, source, rule = cis["peak"], "offset", "hic", "cis_only"
             flags.append("cis_only")
+        elif cis["status"] == "pass" and cis.get("trans_pair"):      # 0.16: tested by the LTR cores and by trans contacts
+            call, relation, source, rule = cis["peak"], "offset", "hic", "cis_trans_pair"
+            flags.append("cis_trans_pair")
         else:
             flags.append("cis_elsewhere")
             if cis["status"] == "pass":      # a line at the LTR cores on most chromosomes lies elsewhere: one line against one
@@ -149,7 +152,11 @@ def decide_014(ev: Evidence) -> dict:
         call, relation, source, rule = cis["peak"], "functional_only", "hic", "cis_only"
         flags.append("cis_only")
     elif blind and not valid and source == "sequence" and _vgap(ev, cis["peak"], call, False) > _bins(ev, HIC_FAR_BINS):
-        flags.append("cis_blind")            # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
+        if sconf == "low" and cis.get("pair") and relation != "contested":      # 0.16: own trans pair at the interior extreme
+            call, relation, source, rule = cis["peak"], "offset", "hic", "cis_end_pair"
+            flags.append("cis_end_pair")
+        else:
+            flags.append("cis_blind")        # said in the caveat: the extreme lies elsewhere, but the line cannot judge an end
     # two lines at a chromosome nothing else places (0.13): the trough and a clean prior-free Hi-C peak that placed no call of its
     # own agree here, in a genome where the two agree beyond chance (atline.validate: support); C. neoformans in anaphase: 3
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
@@ -203,7 +210,8 @@ def decide_014(ev: Evidence) -> dict:
     if valid and "hic_alt_ambiguous" not in flags and (_peak_agrees(ev, call) or
                                                        (source == "hic" and h.get("anch_level") != "none")):
         support.append("hic")
-    elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only", "at_denovo_pair"} & set(flags):
+    elif {"hic_support", "hic_denovo_only", "te_hic_pair", "hic_end", "cis_agrees", "cis_only", "at_denovo_pair", "cis_trans_pair",
+          "cis_end_pair"} & set(flags):
         support.append("hic")
     if axis and f"{axis}_pair" in flags:
         support += ["hic", axis]
@@ -231,6 +239,8 @@ def decide_014(ev: Evidence) -> dict:
             relation = "concordant"
     elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
         conf = "medium" if ev.at.get("validated") else "low"
+    elif {"cis_trans_pair", "cis_end_pair"} & set(flags):
+        conf = "low"                                # 0.16: shaped on one genome, no confident call
     elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
         conf = "medium" if at_pair else "low"       # 0.16: a cis call with the trough is two lines too
     else:

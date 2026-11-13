@@ -106,11 +106,16 @@ def leave_one_out(oe, bins, good, members, est):
     return out
 
 
+DEGENERATE = -1.0        # P of a null that ran but could not score a chromosome (a non-finite observed ratio, or no finite
+                         # score in any replicate), told apart from NaN (fewer than 2 partners: it could not run at all;
+                         # future.md #69); not a probability, so no test reads it as one
+
+
 def null_test(W, bins, good, mean, members, est, peaks, ratios, n=params.N_NULL, seed=params.SEED):
     """P = (1 + #replicates where the max within NULL_REACH bins of the call, over the chromosome median, reaches the
     observed ratio) / (1 + n). Partner windows go to random bins >= NULL_EXCL from that partner's estimate and from
-    its ends; partners without such bins sit out. Fewer than 2 such partners, a non-finite observed
-    ratio, or no finite score in any replicate: P = NaN (untestable)."""
+    its ends; partners without such bins sit out. Fewer than 2 such partners: P = NaN (untestable); a non-finite observed
+    ratio, or no finite score in any replicate: DEGENERATE (the null ran but says nothing here)."""
     rng = np.random.default_rng(seed)
     elig = {}
     for y, c in est.items():
@@ -135,15 +140,15 @@ def null_test(W, bins, good, mean, members, est, peaks, ratios, n=params.N_NULL,
             win = v[lo:hi]
             if med > 0 and np.isfinite(win).any() and np.nanmax(win) / med >= ratios[x]:
                 hits[x] += 1
-    # a non-finite observed ratio or a never-scored chromosome cannot be tested: NaN, not the best possible P
-    return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else float("nan") for x in est}
+    # a non-finite observed ratio or a never-scored chromosome cannot be tested: DEGENERATE, not the best possible P
+    return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else DEGENERATE for x in est}
 
 
 def level(boot_in_core: float, lopo_stable: bool, p: float) -> str:
     """high = all three; medium = two; low = one (or none while P <= 0.05); none = P > 0.05 (no call).
-    Untestable null (NaN): judged on the other two, capped at medium (flag null_untestable)."""
+    Untestable null (NaN; DEGENERATE): judged on the other two, capped at medium (flags null_untestable; null_degenerate)."""
     a, b = boot_in_core >= params.BOOT_IN_CORE, bool(lopo_stable)
-    if not np.isfinite(p):
+    if not np.isfinite(p) or p < 0:
         return "medium" if a and b else "low"
     if p > params.P_NONE:
         return "none"

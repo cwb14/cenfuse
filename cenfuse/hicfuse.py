@@ -40,7 +40,7 @@ import pandas as pd
 
 from .hic import cli as hic_cli
 from .hic import params as hp
-from .hic.confidence import bootstrap, leave_one_out, level
+from .hic.confidence import DEGENERATE, bootstrap, leave_one_out, level
 from .hic.io import InputError
 from .hic.locate import peak_core
 from .hic.qc import call_flags
@@ -91,11 +91,17 @@ def lopo_all(oe, bins, good, members) -> dict:
     return leave_one_out(oe, bins, good, members, {int(k): None for k in np.where(members)[0]})
 
 
+def _p_out(p: float) -> float:
+    """A null P as tables write it: NaN for both kinds of untestable (the flags say which)."""
+    return p if np.isfinite(p) and p >= 0 else float("nan")
+
+
 def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NULL, seed: int = hp.SEED,
              threads: int = 1) -> dict:
     """The Hi-C engine's position-aware null, for every chromosome with a peak: partner windows moved to random bins at least
     NULL_EXCL from that partner's anchor and its ends; P = (1 + replicates reaching the observed peak ratio within
-    NULL_REACH bins of the peak) / (1 + n). NaN when untestable. Every replicate's positions are drawn first, in the order
+    NULL_REACH bins of the peak) / (1 + n). NaN when untestable (fewer than 2 partners), DEGENERATE when the null ran but
+    could not score the chromosome (future.md #69). Every replicate's positions are drawn first, in the order
     of one serial loop, and the replicates are then scored on the thread pool (future.md #62): the P values do not depend
     on the thread count."""
     rng = np.random.default_rng(seed)
@@ -128,7 +134,7 @@ def null_all(W, bins, good, mean, members, est, peaks, ratios, n: int = hp.N_NUL
         reps = list(ex.map(one, cents))
     hits = {x: sum(r[x] is True for r in reps) for x in peaks}
     seen = {x: sum(r[x] is not None for r in reps) for x in peaks}
-    return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else float("nan") for x in peaks}
+    return {x: (1 + hits[x]) / (1 + n) if np.isfinite(ratios[x]) and seen[x] else DEGENERATE for x in peaks}
 
 
 def _bin_range(bins, k: int, s: int, e: int) -> tuple:
@@ -384,7 +390,7 @@ def anchored(state: dict, seq: dict, threads: int) -> tuple[pd.DataFrame, dict]:
             r.update(anch_peak_start=int(bins.start[g(pc["peak"])]), anch_peak_end=int(bins.end[g(pc["peak"])]),
                      anch_core_start=int(bins.start[g(pc["core_lo"])]), anch_core_end=int(bins.end[g(pc["core_hi"])]),
                      anch_ratio=round(pc["ratio"], 3), anch_boot_in_core=round(inside, 3), anch_lopo_stable=stable,
-                     anch_null_p=pnull.get(k, np.nan), anch_level=lev, anch_flags=",".join(flags),
+                     anch_null_p=_p_out(pnull.get(k, np.nan)), anch_level=lev, anch_flags=",".join(flags),
                      anch_strong=bool(lev == STRONG_HIC_LEVEL and not set(flags) & set(NOT_STRONG_FLAGS)))
             if s >= 0:
                 r.update(anch_agrees_seq=_agrees_bin(bins, good, k, pc["peak"], s, e),
@@ -728,6 +734,8 @@ def run(pairs, fai, prefix: Path, satellites, seq: dict, threads: int, classes: 
     if te_cores and 2 * int(t.gate_pass.sum()) <= len(t):
         te_anchored = anchored_on_cores(st, te_cores)
         cis = cis_line(st, te_cores, threads)
+        if cis.get("status") == "pass":                 # 0.16 (future.md #27): where the LTR cores pass the cis signal, the trans
+            cis["trans"] = cis_trans_line(st)           # contacts test it too, and say which extremes are their own trans pair
     elif 2 * int(t.gate_pass.sum()) <= len(t):          # no LTR cores: the cis signal is tested by the trans contacts instead
         cis = cis_trans_line(st)
     t = nor_peaks(t, nors)
