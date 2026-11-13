@@ -675,15 +675,24 @@ and its specificity rests on rotated tracks and one plant.
 - **A gate without a majority**: with five chromosomes the gate has little power (2 of 4 at chance 0.05: P 0.014); wide calls
   weaken it too (#73). CG-only samples decide without a provenance test.
 - **Small arrays** hypomethylated as a whole (bonobo and Bornean orangutan minicentromeres) are never refined (10 bins with data
-  needed); a wrong array cannot be told (#38). Since the spread depth (2026-11, cpg-robust), chimpanzee and siamang pass on R9
-  Guppy tracks (25 of 25, 20 of 26), and gorilla fails (#73).
+  needed); a wrong array cannot be told (#38). Since the spread depth and the width (2026-11, cpg-robust), chimpanzee, gorilla
+  and siamang pass on R9 Guppy tracks (25 of 25, 25 of 25, 26 of 26).
+- **Genomes without truth that 0.15.0 passed**: the duck passed 0.15.0 only because its rotations skipped offsets near the
+  call; with every offset, 0.15.0's own test passes none of its chromosomes (5 of 44 calls positional instead of 24), and 21 of
+  its 47 calls span at least a sixth of their (micro)chromosome, where no exact test within the chromosome reaches a small P.
+  The width alone would pass it (43 chromosomes); the three measures together pass 2: minP pays for the measures that carry
+  nothing there. The house wren likewise (0.15.0 with every offset: 0 of 40), which the depths pass.
 - **A perturbation**: CHM13 clones whose methylation was changed by dox moved CENP-A (PRJNA1270043, fiber-seq and DiMeLo-seq).
 - **Settle:** kinetochores within 50 kb of the HGSVC3 CDRs; a mouse HiFi 5mC track fails the gate; in the perturbed clones the called
   kinetochore follows CENP-A; rotated controls silent. **Code:** `cdr.py`.
 
 ### 73. The CpG test in wide calls
 
-Open. The positional test compares a call's deepest dips with those that methylation from anywhere on the chromosome makes on
+Partly done (2026-11): gorilla passes with both technologies since the width (0.15.0's statistic, read on each bin alone)
+joined the depths in the test; its kinetochores lie on DiMeLo-seq CENP-A on 9 of 9 truth chromosomes. Open for genomes of
+small chromosomes (duck, #55). The text below is from before.
+
+The positional test compares a call's deepest dips with those that methylation from anywhere on the chromosome makes on
 the same array bins, so its power falls as calls widen. Gorilla's dips lie on DiMeLo-seq CENP-A on 10 of 10 truth chromosomes,
 yet its 3.5-8 Mb calls keep the test below the gate with ONT R9 and with PacBio HiFi (the depth-only test of the cpg-vgp
 branch passed the HiFi track narrowly, on 15 of 25). The macaques (calls a median 9-12 Mb) fail too, though there the dips
@@ -691,7 +700,8 @@ miss CENP-A on Anvil (pig-tailed macaque), so failing may be right.
 - **Tried:** Stouffer's method for the gate (rescues nothing, lowers siamang); testing only the largest array run (arrays fill
   90-99% of calls).
 - **Leads:** the active array alone, where the satellite line can name it (HOR structure); a test of the dip's place within the
-  array rather than its depth against the chromosome.
+  array rather than its depth against the chromosome; for genomes of microchromosomes, rotations across chromosomes (which
+  changes the question: chromosomes differ in methylation as a whole).
 - **Settle:** gorilla passes with both technologies while every rotated control stays silent. **Code:** `cdr.py`.
 
 ## Inputs, chromosome set and other features

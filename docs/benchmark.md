@@ -638,8 +638,9 @@ nanopolish for CHM13 and the crab-eating macaque, Dorado R10 with modkit for rhe
 ONT (R10, Dorado) and PacBio Revio tracks of the same assembly; with genes and Hi-C. Truth:
 DiMeLo-seq CENP-A (5 apes), the curated CDRs (from the same ONT data: an implementation check), CENP-A ChIP of another
 crab-eating macaque. The line was designed on these primate tracks, so this is not a blind test; its two measures of
-depth were chosen on pairs of tracks of the same assembly without truth ([design.md](design.md)). Numbers from this
-version's runs, 0.15.0 in brackets.
+depth were chosen on pairs of tracks of the same assembly without truth, and 0.15.0's width joined them after a review
+against 0.15.0, read on each bin alone by a rule fixed beforehand on the same pairs ([design.md](design.md)). Numbers from
+this version's runs, 0.15.0 in brackets.
 
 ![CpG kinetochores](img/benchmark_cpg.png)
 *[Kinetochores from CpG methylation](img/benchmark_cpg.pdf): the CpG dip inside each satellite call marks the
@@ -647,22 +648,23 @@ kinetochore. Drawn from the 0.10.1 release.*
 
 | test | result |
 |---|---|
-| the CpG test passes on real tracks | 5 of 7 primates with truth and siamang (6 of 7 and rhesus): not gorilla (below), not the crab-eating macaque or rhesus, whose calls (a median 9 and 12 Mb, up to 20) the test cannot reach; chimpanzee passes (positional dips at 8 of 25 calls: 1 of 25) |
-| it fails on misplaced methylation | rotated tracks 0 of 10 genomes (the 8 primates, HG002 ONT and PacBio); simulated misplaced tracks (30 tracks of both sets, 2,000 each): the test passes on at most 0.2% of genomes; tracks shifted by half a chromosome are rejected by the assembly check on 6 of 8 (0.10.1; the check is unchanged) |
-| two technologies, same assembly | HG002, ONT and PacBio: the test passes on 46 and 46 chromosomes (the cpg-vgp branch, depth alone: 46 and 0); five great apes, ONT R9 and PacBio HiFi (the survey below) on identical assemblies: the verdicts agree on all five (gorilla fails on both), and where both tracks place a kinetochore (93) they lie within 50 kb on 80 |
-| kinetochore on DiMeLo-seq CENP-A (5 apes) | 44 of 52 within 50 kb (37 overlap); CENP-A higher inside the kinetochore than over the call on 49 of 51 (35 of 39; 39 of 39) |
-| kinetochore on the curated CDR | 76 of 78 (62 of 63) |
-| crab-eating macaque kinetochore inside the ChIP domain | none placed: the test fails (12 of 15 inside domains that span several Mb of the call) |
-| resolution | kinetochores a median 45 kb wide, calls 3.5 Mb (124 kinetochores, 6 primates; 55 kb, 5.1 Mb, 133) |
-| calls changed | 0 moved; siamang: 5 calls contested by another array's dip (`cpg_elsewhere`), 2 of them down one level |
+| the CpG test passes on real tracks | 7 of 7 primates with truth, rhesus and siamang (6 of 7 and rhesus). Chimpanzee passes (positional dips at 8 of 25 calls: 1 of 25). The crab-eating macaque and rhesus (calls a median 9 and 12 Mb, up to 20) and gorilla (3.5-8 Mb) pass by the width of their CDRs: methylation from elsewhere makes dips as deep, not as wide |
+| it fails on misplaced methylation | rotated tracks 0 of 10 genomes (the 8 primates, HG002 ONT and PacBio); simulated misplaced tracks (36 tracks of both sets, the duck's and two fish's among them, 2,000 each): the test passes on 0.1% of genomes, at most 0.35%; tracks shifted by half a chromosome are rejected by the assembly check on 6 of 8 (0.10.1; the check is unchanged) |
+| two technologies, same assembly | HG002, ONT and PacBio: the test passes on 46 and 46 chromosomes (the cpg-vgp branch, depth alone: 46 and 0); five great apes, ONT R9 and PacBio HiFi (the survey below) on identical assemblies: the test passes on both tracks of all five, and where both tracks place a kinetochore (120) they lie within 50 kb on 103 |
+| kinetochore on DiMeLo-seq CENP-A (5 apes) | 53 of 63 within 50 kb (44 overlap); CENP-A higher inside the kinetochore than over the call on 59 of 62 (35 of 39; 39 of 39) |
+| kinetochore on the curated CDR | 87 of 89 (62 of 63) |
+| crab-eating macaque kinetochore inside the ChIP domain | 12 of 15 (12 of 15), inside domains that span several Mb of the call |
+| resolution | kinetochores a median 45 kb wide, calls 4.0 Mb (179 kinetochores, 8 primates; 55 kb, 5.1 Mb, 133) |
+| calls changed | 0 moved; siamang: 5 calls contested by another array's dip (`cpg_elsewhere`), 2 of them down one level; no new confidently wrong call |
 
 - **HG002** (no CENP-A data): kinetochores on 46 (ONT, median 38 kb; 45 inside the active array) and 45 (PacBio, median
   20 kb; 44 inside). Where both place one (45), they lie within 50 kb on 38 (31 of 39). The PacBio track encodes
   methylation on a compressed scale (CDRs at 0.41 of their background, at 0.14 in the ONT track): its dips are spread
   dips, which the scale does not move.
-- **Gorilla** fails with either technology (ONT R9, and PacBio HiFi in the survey below), though its dips lie on
-  DiMeLo-seq CENP-A on 10 of 10 truth chromosomes: its calls span 3.5-8 Mb, so methylation from elsewhere makes dips as
-  deep on as many array bins, and its test stays above the gate's level.
+- **Gorilla** passes with either technology (ONT R9 25 of 25, PacBio HiFi 24 of 25 in the survey below); its
+  kinetochores lie within 50 kb of DiMeLo-seq CENP-A on 9 of 9 (8 of 8). Its calls span 3.5-8 Mb, and methylation from
+  elsewhere makes dips as deep on as many array bins: the two depths alone failed it, and so did the width read on the
+  profile pooled over three bins; read on each bin, as 0.15.0 did, the width carries it.
 - **Low coverage** (0.10.1): rhesus thinned to 1/16 of its reads kept 21 of 21 kinetochores within 50 kb of full depth.
 - **Wrong calls get kinetochores too** (Bornean orangutan CM054652.2): the line refines a call; it cannot check it.
 - ***Arabidopsis*:** the CpG test is right to fail (the strongest dips lie off CENH3 on 4 of 5).
@@ -683,33 +685,46 @@ alone (CpG alone), with Hi-C (10 genomes), and with every line (10 genomes); hel
 | test | result |
 |---|---|
 | calls moved | 0, in every arm |
-| confidence changed (CpG alone, 81 development genomes) | 6 down one level (8 calls contested, 2 already `low`; cpg-vgp: 6, the same calls but gorilla's for the chipping sparrow's); with Hi-C or with every line (10 genomes), 2 |
+| confidence changed (CpG alone, 81 development genomes) | 6 down one level (7 calls contested, 1 already `low`); with Hi-C or with every line (10 genomes), 2 |
 | wrong confident calls | 2, as in 0.15.0 (stickleback chromosome 4 drops from `high` to `medium`; its contesting dip lies at the truth) |
-| genomes where the CpG test passes | 10 of 81 (0.15.0: 12; cpg-vgp: 10): against 0.15.0, gained chimpanzee, human, opossum; lost two fish, duck, gorilla, pig-tailed macaque. Against cpg-vgp, gained chipping sparrow, lost gorilla; opossum passes on 1 chromosome of 9 (cpg-vgp: 7) |
-| kinetochores on right calls inside the CENP-A domain (development) | 62 of 66 (0.15.0: 54 of 62; cpg-vgp: 63 of 69) |
-| the same, by the chromosome's own positional P | <= 0.05: 29 of 30; 0.05-0.2: 22 of 23; above 0.2: 11 of 13 |
-| resolution | kinetochores a median 35 kb wide, calls 1.7 Mb (187 kinetochores, 10 genomes) |
+| genomes where the CpG test passes | 17 of 81 (0.15.0: 12): gained chimpanzee, human, opossum, brown anole and *fProLin1* (no truth for the last three), lost none; the duck passes on 2 chromosomes of 50 (0.15.0: 47; below) |
+| kinetochores on right calls inside the CENP-A domain (development) | 69 of 80 (0.15.0: 54 of 62) |
+| the same, by the chromosome's own positional P | <= 0.05: 40 of 44; 0.05-0.2: 24 of 27; above 0.2: 5 of 9 |
+| resolution | kinetochores a median 30 kb wide, calls 2.1 Mb (261 kinetochores, 17 genomes) |
 | HG002 | test passes on 23 of 23 (0.15.0: 0); its kinetochores are those of cpg-vgp in every arm: all inside the CenSat active array, at the 98th percentile of the array's CENP-A (median; top tenth on 20 of 23); on the 4 chromosomes with a clear domain, 4 of 4 |
-| held out: Sumatran orangutan | 24 kinetochores (0.15.0: 21; cpg-vgp: 25); on right calls, 10 of 15 inside the CUT&RUN domain (0.15.0: 10 of 15; cpg-vgp: 11 of 16) |
-| held out: Grevy's zebra | the test fails, as before and as in horse |
-| time (lab server, a load of ~200 on 256 cores) | CpG stage a median 51 s, at most 272 s (cpg-vgp: 53 and 264 s; on Anvil, 24 and 129 s) |
+| held out: Sumatran orangutan | 25 kinetochores (0.15.0: 21); on right calls, 11 of 16 inside the CUT&RUN domain (0.15.0: 10 of 15) |
+| held out: Grevy's zebra | the test fails, as before |
+| time (lab server, a load of ~130 on 256 cores) | CpG stage a median 32 s, at most 217 s (cpg-vgp, at a load of ~200: 53 and 264 s; on Anvil, 24 and 129 s) |
 
-- **Two measures of depth** (this version; design.md): the test of the cpg-vgp branch read a dip only as methylation
-  over its background, which moves with how a track encodes methylation. These HiFi tracks, rebuilt at MAPQ >= 1, read
-  CDRs at 0.16 of their background (HG002), deep enough for it; the lab server's tracks of the same assemblies are not
-  all (HG002's PacBio Revio bigWig: 0.41, and the test failed on 46 of 46). Here the change is small: the same
-  chromosomes pass in 78 of 81 genomes, and the chipping sparrow is regained. Gorilla and opossum, which the depth-only
-  test passed narrowly, now fail (opossum but one chromosome): the combined test pays for its second measure where one
-  alone carries the signal. Gorilla's dips lie on CENP-A (DiMeLo-seq, the lab-server table), but its 3.5-8 Mb calls keep the test weak.
-- **Dipless calls are contested.** Where the test passes, a call whose arrays hold at least 10 bins of data but no dip,
-  while another array holds a dip that passes the positional test, is flagged `cpg_elsewhere` and drops one level; it
-  never moves. In the development set, 8 calls: stickleback chromosome 4 (the dip lies at the truth), two ape calls
-  whose CUT&RUN lies off the satellite arrays, and five without truth (the chipping sparrow's among them); gorilla's
-  call without CUT&RUN data is no longer contested, as its test fails.
-- **Pig-tailed macaque** gets no kinetochores (0.15.0 placed 22, 4 of 9 in the other species' ChIP domain). Its
-  CENP-A domains hold no CpG dip (methylation 0.97-1.02 of the local background), and its arrays' deepest dips sit at the 75th
-  percentile of the ChIP (median; top tenth on 1 of 19). In 8-14 Mb arrays the positional test has no power.
-- **Horse and zebra:** the test fails; horse's CENP-A domains are no less methylated than its arrays (0.80 and 0.79).
+- **Three measures** (this version; design.md): the cpg-vgp branch read a dip only as methylation over its background,
+  which moves with how a track encodes methylation: these HiFi tracks, rebuilt at MAPQ >= 1, read CDRs at 0.16 of their
+  background (HG002), deep enough for it; the lab server's tracks of the same assemblies are not all (HG002's PacBio Revio
+  bigWig: 0.41, and the test failed on 46 of 46). A depth in local SD and 0.15.0's width, read on each 5-kb bin, join it.
+  Against the two depths alone (10 genomes), the width regains gorilla, the pig-tailed macaque, the alligator gar (on 23 of
+  28 chromosomes) and *fMicPou1*, and adds the brown anole and *fProLin1*; opossum passes on 5 chromosomes (1).
+- **Genomes the exact test cannot certify.** 0.15.0 passed the duck on 47 of 50 chromosomes; with every rotation offset,
+  0.15.0's own test passes none (5 of 44 calls positional instead of 24): its rotations skipped offsets near the call, and
+  21 of the duck's 47 calls span at least a sixth of their (micro)chromosome, where a call's own methylation makes up much
+  of what the rotations bring. This version passes 2 of its chromosomes. The house wren (0.15.0 with every offset: none) passes
+  here on 40, by its depths.
+- **Dipless calls are contested.** Where the test passes, a call whose arrays hold at least 10 bins of data, no dip and no
+  positional P, while another array holds a dip that passes the positional test, is flagged `cpg_elsewhere` and drops one
+  level; it never moves. In the development set, 7 calls: stickleback chromosome 4 (the dip lies at the truth), a chimpanzee
+  call whose CUT&RUN lies off the satellite arrays, and five without truth (two in the brown anole). A positional width now
+  spares three calls the two depths contested (a bonobo call whose CUT&RUN lies off the arrays, opossum, toad).
+- **Pig-tailed macaque** gets 22 kinetochores (0.15.0: 22; the two depths alone: none), 4 of 9 in the other species' ChIP
+  domain. Its CENP-A domains hold no CpG dip (methylation 0.97-1.02 of the local background), and its arrays' deepest dips
+  sit at the 75th percentile of the ChIP (median; top tenth on 1 of 19): it passes by its valleys' width.
+- **Not specific: the plains spadefoot toad** (*aSpeBom1*, no truth) passes on 13 of 13 chromosomes (10 of 12 calls
+  positional), but so does its own track moved along every chromosome by a quarter or a half (13 chromosomes; 4 of 12 calls
+  positional) or by 0.4 (7); moved by 0.1 or 0.75 it fails, and so does every other passing genome's track moved by a half.
+  The two depths alone pass it moved by a half too (9). Moves drawn independently per chromosome pass on 0.05% of simulated
+  genomes: a move shared by all chromosomes puts every call at the same relative place, and where chromosomes share their
+  methylation landscape the P values the gate combines are not independent (likely; not tested).
+- **Horse and zebra:** horse's CENP-A domains are no less methylated than its arrays (0.80 and 0.79). With CpG alone its calls
+  are all `low` (no test); with Hi-C, 13 of its 24 calls are positional by their width (none by the depths), and the test
+  passes on 30 of 33 chromosomes (0.15.0: 0), placing 9 kinetochores. On the 6 chromosomes with truth all 6 lie inside the
+  ChIP domains (1.0-5.7 Mb), which cover 29-71% of their calls: 6 of 6 by chance has P = 0.01. Zebra fails.
 
 ## CHG methylation (plants)
 
@@ -893,6 +908,7 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 | an AT trough places only what nothing else places, and pairs only with a Hi-C call it lies by | a code review | 40 paired calls, all right |
 | the CpG line, and its positional (rotation) null | designed on the primate tracks; the rotated gorilla control passed the first null | the other rotated controls, rhesus, *Arabidopsis* |
 | the CpG line's two measures of depth (level and spread, minP), and spread dips at least 34% below their background | the HG002 PacBio track failed the depth-only test on 46 of 46 chromosomes (ONT passed); chosen on six genomes with two tracks of the same assembly, by a rule fixed beforehand and blind to truth; the 34% after a code review (noise and single aberrant bins made spread dips) | the truth genomes of both sets; 30 tracks' simulated misplaced copies; rotated HG002 tracks |
+| 0.15.0's width as a third measure of the CpG test (minP; read on each 5-kb bin; it places no kinetochore) | against 0.15.0, the two depths swapped genomes (gorilla, three macaques, duck, two fish lost); the width read on the profile pooled over three bins still lost gorilla and a fish; reading each bin chosen on the six paired genomes by a rule fixed beforehand and blind to truth | the truth genomes of both sets (against 0.15.0: chimpanzee and human gained, none lost); 36 tracks' simulated misplaced copies; misplaced copies of the Anvil tracks it passes (the toad passes); 0.15.0's own code on the genomes without truth |
 | 45S motif hits need nuclear context; telomere units of 13-29 bp and loose stretches at ends | rice chr4, a plastid insertion called a NOR; *C. tropicalis*; soybean chr3 | 5.8S genes at kept and removed arrays (a one-base rule was rejected: it deleted a real barley 7H array); T2T assemblies: no end lost, no interstitial array gained |
 | a significant LTR core holding under half of the signature's elements replaces a `low` call and stays `low` (`minority_core`) | the 13 tomatoes: 41 of 71 wrong `low` calls had a right core | polyploid panel: the homoeolog pairs it touches agree on 7 of 11, against 3 without it. Outside *Solanum* it changes one scored call, cucumber chr1, from right to wrong (`low`) |
 | insertion age picks the youngest of comparable peaks of the signature's elements (`te_age_core`) | the 13 tomatoes; *P. annua* Pa1A | 31 genomes with truth and a signature: 26 cores move, 12 from wrong to right, 2 from right to wrong; polyploid panel: 32 of 62 homoeolog pairs agree with and without it |

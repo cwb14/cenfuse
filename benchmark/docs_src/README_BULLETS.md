@@ -7,7 +7,7 @@
   14 of the 72 confident calls are wrong: treat a `medium` call from a Tekay core with caution. The allotetraploid
   *Ae. geniculata*: 13 of 14 right with `tes/` (1 confidently wrong); the wild potato *S. verrucosum*: 8 of 12.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): a median 45 kb wide inside calls of
-  2.9 Mb; 44 of 52 lie within 50 kb of CENP-A. Gorilla's test fails (its 3.5-8 Mb calls), with ONT and with PacBio.
+  3.0 Mb; 53 of 63 lie within 50 kb of CENP-A. All five pass with ONT and with PacBio.
 
 **Where it is weak**
 - An LTR core beside the centromere can look like the right one, and a call at one edge of a wide core counts as

@@ -457,8 +457,11 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   chromosome.
 - **The CpG line** was designed on the primate tracks it is benchmarked on; its depth measures were chosen on the paired
   tracks without truth, and the truth genomes test it; the width joined them after a review that had seen the truth, on
-  grounds without it (gate passes and agreement on the paired tracks, calibration). Wide calls weaken its test: gorilla's dips lie on CENP-A on 10 of 10
-  chromosomes with DiMeLo-seq data, but its 3.5-8 Mb calls keep its test below the gate with either technology.
+  grounds without it (gate passes and agreement on the paired tracks, calibration). Wide calls weaken its test: gorilla's
+  3.5-8 Mb calls pass by the width alone, and the duck's calls, up to half of a microchromosome, cannot reach a small P
+  under rotations within the chromosome. The width is less specific than the depths: in horse, whose CENP-A domains are as
+  methylated as its arrays, 13 of 24 calls are positional by their width (none by the depths), and with Hi-C the test
+  passes there.
 - **Morphology** is only as right as the call; an incomplete chromosome shifts the index.
 - **Old satellite outputs** read with `--satellite-dir` keep their version's rules; rerun without `--satellite-dir`.
 
