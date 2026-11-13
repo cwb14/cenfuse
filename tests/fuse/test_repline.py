@@ -164,6 +164,8 @@ def test_a_tested_repeat_peak_raises_the_hic_call_it_agrees_with():
     for rep in (dict(REP, agrees=True), dict(REP, validated=True, agrees=False)):            # untested; not by this call
         d = _dec(_hic_alone(420_000), rep)
         assert d["confidence"] == "low" and "rep_pair" not in d["flags"]
+    d = _dec(_hic_alone(420_000), dict(tested, status="untested"))                          # the line passed no test
+    assert d["confidence"] == "low" and "rep_pair" not in d["flags"] and d["call"] == (420_000, 430_000)
     d = _dec(_hic_alone(800_000), tested)                                                      # the peak lies elsewhere
     assert d["call"] == (800_000, 810_000) and d["confidence"] == "low" and "rep_pair" not in d["flags"]
 

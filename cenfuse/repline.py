@@ -115,7 +115,7 @@ def repeat_bins(fasta, fai: dict, chroms: dict, arrays: dict | None = None) -> d
                 if sample > 1:                                         # the hash (murmur3 fmix64) is fixed: same K-mers every run
                     sel = (fmix64(km) % S) == 0
                     km, pos = km[sel], pos[sel]
-                bin_id = np.full(len(km), -1, np.int64)                # -1: counted, read nowhere (other sequences, arrays)
+                bin_id = np.full(len(km), -1, np.int32)                # -1: counted, read nowhere (other sequences, arrays)
                 if base >= 0:
                     up = raw[:e - s] & np.uint8(0xDF)                  # upper case
                     j = (np.arange(e - s) + s) // atline.BIN
@@ -127,7 +127,7 @@ def repeat_bins(fasta, fai: dict, chroms: dict, arrays: dict | None = None) -> d
                     # a K-mer that touches an array is the array's: one starting up to K - 1 bases before it holds its unit too
                     touch = _inside([(max(0, a - K + 1), b) for a, b in arrays.get(name) or ()], s, e)
                     read = ~touch[pos]                                 # an array's K-mers count copies, are not read
-                    bin_id[read] = (pos[read] + s) // atline.BIN + base
+                    bin_id[read] = ((pos[read] + s) // atline.BIN + base).astype(np.int32)
                 K_all.append(km)
                 B_all.append(bin_id)
     km, b = np.concatenate(K_all), np.concatenate(B_all)

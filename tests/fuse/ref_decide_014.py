@@ -190,7 +190,7 @@ def decide_014(ev: Evidence) -> dict:
         flags.append("at_elsewhere")      # said in the caveat; a Hi-C call stands against a trough of the same standing
     rep_pair = False                      # 0.16: a tested repeat-density peak agrees with a Hi-C call
     rp = getattr(ev, "rep", None)
-    if not at_pair and seq_iv is None and source == "hic" and rp:
+    if not at_pair and seq_iv is None and source == "hic" and rp and rp.get("status") == "pass":
         tested = (rp.get("agrees") and (rp.get("validated") or rp.get("support"))) or \
             ("cis_only" in flags and rp.get("cis_agrees") and (rp.get("cis_validated") or rp.get("cis_support")))
         if tested and _vgap(ev, (rp["start"], rp["end"]), call, True) <= _bins(ev, HIC_TOL_BINS):

@@ -639,9 +639,11 @@ def _refine(c: _Ctx, s: _Call) -> None:
         s.flags.append("at_pair")
     elif trough and not at_near and ev.at.get("validated"):
         s.flags.append("at_elsewhere")    # said in the caveat; a Hi-C call stands against a trough of the same standing
-    if not s.at_pair and c.seq_iv is None and s.source == "hic" and ev.rep:
-        # 0.16: the repeat-density peak as the second line, tested genome-wide against the Hi-C readout that placed the call (the
-        # prior-free peaks; the cis extremes for a cis call): two lines from two inputs at one locus. The call is the peak's
+    if not s.at_pair and c.seq_iv is None and s.source == "hic" and ev.rep and ev.rep.get("status") == "pass":
+        # 0.16: the repeat-density peak as the second line, where the repeat line passed its own test and its peaks were tested
+        # genome-wide against the Hi-C readout that placed the call (the prior-free peaks; the cis extremes for a cis call): two
+        # lines from two inputs at one locus (C. tropicalis: its 6 chromosomes cannot test the line, and its 200-kb peaks agreed
+        # with Hi-C beyond chance yet missed a 10-kb centromere the prior-free peak held). The call is the peak's
         # half-height run, as an agreeing trough gives its interval: Hi-C places within a few bins only (C. neoformans in G1: 2
         # of 14 cis bins 19 kb off CENP-A, every repeat peak on it)
         rep_iv = (ev.rep["start"], ev.rep["end"])

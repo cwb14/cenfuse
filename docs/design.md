@@ -434,6 +434,7 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | LTR recruitment | ≥ 5 elements; ≤ 5 rounds | fewer cannot reach P ≤ 0.001; results do not depend on them (152-155 of 172 right cores over 1-4 rounds, 3-10 elements) |
 | age | 3 dated copies per site; peaks ≥ half the highest | as the three insertions of a core; the core's half-maximum |
 | AT troughs | 1-kb bins; 1-500-kb windows; troughs ≥ 5 windows apart; class ≤ 1.5 N | *Malassezia*'s 3-5-kb centromeres; the known regional centromeres; one centromere gives several close troughs; a named heuristic |
+| repeat density | 21-mers; windows 10-500 kb; a window half outside satellite arrays; 1 in 32 21-mers above 200 Mb; P ≤ 0.01 | odd K, chance recurrence ≤ 2e-4 in 0.5 Gb; one transposon copy fills a smaller window; a majority; memory; shuffles passed 6.5% at 0.05 |
 | random draws | 10,000 (one-per-chromosome, AT); 200 (cis maps, CpG shuffles and rotations) | P resolution 1e-4; 0.005, 10× finer than the level |
 | telomeres | ≥ 300 bp at half density; ≥ 100 bp at the end; a tenth density at the end | ~40 copies of a 7-bp unit; trimmed telomeres; a named heuristic |
 | chromosome set | the first tenfold drop in length after half the assembly; a gradual tail cut | a named heuristic |
@@ -470,6 +471,9 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | 45S arrays of organelle DNA | the base after the motif and the next 19 | one strand only: large real NORs hold both. The next base alone: 9% of the hits followed by A are nuclear |
 | telomere stretches under half density | used only after the unit is chosen | decoy units in loose stretches could block the real unit |
 | an AT window per chromosome | one window per genome | choosing it by the trough's prominence loses right calls |
+| an LTR core under tied density maxima | the first maximum, as before | half of all core profiles have tied maxima in separate half-maximum runs; taking the run with more elements moved 24 of 634 final cores (2 wrong to right, 4 right to wrong) and changed 3 seeds (0.16) |
+| the repeat-density readout | mean log2 copy number of 21-mers, satellite arrays and terminal eighths left out, windows of 10-500 kb, P ≤ 0.01 | the share of 21-mers seen twice: low-copy duplications at chromosome ends outweighed *C. neoformans*' centromeres (P 0.18). Seen ten times: a cutoff with no reason (it passed, 14 of 14). Arrays in: holocentric *C. elegans* nearly passed (P 0.052) on six dense satellite blocks. Ends in: *Malassezia*'s chromosome ends formed the deepest class. P ≤ 0.05: block shuffles passed 6.5% of the time (0.16) |
+| a gene-poor competing cluster over a gene-rich call | not used | one chromosome each way in the benchmark (horse1 and siamang) (0.16) |
 
 ## Known risks
 
@@ -500,6 +504,11 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   their competing cluster. It is a little liberal where chromosomes hold room for fewer than about 5 troughs.
 - **The one-per-chromosome test** has no power with few chromosomes, and passes any family that happens to lie once per
   chromosome.
+- **The repeat-density line** (0.16) was developed on 23 genomes and passes in four, every peak right; block shuffles pass its
+  test 6.5% of the time at 0.05, so it acts at 0.01. It cannot see a centromere in a terminal eighth (11 of moss's 26), reads
+  only interspersed repeats (a satellite centromere is the satellite line's), and leaves low calls it contradicts
+  (*Chlamydomonas*: 17 of 17 peaks right, 6 of 17 calls). Recent transposon bursts away from the centromeres could make it
+  pass on the wrong clusters; it places only `low` calls, and `medium` ones only where Hi-C agrees.
 - **The CpG line** was designed on the primate tracks it is benchmarked on; its depth measures were chosen on the paired
   tracks without truth, and the truth genomes test it; the width joined them after a review that had seen the truth, on
   grounds without it (gate passes and agreement on the paired tracks, calibration). Wide calls weaken its test: gorilla's
