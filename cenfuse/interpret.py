@@ -373,6 +373,49 @@ def _n(x) -> int:
     return v if v is not None else 0
 
 
+def passed_lines(summ: dict) -> list:
+    """The lines that passed a genome-level test in this run, read from its summary row: what makes any call more than one
+    line's untested best candidate. The satellites' one-per-chromosome test, a decisive LTR signature, the AT troughs, Hi-C's
+    test (or its support tier), Hi-C on the LTR cores, the cis signal, a Rabl axis, the CpG test."""
+    out = []
+    if str(summ.get("sat_one_per_chromosome", ".")).endswith(": pass"):
+        out.append("the satellites' one-per-chromosome test")
+    if str(summ.get("te_decisive", ".")) == "True":
+        out.append("the LTR signature")
+    if str(summ.get("at_gate", ".")) == "pass":
+        out.append("the AT troughs")
+    if _n(summ.get("hic_gate_pass")) or _n(summ.get("hic_gate_support")):
+        out.append("Hi-C's test")
+    for key, what in (("te_hic", "Hi-C on the LTR cores"), ("cis_line", "the cis Hi-C signal")):
+        v = str(summ.get(key, "."))
+        if ": pass" in v or ": support" in v:
+            out.append(what)
+    if str(summ.get("hic_axis", ".")) in ("fold", "align"):
+        out.append("the Rabl axis")
+    if _n(summ.get("cpg_gate_pass")):
+        out.append("the CpG test")
+    return out
+
+
+def verdict(f: dict, summ: dict, ctx: dict) -> str | None:
+    """The genome-level statement when nothing in the run is confident (None otherwise): no call at all, or only `low` calls
+    while no line passed a genome-level test. Each such call is one untested line's best candidate; holocentric genomes
+    (0 confident calls in 196 chromosome-runs of the benchmark's four) and satellite-free genomes from the FASTA alone look
+    like this. Nothing here changes a call."""
+    if f["high"] or f["medium"]:
+        return None
+    need = [x for x, ok in (("Hi-C", ctx.get("hic")), ("an LTR annotation (tes/; plants)", ctx.get("tes"))) if not ok]
+    then = (f"{' or '.join(need)} could test them; " if need else "") + "CENP-A/CENH3 data would decide."
+    if not f["called"]:
+        return ("- **No centromere placed**: no line found one on any chromosome. Point, regional and AT-rich centromeres "
+                "(yeasts, other fungi) leave little in the FASTA; " + then)
+    if passed_lines(summ):
+        return None
+    return ("- **No call is confident, and no line of evidence passed a test in this genome**: each call is one untested line's "
+            "best candidate. Either the centromeres leave no mark in these inputs, or the chromosomes have no single "
+            "centromere (holocentric: nematodes, butterflies and moths, *Rhynchospora*, *Luzula*). " + then)
+
+
 def _list(items, k: int = 8) -> str:
     items = list(items)
     return ", ".join(items[:k]) + (f" and {len(items) - k} more" if len(items) > k else "")
@@ -460,6 +503,9 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
           f"- **{f['called']}/{f['chromosomes']} chromosomes called**: {f['high']} high, {f['medium']} medium, "
           f"{f['low']} low" + (" (uncertain: the best candidate, another place not excluded)" if f["low"] else "") +
           (f"; {f['none']} without a call" if f["none"] else "") + "."]
+    v = verdict(f, summ, ctx)
+    if v:
+        L.append(v)
     made = []
     if f["satellite_calls"]:
         fam = ", ".join(f"{x} ({u} bp) on {n}" if u else f"{x} on {n}" for x, n, u in f["families"][:6])

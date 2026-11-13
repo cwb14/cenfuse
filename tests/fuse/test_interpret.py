@@ -323,3 +323,31 @@ def test_a_weak_core_call_says_why_it_is_low():
             te_seed="fam7", te_core_elements=6, te_chrom_elements=23)
     assert "seeded by fam7" in it.basis(r, ctx(decisive=True)) and "6 of its 23 elements" in it.basis(r, ctx(decisive=True))
     assert "under half of the signature's elements" in it.caveat(r, ctx(decisive=True))
+
+
+# ---------------------------------------------------------------- 0.16: the genome-level verdict when nothing is confident
+def test_the_verdict_names_a_genome_where_no_line_passed_a_test():
+    from cenfuse import interpret
+    f = dict(called=6, high=0, medium=0, low=6)
+    holo = {"sat_one_per_chromosome": "5/6 chromosomes hold the 6 largest clusters (null 4, P 0.24): fail", "te_decisive": ".",
+            "at_gate": ".", "hic_gate_pass": "0", "hic_gate_support": "0", "te_hic": ".",
+            "cis_line": "trans peaks at the cis peak on 0/6 chromosomes (P 1): fail, tested by trans contacts; acts on 0", "hic_axis": "."}
+    v = interpret.verdict(f, holo, dict(hic=True, tes=True))
+    assert "no line of evidence passed a test" in v and "holocentric" in v and "could test" not in v
+    v = interpret.verdict(f, holo, dict(hic=False, tes=False))
+    assert "Hi-C or an LTR annotation (tes/; plants) could test them" in v
+    assert interpret.verdict(f, dict(holo, at_gate="pass"), dict(hic=False, tes=False)) is None       # P. falciparum's troughs
+    cis = "trans peaks at the cis peak on 12/14 chromosomes (P 1.4e-13): pass, tested by trans contacts; acts on 14"
+    assert interpret.verdict(f, dict(holo, cis_line=cis), dict(hic=True, tes=False)) is None          # C. neoformans in G1
+    assert interpret.verdict(dict(f, medium=1, low=5), holo, dict(hic=True, tes=True)) is None
+    none = interpret.verdict(dict(called=0, high=0, medium=0, low=0), holo, dict(hic=False, tes=True))
+    assert none.startswith("- **No centromere placed**") and "Hi-C could test them" in none
+
+
+def test_passed_lines_reads_every_test_of_the_summary():
+    from cenfuse import interpret
+    s = {"sat_one_per_chromosome": "22/24 chromosomes hold the 24 largest clusters (null 15, P 0.0001): pass", "te_decisive": "True",
+         "at_gate": "pass", "hic_gate_pass": "3", "te_hic": "8/12 chromosomes (P 1e-4): support", "cis_line": "x: pass",
+         "hic_axis": "fold", "cpg_gate_pass": "20"}
+    assert len(interpret.passed_lines(s)) == 8
+    assert interpret.passed_lines({}) == []
