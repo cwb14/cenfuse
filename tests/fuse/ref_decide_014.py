@@ -165,6 +165,9 @@ def decide_014(ev: Evidence) -> dict:
         call, relation, source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
         flags.append("at_only" if at_ok else "at_denovo_pair")
         rule = flags[-1]
+    elif call is None and getattr(ev, "rep", None) and ev.rep.get("status") == "pass":      # 0.16: the repeat-density line
+        call, relation, source, rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
+        flags.append("rep_only")
     elif at_ok and sconf == "low" and alt_iv and rule == "sequence" and (amb or not (valid and peak)) and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *alt_iv) == 0 \
             and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *call) > 0:     # 0.15: the trough on a low call's competing cluster chooses it
         call, rule = alt_iv, "at_chose_alt"
@@ -185,6 +188,15 @@ def decide_014(ev: Evidence) -> dict:
         flags.append("at_pair")
     elif trough and not at_near and ev.at.get("validated"):
         flags.append("at_elsewhere")      # said in the caveat; a Hi-C call stands against a trough of the same standing
+    rep_pair = False                      # 0.16: a tested repeat-density peak agrees with a Hi-C call
+    rp = getattr(ev, "rep", None)
+    if not at_pair and seq_iv is None and source == "hic" and rp:
+        tested = (rp.get("agrees") and (rp.get("validated") or rp.get("support"))) or \
+            ("cis_only" in flags and rp.get("cis_agrees") and (rp.get("cis_validated") or rp.get("cis_support")))
+        if tested and _vgap(ev, (rp["start"], rp["end"]), call, True) <= _bins(ev, HIC_TOL_BINS):
+            rep_pair = True
+            call, rule = (rp["start"], rp["end"]), "rep_pair"
+            flags.append("rep_pair")
     if untested and not fo and source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
         if dpk and dco and _denovo_far(ev, dpk, dco, call):
@@ -201,6 +213,8 @@ def decide_014(ev: Evidence) -> dict:
     at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags) or "at_chose_alt" in flags or chose   # 0.15: the call sits at
     m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # the prior-free core or a chosen competing cluster: its own item
     support = ["at"] if at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
+    if "rep_only" in flags or rep_pair:
+        support.append("repeats")
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second) or "te_hic_pair" in flags:
@@ -238,13 +252,13 @@ def decide_014(ev: Evidence) -> dict:
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
     elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
-        conf = "medium" if ev.at.get("validated") else "low"
+        conf = "medium" if "rep_only" not in flags and ev.at.get("validated") else "low"
     elif {"cis_trans_pair", "cis_end_pair"} & set(flags):
         conf = "low"                                # 0.16: shaped on one genome, no confident call
     elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
-        conf = "medium" if at_pair else "low"       # 0.16: a cis call with the trough is two lines too
+        conf = "medium" if at_pair or rep_pair else "low"       # 0.16: a cis call with the trough is two lines too
     else:
-        conf = "high" if second or at_pair else "medium"
+        conf = "high" if second or at_pair or rep_pair else "medium"
     if rule == "sequence" and source == "sequence" and "meth" in support and relation == "concordant":
         rule = "meth_support"                # methylation alone raised or confirmed a kept call
     return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,

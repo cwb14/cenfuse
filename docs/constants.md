@@ -253,6 +253,17 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `FIVE_S_E` | `1e-5` | per-gene E-value scaled to the chromosome (the satellite engine's nhmmer_evalue) |  |
 | `FIVE_S_UNIT_MAX` | `20_000` | prior: 5S units are 0.2-2.5 kb (plants 0.3-1 kb; mammals and birds 2.2 kb), and a 5S gene sits in each 9.1-kb rDNA unit of budding yeast; genes farther apart than twice that are separate loci | prior |
 
+## `repline.py`
+
+| constant | value | reason | mark |
+|---|---|---|---|
+| `K` | `21` | K-mer length: odd (no K-mer is its own reverse complement); chance recurrence of a 21-mer is at most 2e-4 even in a 0.5-Gb genome, and copies at 90% identity still share 11% of their 21-mers |  |
+| `SAMPLE_ABOVE` | `200_000_000` | bp of FASTA above which K-mers are sampled (exact counting holds ~12 bytes per position) |  |
+| `SAMPLE` | `32` | keep 1 K-mer in SAMPLE by hash (FracMinHash): about 31 kept positions per 1-kb bin |  |
+| `MIN_OUTSIDE` | `0.5` | a window needs half its length outside the satellite arrays: a majority |  |
+| `REP_ALPHA` | `0.01` | conventional level, after the correction for the sizes tried: stricter than the AT line's 0.05 because block shuffles passed the test at 0.05 6.5% of the time (2,100 shuffles of 8 genomes) |  |
+| `PIECE` | `1_000_000` | bp read at a time (a multiple of atline.BIN): streaming, never a whole chromosome string |  |
+
 ## `runtime.py`
 
 | constant | value | reason | mark |

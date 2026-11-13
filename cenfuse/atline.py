@@ -182,16 +182,29 @@ def scan(bins: dict, chroms: dict) -> dict:
     of one per chromosome), best_possible, null_median, calls {chrom: dict(start, end, gc, first (held among the N deepest))})},
     'best': the window with the smallest P or None, 'p': its P corrected for the sizes tried (Sidak), 'status': pass / fail /
     untested (even the most even deal could not pass)}."""
+    res = scan_profiles(lambda use, k: {c: _windows(*bins[c], k) for c in use}, chroms, SCALES)
+    if res["best"] is not None:
+        log.info(f"AT troughs: window {res['best']} bp: the deepest {res['scales'][res['best']]['n']} cover "
+                 f"{res['scales'][res['best']]['covered']} chromosomes (null {res['scales'][res['best']]['null_median']:.0f}), "
+                 f"the deepest {res['scales'][res['best']]['m']} fall one per chromosome at P {res['p']:.2g} after "
+                 f"{len(res['scales'])} sizes: {res['status']}")
+    return res
+
+
+def scan_profiles(profiles, chroms: dict, sizes=SCALES, alpha: float = AT_ALPHA) -> dict:
+    """The one-per-chromosome test of scan on any per-window profile, lower = deeper (repline.py reads repeat density this way):
+    profiles(use, k) -> {chrom: profile of windows of k bins, step 1 bin, +inf where not read}; sizes: the window sizes tried;
+    alpha: the level of the corrected P. Returns scan's dict."""
     if len(chroms) > MAX_CHROMS:
         return dict(scales={}, best=None, p=1.0, status="untested")
     scales = {}
-    for w in SCALES:
+    for w in sizes:
         k = w // BIN
         use = [c for c, L in chroms.items() if L >= MIN_WINDOWS * w]
         if len(use) < 3 or 2 * len(use) <= len(chroms):
             continue
         kept = int(np.ceil(CLASS_MAX * len(use))) + 2                  # the deepest M + 1 of the genome are among each chromosome's
-        prof = {c: _windows(*bins[c], k) for c in use}                 # deepest `kept`
+        prof = profiles(use, k)                                        # deepest `kept`
         tr = {c: x for c in use if (x := troughs(prof[c], k, kept))}
         if len(tr) < 3:
             continue
@@ -215,10 +228,7 @@ def scan(bins: dict, chroms: dict) -> dict:
     m = len(scales)
     padj = 1 - (1 - scales[best]["p"]) ** m
     possible = 1 - (1 - min(s["best_possible"] for s in scales.values())) ** m
-    status = "pass" if padj <= AT_ALPHA else "untested" if possible > AT_ALPHA else "fail"
-    log.info(f"AT troughs: window {best} bp: the deepest {scales[best]['n']} cover {scales[best]['covered']} chromosomes "
-             f"(null {scales[best]['null_median']:.0f}), the deepest {scales[best]['m']} fall one per chromosome at P {padj:.2g} "
-             f"after {m} sizes: {status}")
+    status = "pass" if padj <= alpha else "untested" if possible > alpha else "fail"
     return dict(scales=scales, best=best, p=padj, status=status)
 
 

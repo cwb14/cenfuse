@@ -32,6 +32,7 @@ def line_calls(r) -> dict:
                hic_prior_free=_iv(r.hic_denovo_peak_start, r.hic_denovo_peak_end),
                fold=_iv(r.fold_core_start, r.fold_core_end), alignment=_iv(r.align_core_start, r.align_core_end),
                at_trough=_iv(getattr(r, "at_start", "."), getattr(r, "at_end", ".")),
+               repeats=_iv(getattr(r, "rep_start", "."), getattr(r, "rep_end", ".")),
                cis=_iv(getattr(r, "cis_peak_start", "."), getattr(r, "cis_peak_end", ".")))
     return {k: v for k, v in out.items() if v is not None}
 

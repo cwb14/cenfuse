@@ -2,7 +2,11 @@
 machine without the bioconda tools cannot report green while the satellite engine's end-to-end tests never ran (future.md #65)."""
 import os
 
-import pytest
+# as cenfuse/__init__.py, before anything imports numpy: on a host with fragmented memory, transparent huge pages make large
+# sorts and allocations many times slower (np.unique over a synthetic genome's K-mers: minutes instead of seconds)
+os.environ.setdefault("NUMPY_MADVISE_HUGEPAGE", "0")
+
+import pytest  # noqa: E402
 
 import re
 
