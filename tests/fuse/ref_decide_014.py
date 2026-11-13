@@ -170,7 +170,9 @@ def decide_014(ev: Evidence) -> dict:
         at_near = _vgap(ev, trough, call, True) <= _bins(ev, HIC_TOL_BINS)
     else:
         trough, at_near = None, False
-    at_pair = bool(at_near and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")))
+    by_cis = bool("cis_only" in flags and ev.at and ev.at.get("cis_agrees")      # 0.16: troughs tested against the cis extremes
+                  and (ev.at.get("cis_validated") or ev.at.get("cis_support")))
+    at_pair = bool(at_near and ((ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support"))) or by_cis))
     if at_pair:                  # two independent lines on a chromosome without a sequence call: the trough is the finer
         call, rule = trough, "at_pair"                               # (a window of 1-500 kb, a Hi-C bin of 10-250 kb)
         flags.append("at_pair")
@@ -229,10 +231,8 @@ def decide_014(ev: Evidence) -> dict:
             relation = "concordant"
     elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
         conf = "medium" if ev.at.get("validated") else "low"
-    elif "cis_only" in flags:
-        conf = "low"
-    elif "hic_medium_peak" in flags or "hic_denovo_only" in flags:
-        conf = "medium" if at_pair else "low"
+    elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
+        conf = "medium" if at_pair else "low"       # 0.16: a cis call with the trough is two lines too
     else:
         conf = "high" if second or at_pair else "medium"
     if rule == "sequence" and source == "sequence" and "meth" in support and relation == "concordant":

@@ -607,7 +607,11 @@ def _refine(c: _Ctx, s: _Call) -> None:
         at_near = _vgap(ev, trough, s.call, True) <= _bins(ev, HIC_TOL_BINS)
     else:
         trough, at_near = None, False
-    s.at_pair = bool(at_near and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")))
+    # the trough pairs with the Hi-C readout it was tested against: the prior-free peaks, or (0.16, future.md #33) the cis
+    # extremes where those placed the call (atline.with_hic tests the troughs against them where the prior-free peaks cannot)
+    by_cis = bool("cis_only" in s.flags and ev.at and ev.at.get("cis_agrees")
+                  and (ev.at.get("cis_validated") or ev.at.get("cis_support")))
+    s.at_pair = bool(at_near and ((ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support"))) or by_cis))
     if s.at_pair:              # two independent lines on a chromosome without a sequence call: the trough is the finer
         s.call, s.rule = trough, "at_pair"                           # (a window of 1-500 kb, a Hi-C bin of 10-250 kb)
         s.flags.append("at_pair")
@@ -702,10 +706,8 @@ def _confidence(c: _Ctx, s: _Call, support: list) -> str:
         return conf
     if s.source == "composition":
         return "medium" if c.ev.at.get("validated") else "low"
-    if "cis_only" in s.flags:
-        return "low"
-    if "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
-        return "medium" if s.at_pair else "low"
+    if "cis_only" in s.flags or "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
+        return "medium" if s.at_pair else "low"      # one Hi-C readout alone is unsure; with the trough, two lines (0.16: cis too)
     return "high" if s.second or s.at_pair else "medium"
 
 

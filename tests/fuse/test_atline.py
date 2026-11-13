@@ -407,3 +407,55 @@ def test_with_hic_follows_a_window_only_where_that_says_something():
     assert atline.with_hic(res, dict(table=table(some)), lengths)["window"] == 1000               # support: stays
     fail = dict(res, status="fail")
     assert atline.with_hic(fail, dict(table=table(some)), lengths)["window"] == 50_000            # the FASTA test said nothing
+
+
+# ---------------------------------------------------------------- 0.16: the trough as second line for the cis readout (#33)
+def test_troughs_are_tested_against_the_cis_extremes_where_the_prior_free_peaks_cannot():
+    """C. neoformans in G1: the prior-free peaks sit at the clustered telomeres, the cis extremes at the centromeres."""
+    res = dict(_two_windows(), status="fail")
+    lengths = {f"c{i}": 1_000_000 for i in range(6)}
+    ends = {f"c{i}": (0, 100) for i in range(6)}                                                   # prior-free peaks at the ends
+    tab = __import__("pandas").DataFrame([dict(chrom=c, callable=True, denovo_peak_start=a, denovo_peak_end=b, bin_size=100)
+                                          for c, (a, b) in ends.items()])
+    cis = dict(status="pass", tested_by="trans", peaks={f"c{i}": (400_000 + i * 1000, 400_000 + i * 1000 + 100) for i in range(6)})
+    out = atline.with_hic(res, dict(table=tab, cis=cis), lengths)
+    assert out["hic"]["status"] == "fail" and out["cis"]["status"] == "pass" and out["window"] == 50_000
+    r = atline.on_chromosome(out, "c2")
+    assert r["cis_validated"] and r["cis_agrees"] and not r["validated"] and not r["agrees"]
+    out = atline.with_hic(res, dict(table=tab, cis=dict(cis, status="support")), lengths)     # a trans-tested line acts at pass only
+    assert out["cis"] is None
+
+
+def test_the_cis_test_is_not_run_where_the_prior_free_peaks_already_test_the_troughs():
+    res = _two_windows()
+    lengths = {f"c{i}": 1_000_000 for i in range(6)}
+    onw = {f"c{i}": (400_000 + i * 1000, 400_000 + i * 1000 + 500) for i in range(6)}
+    tab = __import__("pandas").DataFrame([dict(chrom=c, callable=True, denovo_peak_start=a, denovo_peak_end=b, bin_size=100)
+                                          for c, (a, b) in onw.items()])
+    cis = dict(status="pass", tested_by="trans", peaks={f"c{i}": (800_000, 800_100) for i in range(6)})
+    out = atline.with_hic(res, dict(table=tab, cis=cis), lengths)
+    assert out["hic"]["status"] == "pass" and out["cis"] is None
+
+
+def test_a_cis_call_with_a_trough_tested_against_the_cis_extremes_is_medium():
+    tested = dict(TROUGH, cis_validated=True, cis_agrees=True)
+    d = _ltr_lines(cis=dict(peak=(300_000, 310_000), status="pass"), at=tested)
+    assert d["call"] == (300_000, 303_000) and "at_pair" in d["flags"] and "cis_only" in d["flags"]
+    assert d["confidence"] == "medium" and {"hic", "at"} <= set(d["support"])
+    d = _ltr_lines(cis=dict(peak=(300_000, 310_000), status="pass"), at=dict(TROUGH, cis_support=True, cis_agrees=True))
+    assert d["confidence"] == "medium" and "at_pair" in d["flags"]                       # support: where the two agree
+
+
+def test_a_cis_call_keeps_low_without_a_tested_or_agreeing_trough():
+    d = _ltr_lines(cis=dict(peak=(300_000, 310_000), status="pass"), at=dict(TROUGH, cis_validated=True, cis_agrees=False))
+    assert d["call"] == (300_000, 310_000) and "at_pair" not in d["flags"] and d["confidence"] == "low"
+    d = _ltr_lines(cis=dict(peak=(300_000, 310_000), status="pass"), at=dict(TROUGH, cis_agrees=True))       # untested trough
+    assert "at_pair" not in d["flags"] and d["confidence"] == "low"
+    d = _ltr_lines(cis=dict(peak=(600_000, 610_000), status="pass"), at=dict(TROUGH, cis_validated=True, cis_agrees=True))
+    assert "at_pair" not in d["flags"] and d["confidence"] == "low"                      # the trough is not by this call
+
+
+def test_the_cis_test_of_the_troughs_does_not_pair_a_prior_free_call():
+    """A trough tested against the cis extremes says nothing about a call the prior-free peak placed."""
+    d = fuse.decide(ev(at=dict(TROUGH, cis_validated=True, cis_agrees=True), denovo=300_000))
+    assert "at_pair" not in d["flags"] and d["confidence"] == "low"

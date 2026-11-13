@@ -255,13 +255,21 @@ def validate(res: dict, peaks: dict, tol: dict, lengths: dict, alpha: float = 0.
 def with_hic(res: dict | None, hic: dict | None, chroms: dict) -> dict | None:
     """res with its test against the deciding library's prior-free peaks (validate, one Hi-C bin of tolerance), and the window
     size the rest reads: the window that test chose when it passed; else the FASTA test's when that passed, since that window's
-    troughs are what passed; else the window at which Hi-C supports them, where only agreeing chromosomes are read."""
+    troughs are what passed; else the window at which Hi-C supports them, where only agreeing chromosomes are read.
+
+    Where the prior-free peaks neither validate nor support the troughs and the library's cis line acts (hicfuse.cis_acts: its
+    extremes tested against the LTR cores or the library's own trans contacts), the troughs are tested the same way against the
+    cis extremes (0.16, future.md #33): the readout that places Hi-C's calls there (C. neoformans in G1, whose prior-free peaks
+    sit at the clustered telomeres). Its result is res['cis'], read like res['hic']."""
     if res is None or not res["scales"]:
         return res
-    out = dict(res, window=res["best"], hic=None)
+    out = dict(res, window=res["best"], hic=None, cis=None)
     if hic is not None:
         pk, tol = {}, {}
+        bins = {}
         for r in hic["table"].itertuples(index=False):
+            if r.callable:
+                bins[r.chrom] = int(r.bin_size)
             if r.callable and r.denovo_peak_start >= 0:
                 pk[r.chrom], tol[r.chrom] = (int(r.denovo_peak_start), int(r.denovo_peak_end)), int(r.bin_size)
         out["hic"] = v = validate(res, pk, tol, chroms)
@@ -269,6 +277,15 @@ def with_hic(res: dict | None, hic: dict | None, chroms: dict) -> dict | None:
                  f"{v['status']}")
         if v["status"] == "pass" or (v["status"] == "support" and res["status"] != "pass"):
             out["window"] = v["window"]
+        from .hicfuse import cis_acts                       # here: hicfuse imports much of the Hi-C engine
+        cis = hic.get("cis")
+        if v["status"] not in ("pass", "support") and cis_acts(cis):
+            cpk = {c: (int(a), int(b)) for c, (a, b) in (cis.get("peaks") or {}).items() if c in bins}
+            out["cis"] = vc = validate(res, cpk, {c: bins[c] for c in cpk}, chroms)
+            log.info(f"AT troughs vs Hi-C's cis extremes: window {vc['window']} bp: {vc['k']}/{vc['n']} (P {vc['p']:.2g}): "
+                     f"{vc['status']}")
+            if vc["status"] == "pass" or (vc["status"] == "support" and res["status"] != "pass"):
+                out["window"] = vc["window"]
     return out
 
 
@@ -280,7 +297,10 @@ def on_chromosome(res: dict | None, chrom: str) -> dict | None:
     if x is None:
         return None
     v = res.get("hic") or {}
+    vc = res.get("cis") or {}
     return dict(start=int(x["start"]), end=int(x["end"]), gc=float(x["gc"]), status=res["status"], window=res["window"],
                 validated=v.get("status") == "pass", support=v.get("status") == "support",
                 agrees=bool((v.get("by_window") or {}).get(res["window"], {}).get(chrom)),
+                cis_validated=vc.get("status") == "pass", cis_support=vc.get("status") == "support",
+                cis_agrees=bool((vc.get("by_window") or {}).get(res["window"], {}).get(chrom)),
                 trough_start=int(x.get("trough_start", x["start"])), trough_end=int(x.get("trough_end", x["end"])))
