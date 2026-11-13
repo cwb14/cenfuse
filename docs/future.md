@@ -672,13 +672,27 @@ Open. The CpG line was designed on the primates it is benchmarked on (rhesus, *A
 and its specificity rests on rotated tracks and one plant.
 - **No negative**: mouse should fail, but its ONT reads carry no modification tags (a HiFi 5mC track would do). No grass, other
   vertebrate or holocentric genome run. Unused: the HGSVC3 CDRs (#35), giraffe's ONT methylation (21 modBAMs) and rhesus's.
-- **A gate without a majority**: gorilla passes on positional dips at 7 of 25 references. With five chromosomes the gate has little
-  power (2 of 4 at chance 0.05: P 0.014). CG-only samples decide without a provenance test.
+- **A gate without a majority**: with five chromosomes the gate has little power (2 of 4 at chance 0.05: P 0.014); wide calls
+  weaken it too (#73). CG-only samples decide without a provenance test.
 - **Small arrays** hypomethylated as a whole (bonobo and Bornean orangutan minicentromeres) are never refined (10 bins with data
-  needed); a wrong array cannot be told (#38). Chimpanzee and siamang fail the gate on R9 Guppy tracks (1 of 25, 4 of 22).
+  needed); a wrong array cannot be told (#38). Since the spread depth (2026-11, cpg-robust), chimpanzee and siamang pass on R9
+  Guppy tracks (25 of 25, 20 of 26), and gorilla fails (#73).
 - **A perturbation**: CHM13 clones whose methylation was changed by dox moved CENP-A (PRJNA1270043, fiber-seq and DiMeLo-seq).
 - **Settle:** kinetochores within 50 kb of the HGSVC3 CDRs; a mouse HiFi 5mC track fails the gate; in the perturbed clones the called
   kinetochore follows CENP-A; rotated controls silent. **Code:** `cdr.py`.
+
+### 73. The CpG test in wide calls
+
+Open. The positional test compares a call's deepest dips with those that methylation from anywhere on the chromosome makes on
+the same array bins, so its power falls as calls widen. Gorilla's dips lie on DiMeLo-seq CENP-A on 10 of 10 truth chromosomes,
+yet its 3.5-8 Mb calls keep the test below the gate with ONT R9 and with PacBio HiFi (the depth-only test of the cpg-vgp
+branch passed the HiFi track narrowly, on 15 of 25). The macaques (calls a median 9-12 Mb) fail too, though there the dips
+miss CENP-A on Anvil (pig-tailed macaque), so failing may be right.
+- **Tried:** Stouffer's method for the gate (rescues nothing, lowers siamang); testing only the largest array run (arrays fill
+  90-99% of calls).
+- **Leads:** the active array alone, where the satellite line can name it (HOR structure); a test of the dip's place within the
+  array rather than its depth against the chromosome.
+- **Settle:** gorilla passes with both technologies while every rotated control stays silent. **Code:** `cdr.py`.
 
 ## Inputs, chromosome set and other features
 

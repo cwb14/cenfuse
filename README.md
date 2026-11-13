@@ -55,7 +55,7 @@ More: [docs/design.md](docs/design.md).
 | mammals, birds; plants with a centromeric satellite (rice, *Brassica*, soybean, maize, *Arabidopsis*) | satellite arrays | the FASTA; Hi-C and genes add a check | right on most chromosomes from the FASTA alone |
 | plants without a dominant centromeric satellite (barley, *Aegilops*, potato, tomato), moss, green algae | clusters of LTR retrotransposons, or no repeat | the FASTA + `tes/`; add Hi-C if you have it | with `tes/`: barley 0 → 7/7, potato 2 → 10/11; with Hi-C: tomato 1 → 10/12 |
 | yeasts, other fungi, *Plasmodium* | point, regional or AT-rich | the FASTA + Hi-C | AT-rich ones from the FASTA alone; the rest need Hi-C |
-| primates, to place the kinetochore | alpha-satellite arrays | + CpG methylation (ONT or PacBio HiFi) | kinetochore within 50 kb of CENP-A on 35 of 39 |
+| primates, to place the kinetochore | alpha-satellite arrays | + CpG methylation (ONT or PacBio HiFi) | kinetochore within 50 kb of CENP-A on 44 of 52 |
 | holocentric species (nematodes, moths, *Rhynchospora*) | no single centromere | anything | no confident call (0 in 46 chromosomes) |
 
 Adding inputs is safe: Hi-C or methylation that fails its test in your genome is reported but changes no call.
@@ -71,7 +71,7 @@ page: [docs/gallery.md](docs/gallery.md).
 | genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |
 |---|---|---|---|
 | 9 T2T mammals (human, great apes, crab-eating macaque, pig, horse) | satellites | 143/157, 1 | + genes + Hi-C: 148/157, 4 |
-| HG002, diploid human T2T | alpha satellite | 46/46, 0 | + CpG: a kinetochore on 40, all in the active array |
+| HG002, diploid human T2T | alpha satellite | 46/46, 0 | + CpG: a kinetochore on 46 (ONT) and 45 (PacBio), all but one in the active array |
 | rice | CentO satellite | 12/12, 0 | + Hi-C, `tes/`, genes: 12/12, 0 |
 | *Brassica rapa*, 11 accessions | satellite | 110/110, 0 | + `tes/`: 110/110, 0 |
 | soybean | satellite | 20/20, 0 | + Hi-C: 20/20, 0; + `tes/`: 19/20, 1 |
@@ -101,7 +101,7 @@ page: [docs/gallery.md](docs/gallery.md).
   14 of the 72 confident calls are wrong: treat a `medium` call from a Tekay core with caution. The allotetraploid
   *Ae. geniculata*: 13 of 14 right with `tes/` (1 confidently wrong); the wild potato *S. verrucosum*: 8 of 12.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): a median 45 kb wide inside calls of
-  3.9 Mb; 35 of 39 lie within 50 kb of CENP-A.
+  2.9 Mb; 44 of 52 lie within 50 kb of CENP-A. Gorilla's test fails (its 3.5-8 Mb calls), with ONT and with PacBio.
 
 **Where it is weak**
 - An LTR core beside the centromere can look like the right one, and a call at one edge of a wide core counts as
@@ -235,6 +235,8 @@ printf 'sample\tCG\nsample1\tsample1.CG.bed.gz\n' > $M/asm.tsv
 A CG file can also be an ENCODE-style bedMethyl (e.g. from bisulfite sequencing), the BED of PacBio HiFi pb-CpG-tools
 (made with `--min-mapq 1`: at 60, centromere arrays lose most of their data, and cenfuse warns of the hole) or a
 bedGraph of methylated fraction (a public bigWig through `bigWigToBedGraph`), sorted, bgzipped and tabixed.
+Tracks encode methylation on different scales (a PacBio bigWig, nanopolish, ONT): the CpG test reads dips relative
+to each track's own variation as well, so the ONT and PacBio tracks of HG002 give the same verdict.
 cenfuse pools calls in 5-kb bins, so low coverage works. CHG files must be modkit bedMethyl.
 
 **Genes:** any GFF3 or GTF of this assembly, with sequence names as in the FASTA.

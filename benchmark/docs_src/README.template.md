@@ -55,7 +55,7 @@ More: [docs/design.md](docs/design.md).
 | mammals, birds; plants with a centromeric satellite (rice, *Brassica*, soybean, maize, *Arabidopsis*) | satellite arrays | the FASTA; Hi-C and genes add a check | right on most chromosomes from the FASTA alone |
 | plants without a dominant centromeric satellite (barley, *Aegilops*, potato, tomato), moss, green algae | clusters of LTR retrotransposons, or no repeat | the FASTA + `tes/`; add Hi-C if you have it | with `tes/`: barley 0 → 7/7, potato 2 → 10/11; with Hi-C: tomato 1 → 10/12 |
 | yeasts, other fungi, *Plasmodium* | point, regional or AT-rich | the FASTA + Hi-C | AT-rich ones from the FASTA alone; the rest need Hi-C |
-| primates, to place the kinetochore | alpha-satellite arrays | + CpG methylation (ONT or PacBio HiFi) | kinetochore within 50 kb of CENP-A on 35 of 39 |
+| primates, to place the kinetochore | alpha-satellite arrays | + CpG methylation (ONT or PacBio HiFi) | kinetochore within 50 kb of CENP-A on 44 of 52 |
 | holocentric species (nematodes, moths, *Rhynchospora*) | no single centromere | anything | no confident call (0 in 46 chromosomes) |
 
 Adding inputs is safe: Hi-C or methylation that fails its test in your genome is reported but changes no call.
@@ -193,6 +193,8 @@ printf 'sample\tCG\nsample1\tsample1.CG.bed.gz\n' > $M/asm.tsv
 A CG file can also be an ENCODE-style bedMethyl (e.g. from bisulfite sequencing), the BED of PacBio HiFi pb-CpG-tools
 (made with `--min-mapq 1`: at 60, centromere arrays lose most of their data, and cenfuse warns of the hole) or a
 bedGraph of methylated fraction (a public bigWig through `bigWigToBedGraph`), sorted, bgzipped and tabixed.
+Tracks encode methylation on different scales (a PacBio bigWig, nanopolish, ONT): the CpG test reads dips relative
+to each track's own variation as well, so the ONT and PacBio tracks of HG002 give the same verdict.
 cenfuse pools calls in 5-kb bins, so low coverage works. CHG files must be modkit bedMethyl.
 
 **Genes:** any GFF3 or GTF of this assembly, with sequence names as in the FASTA.

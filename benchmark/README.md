@@ -107,7 +107,7 @@ To add a genome: append a row to `truth.tsv`, with its rule fixed before its run
   chromosomes both rules give truth.
 - Shallow controls: some Hi-C libraries are prefixes of the data (*R. breviuscula* 3.3 M pairs, *B. mori* 5.9 M,
   *Ae. tauschii* 0.84 M, sorghum 3.9 M, mouse 15.7 M).
-- `readme_table.py` and the hand-written texts in `docs_src/` type in a few results ("a kinetochore on 40",
+- `readme_table.py` and the hand-written texts in `docs_src/` type in a few results ("a kinetochore on 46",
   "unchanged"): check them against the tables at each release.
 
 ## Still outside the repository

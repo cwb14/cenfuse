@@ -3,7 +3,7 @@
 
   python -m benchmark.readme_table OUT.md [PREFIX]
 PREFIX: score.py output prefix [paths.SCORES]. Cells are computed, but the row texts are typed in, a few of them
-results ("a kinetochore on 40", "all 20 at the right end", "unchanged"): check them at each release.
+results ("a kinetochore on 46", "all 20 at the right end", "unchanged"): check them at each release.
 Port of v12 bench/readme_table.py."""
 import argparse
 from pathlib import Path
@@ -35,7 +35,7 @@ def table(r):
         ("9 T2T mammals (human, great apes, crab-eating macaque, pig, horse)", "satellites", cell(tot(["S"], MAM)),
          "+ genes + Hi-C: " + cell(tot(["FULL"], MAM))),
         ("HG002, diploid human T2T", "alpha satellite", cell(tot(["S"], ["hg002"])),
-         "+ CpG: a kinetochore on 40, all in the active array"),
+         "+ CpG: a kinetochore on 46 (ONT) and 45 (PacBio), all but one in the active array"),
         ("rice", "CentO satellite", cell(tot(["S"], ["rice"])), "+ Hi-C, `tes/`, genes: " + cell(tot(["TGH"], ["rice"]))),
         ("*Brassica rapa*, 11 accessions", "satellite", cell(tot(["S"], BRAPA)),
          "+ `tes/`: " + cell(add(tot(["T"], BRAPA), tot(["HT"], BRAPA)))),
