@@ -22,10 +22,13 @@ array (0.8-5.6 Mb in T2T mammals); the dip locates the kinetochore inside it (te
   deepest level dip in a call's centromeric-role arrays, the deepest spread dip where there is no level dip (the
   level dips' places agree best between two technologies on the same assembly).
 - **Width** (0.15.0's dip; valley): the half-depth run of the arrays' most prominent valley (topographic prominence,
-  so an array edge is none): the bins below the midpoint between its bottom and the arrays' median. Unchanged by a
-  recalibration, like the spread depth. Where methylation from elsewhere makes dips as deep as the CDRs (the
-  macaques: every call has a level dip, its depth P a median 0.96-1), the CDRs still stand out by width (a median
-  115 kb). It finds some valley in any array, so it is evidence in the positional test and never places a kinetochore.
+  so an array edge is none): the bins below the midpoint between its bottom and the arrays' median, read on each
+  5-kb bin's own methylation (MIN_SITES_BIN rows, 0.15.0's rule). Pooling over SMOOTH bins leaves a CDR's half-depth
+  run as it is but triples the width of noise valleys (simulated noise: a median 1 -> 3 bins), which the rotations
+  are made of. Unchanged by a recalibration, like the spread depth. Where methylation from elsewhere makes dips as
+  deep as the CDRs (the macaques: every call holds a dip, its depth P a median 0.96-1), the CDRs can still stand out
+  by width (crab-eating and rhesus macaques: a median 115 kb). It finds some valley in any array, so it is evidence
+  in the positional test and never places a kinetochore.
 - **Positional test** (per call): the call's arrays hold dips deeper, or a valley wider, than the chromosome's
   methylation, rotated by N_ROT random offsets (any offset, so the observed window is one of the rotations: an exact
   test up to Monte Carlo error; excluding offsets near the call made P <= 0.05 three times as common as 5% when calls
@@ -75,6 +78,7 @@ BIN = 5_000               # CDR-Finder's window (Mastrorosa et al. 2024): >= 4 b
 SMOOTH = 3                # bins pooled into each bin's methylation (15 kb): a lone 5-kb bin of a sparse track is noise
 MIN_SITES = 5             # CpG rows in a SMOOTH window for its methylation to count (heuristic; alpha satellite holds ~30-60
                           # per 5 kb, so only bins with almost no data are dropped)
+MIN_SITES_BIN = 10        # CpG rows in a 5-kb bin for its own methylation to count, as the width reads it (0.15.0's rule)
 SURR = 500_000            # the background: running median over +-SURR, wider than CDRs (20-200 kb), narrower than arrays
 FRAC = 0.5                # a level dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey)
 Z_DIP = 3.0               # a spread dip: more than 3 robust SD below the background (conventional outlier level; heuristic)
@@ -240,6 +244,13 @@ def profile(b: np.ndarray) -> np.ndarray:
         return np.where((n >= MIN_SITES) & (c > 0), m / c, np.nan)
 
 
+def bin_profile(b: np.ndarray) -> np.ndarray:
+    """Methylated fraction of each bin alone (no pooling); NaN where it holds fewer than MIN_SITES_BIN rows. The width
+    reads it: pooling over SMOOTH bins widens the noise valleys the rotations are made of, not a CDR's half-depth run."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where((b[2] >= MIN_SITES_BIN) & (b[1] > 0), b[0] / np.maximum(b[1], 1e-12), np.nan)
+
+
 def background(y: np.ndarray) -> np.ndarray:
     """Running median of y over +-SURR (NaN where fewer than a quarter of the window's half has data)."""
     half = SURR // BIN
@@ -373,12 +384,14 @@ def _run(mask: np.ndarray, a: int, b: int) -> tuple:
 
 
 class Chrom:
-    """One chromosome's CpG profile: methylation y, its background bg and its deviation in local spreads z per BIN, the
-    centromeric-role and all satellite-array bins. Its verdicts on an interval are memoized (the fusion asks for a call
+    """One chromosome's CpG profile: methylation y (pooled over SMOOTH bins), its background bg and its deviation in local
+    spreads z per BIN, each bin's own methylation y1 (the width reads it), the centromeric-role and all satellite-array
+    bins. Its verdicts on an interval are memoized (the fusion asks for a call
     more than once)."""
 
     def __init__(self, b: np.ndarray, cen: np.ndarray, sat: np.ndarray, length: int | None = None):
         self.y = profile(b)
+        self.y1 = bin_profile(b)
         self.bg = background(self.y)
         with np.errstate(invalid="ignore"):
             self.z = (self.y - self.bg) / spread(self.y, self.bg)
@@ -391,13 +404,14 @@ class Chrom:
 
     def measures(self, i: int, j: int, mask: np.ndarray, o: int = 0, width: bool = True) -> tuple:
         """(level dip, spread dip, valley) on the bins [i, j) of mask, the methylation moved by o bins (rotation): the
-        deepest level dip, the deepest spread dip and the most prominent valley's half-depth run (width; left out when
-        not width), each (statistic: smaller is more extreme, first bin, end bin) relative to i, or None without one."""
+        deepest level dip, the deepest spread dip and the most prominent valley's half-depth run on each bin's own
+        methylation (width; left out when not width), each (statistic: smaller is more extreme, first bin, end bin)
+        relative to i, or None without one."""
         idx = (np.arange(i, j) + o) % self.nb if o else slice(i, j)
         y, bg = self.y[idx], self.bg[idx]
         d, z = dips(y, bg, mask), spread_dips(self.z[idx], y, bg, mask)
         out = (d[0] if d else None), (z[0] if z else None)
-        return out + (valley(y, mask),) if width else out
+        return out + (valley(self.y1[idx], mask),) if width else out
 
     def positional_p(self, i: int, j: int, mask: np.ndarray, obs: tuple) -> float:
         """P that methylation from elsewhere on the chromosome makes dips at least as extreme on the bins [i, j) of mask

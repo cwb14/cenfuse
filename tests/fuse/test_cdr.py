@@ -208,6 +208,24 @@ def test_valley_is_the_half_depth_run_of_the_most_prominent_valley():
     assert cdr.valley(np.linspace(0.2, 0.9, 50), np.ones(50, bool)) is None   # monotone: no valley
 
 
+def test_width_reads_each_bin_alone():
+    """The width reads each 5-kb bin's own methylation (bins with MIN_SITES_BIN rows): the profile pooled over SMOOTH bins
+    keeps a CDR's half-depth run but widens noise valleys, which the rotations are made of."""
+    rng = np.random.default_rng(4)
+    y = 0.8 + 0.05 * rng.standard_normal(2000)
+    b = np.vstack([y * 100, np.full(2000, 100.0), np.full(2000, 50.0)])
+    b[2, 7] = cdr.MIN_SITES_BIN - 1                                  # too few rows: no value of its own
+    ch = cdr.Chrom(b, np.ones(2000, bool), np.ones(2000, bool))
+    assert np.isnan(ch.y1[7]) and np.isfinite(ch.y[7]) and np.allclose(ch.y1[8:], y[8:])
+    m = np.ones(100, bool)
+    own = [-ch.measures(i, i + 100, m)[2][0] for i in range(100, 1900, 100)]
+    pooled = [-cdr.valley(ch.y[i:i + 100], m)[0] for i in range(100, 1900, 100)]
+    assert np.median(own) < np.median(pooled)                        # noise valleys: narrower bin by bin
+    y[1000:1006] = 0.4                                               # a 30-kb CDR: the same run either way
+    ch = cdr.Chrom(np.vstack([y * 100, np.full(2000, 100.0), np.full(2000, 50.0)]), np.ones(2000, bool), np.ones(2000, bool))
+    assert ch.measures(950, 1050, m)[2] == (-6.0, 50, 56) and cdr.valley(ch.y[950:1050], m)[0] == -6.0
+
+
 def test_width_adds_evidence_and_places_nothing(tmp_path, monkeypatch):
     """Wide shallow CDRs (0.6 in arrays at 0.8: no level dip, no spread dip, 0.75 of the background): the width is
     positional on every call, the gate passes, and no kinetochore is placed (only dips place). Without the width the

@@ -27,6 +27,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `BIN` | `5_000` | CDR-Finder's window (Mastrorosa et al. 2024): >= 4 bins across the smallest CDRs (~20 kb) |  |
 | `SMOOTH` | `3` | bins pooled into each bin's methylation (15 kb): a lone 5-kb bin of a sparse track is noise |  |
 | `MIN_SITES` | `5` | CpG rows in a SMOOTH window for its methylation to count (heuristic; alpha satellite holds ~30-60 per 5 kb, so only bins with almost no data are dropped) | heuristic |
+| `MIN_SITES_BIN` | `10` | CpG rows in a 5-kb bin for its own methylation to count, as the width reads it (0.15.0's rule) |  |
 | `SURR` | `500_000` | the background: running median over +-SURR, wider than CDRs (20-200 kb), narrower than arrays |  |
 | `FRAC` | `0.5` | a level dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey) |  |
 | `Z_DIP` | `3.0` | a spread dip: more than 3 robust SD below the background (conventional outlier level; heuristic) | heuristic |
