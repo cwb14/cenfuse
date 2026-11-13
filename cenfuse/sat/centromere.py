@@ -280,8 +280,9 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
     a call that agrees with a decisive core without overlapping it is replaced by the core when the core contradicts
     it in the same way (satellite_beside_core; Ae. tauschii Chr2/Chr4: arrays 5-7 Mb beside a 292-332-element CRM
     core holding CENH3; B. rapa A06: CentBr call holds more CRB than the core, kept); where the satellites failed the
-    one-per-chromosome test or none dominates (not_one, capped), an agreeing satellite or weak-satellite call is replaced by the
-    decisive core it agrees with (satellite_in_core, 0.16): the array's place is untested, the core's is not; a chromosome
+    one-per-chromosome test or none dominates (not_one, capped), an agreeing satellite or weak-satellite call that does not hold
+    the whole core is replaced by the decisive core it agrees with (satellite_in_core, 0.16): the array's place is untested,
+    the core's is not; a chromosome
     without a call takes the core; so does a weak satellite call (weak_call) beside a decisive core, agreeing with it but
     not overlapping it (weak_satellite_beside_core: S. verrucosum chr01, Ae. geniculata chr07U, potato chr11 had the core
     on CENH3 and the weak array 0.8-5 Mb away). A call (satellite, weak satellite or long-unit) the core replaces is
@@ -359,11 +360,12 @@ def call_regions(genome, arrays, primary: set, genes, seed_rows, tmpdir, threads
                         # the array lies beside the CRM centromere (Ae. tauschii Chr2, Chr4)
                         te_flag, call = "satellite_beside_core", te_call(core, call)
                     elif decisive and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \
-                            (not_one or capped):
+                            (not_one or capped) and not (call["cen_start"] <= core["start"] and core["end"] <= call["cen_end"]):
                         # 0.16 (future.md #45): the satellites failed their one-per-chromosome test, or none dominates, so the
-                        # array's place is untested; the agreeing core of a decisive signature, tested on the other
-                        # chromosomes, is the call (Ae. tauschii Chr5, Chr7: arrays at the edge of 7-9-Mb CRM cores
-                        # holding CENH3)
+                        # array's place is untested; where the call covers only part of the agreeing core of a decisive
+                        # signature (or lies beside it), the core, tested on the other chromosomes, is the call (Ae. tauschii
+                        # Chr5, Chr7: arrays at the edge of 7-9-Mb CRM cores holding CENH3). A call holding the whole core
+                        # already says what the core says, and stays
                         te_flag, call = "satellite_in_core", te_call(core, call)
                 elif call and call["evidence"] != "long_unit_tandem" and (not decisive or borrowed):
                     if decisive_all and not borrowed and call["evidence"] in ("satellite", "weak_satellite") and \

@@ -119,6 +119,12 @@ satellite fails and its Tekay family decides; *Arabidopsis*' CEN180 passes and A
   is then chosen again (`seq_rejected_family`).
 - *Agrees:* a call that agrees with the core is at least `medium` (`te_concordant`), and the two caps above do not apply to it.
   A chromosome without a call takes the core, `medium`.
+- *An untested array in a core* (0.16, `satellite_in_core`; [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)).
+  Where the satellites failed the one-per-chromosome test or none dominates, an array's place is untested: a call that agrees
+  with a decisive core without holding all of it (at its edge, or beside it) gives way to the core, `medium`; a call that
+  holds the whole core stays. Over the 98 `tes/` arms of the 0.15 release this made right *Ae. tauschii* Chr5 and Chr7 (arrays
+  at the edge of 7-9-Mb CRM cores holding CENH3) and *S. lycopersicoides* CM175231.1, and turned potato chr08's confident miss
+  `low` with Hi-C; satellite arrays that passed their test keep their place (rice, *B. rapa*, *Arabidopsis*, grape).
 - *Replaces* a weak array beside it, and a satellite call away from it that is `low` on its own. A `high` or `medium` call away
   from it, or a satellite array beside it, it replaces only when the core is ≥ 10-fold on its chromosome and the signature's
   elements sit significantly more in the core than in the call (binomial at 1/2, P ≤ 0.01). A confident call away from it

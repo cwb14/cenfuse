@@ -363,3 +363,7 @@ def test_an_untested_array_inside_a_decisive_core_gives_way_to_the_core(tmp_path
     rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t3", 1, Params(),
                                       te=("Athila", {"c1": core}, False), not_one=True)                  # flags only
     assert rows["c1"]["evidence"] == "satellite" and "satellite_in_core" not in rows["c1"]["flags"]
+    inner = dict(start=10_000, end=50_000, k=30, mids=Mids(sorted(np.linspace(11_000, 49_000, 30).astype(int)), 30))
+    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t4", 1, Params(),
+                                      te=("CRM", {"c1": inner}, True), not_one=True)    # the call (0-60 kb) holds the whole core
+    assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
