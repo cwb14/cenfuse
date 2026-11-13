@@ -682,6 +682,9 @@ and its specificity rests on rotated tracks and one plant.
   its 47 calls span at least a sixth of their (micro)chromosome, where no exact test within the chromosome reaches a small P.
   The width alone would pass it (43 chromosomes); the three measures together pass 2: minP pays for the measures that carry
   nothing there. The house wren likewise (0.15.0 with every offset: 0 of 40), which the depths pass.
+- **Chromosomes are not independent under a shared move**: the toad's track moved by the same share of every chromosome
+  (a quarter, a half) still passes the gate, though moves drawn per chromosome pass on 0.05% of simulated genomes; Fisher's
+  method assumes the chromosomes' P values independent. Lead: a gate calibrated against moves shared by all chromosomes.
 - **A perturbation**: CHM13 clones whose methylation was changed by dox moved CENP-A (PRJNA1270043, fiber-seq and DiMeLo-seq).
 - **Settle:** kinetochores within 50 kb of the HGSVC3 CDRs; a mouse HiFi 5mC track fails the gate; in the perturbed clones the called
   kinetochore follows CENP-A; rotated controls silent. **Code:** `cdr.py`.
