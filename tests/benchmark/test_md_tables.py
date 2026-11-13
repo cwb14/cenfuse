@@ -37,3 +37,17 @@ def test_telomere_rows_one_per_assembly_and_complete_ones_in_a_sentence(tmp_path
 
 def test_bin_sizes_read_as_kb_and_mb():
     assert md_013.bp("250000") == "250 kb" and md_013.bp(2_000_000) == "2 Mb" and md_013.bp(".") == "."
+
+
+def test_rule_calibration_splits_each_rule_by_confidence(tmp_path):
+    d = tmp_path / "S" / "g"
+    d.mkdir(parents=True)
+    pd.DataFrame(dict(chrom=["c1", "c2", "c3", "c4"], rule=["sequence", "sequence", "hic_denovo_only", "at_only"],
+                      seq_evidence=["satellite", "satellite", "none", "none"])).to_csv(d / "g.centromeres.tsv", sep="\t",
+                                                                                       index=False)
+    tr = pd.DataFrame(dict(genome=["g"] * 4, arm=["S"] * 4, chrom=["c1", "c2", "c3", "c4"],
+                           confidence=["low", "low", "low", "none"], ok=["R", "W", "R", "none"]))
+    t = md_tables.rule_calibration(tr, tmp_path).splitlines()
+    assert t[0].startswith("| rule that set the call |") and len(t) == 4          # the chromosome without a call is left out
+    assert "| the sequence call as it is (satellite) (`sequence`) | `low` | 2 | 1 | 50.0% |" in t
+    assert "| Hi-C's prior-free peak alone (`hic_denovo_only`) | `low` | 1 | 1 | 100.0% |" in t

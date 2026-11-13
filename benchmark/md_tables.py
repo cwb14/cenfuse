@@ -84,6 +84,53 @@ def calibration(tr):
     return "\n".join(lines)
 
 
+RULE_TEXT = {"sequence": "the sequence call as it is", "hic_agrees": "the sequence call, validated Hi-C agreeing",
+             "hic_support": "the sequence call, Hi-C's support tier agreeing", "hic_end": "the sequence call, Hi-C telling its end",
+             "at_only": "an AT trough alone", "at_pair": "a Hi-C call refined by an AT trough",
+             "at_denovo_pair": "an AT trough with a prior-free Hi-C peak", "at_chose_alt": "the competing cluster an AT trough chose",
+             "hic_denovo_only": "Hi-C's prior-free peak alone", "cis_only": "the cis Hi-C signal alone",
+             "cis_agrees": "the sequence call, the cis Hi-C signal agreeing", "cis_elsewhere": "the sequence call, contested by the cis signal",
+             "cis_trans_pair": "the cis extreme tested twice, own trans pair", "cis_end_pair": "the interior cis extreme, own trans pair",
+             "te_hic_pair": "an LTR core with Hi-C's peak", "align_pair": "the trans arm alignment with a prior-free peak",
+             "fold_pair": "the arm fold with a prior-free peak", "hic_chose_alt": "the competing cluster Hi-C chose",
+             "hic_moved": "moved by a strong validated Hi-C peak", "hic_strong_peak": "placed by a strong validated Hi-C peak",
+             "hic_medium_peak": "placed by a medium validated Hi-C peak", "hic_offset": "the sequence call, contested by Hi-C",
+             "cpg_elsewhere": "the sequence call, contested by CpG", "meth_support": "the sequence call, methylation agreeing",
+             "rep_only": "a repeat-density peak alone"}
+
+
+def rule_of(rel, g, arm) -> dict:
+    """{chrom: (rule, seq_evidence)} of one run's centromeres table (empty when the run is missing)."""
+    f = rel / arm / g / f"{g}.centromeres.tsv"
+    if not f.exists():
+        return {}
+    t = pd.read_csv(f, sep="\t", dtype=str, keep_default_na=False)
+    return {r.chrom: (r.rule if "rule" in t else ".", r.seq_evidence) for r in t.itertuples()}
+
+
+def rule_calibration(tr, rel) -> str:
+    """How often the calls each rule sets are right, by confidence, over the chromosomes with truth of the canonical arms: the
+    `low` class mixes near-certain calls (one tested line alone) with coin flips (an untested satellite array)."""
+    rules = {}
+    for (g, a), x in tr.groupby(["genome", "arm"]):
+        rules.update({(g, a, ch): v for ch, v in rule_of(rel, g, a).items()})
+    rows = []
+    for r in tr[tr.ok != "none"].itertuples():
+        rule, ev = rules.get((r.genome, r.arm, r.chrom), (".", "."))
+        if rule == "sequence":
+            rule = f"sequence ({ev})"
+        rows.append((rule, r.confidence, r.ok == "R"))
+    d = pd.DataFrame(rows, columns=["rule", "confidence", "right"])
+    g = d.groupby(["rule", "confidence"]).right.agg(["size", "sum"]).reset_index()
+    g = g.sort_values(["size"], ascending=False)
+    lines = ["| rule that set the call | confidence | calls | right | share right |", "|---|---|---|---|---|"]
+    for x in g.itertuples():
+        base = x.rule.split(" (")[0]
+        what = RULE_TEXT.get(base, base) + (f" ({x.rule.split(' (')[1]}" if " (" in x.rule else "")
+        lines.append(f"| {what} (`{base}`) | `{x.confidence}` | {x.size} | {x.sum} | {pct(x.sum, x.size)} |")
+    return "\n".join(lines)
+
+
 def telomeres(rel, order, lab):
     """Telomere and 45S recall per genome, from the summaries of the FASTA-only runs (ROOT/S/<g>): the unit found,
     chromosome ends with a terminal array (of 2 per chromosome), complete chromosomes (an array at both ends, no gap),
@@ -203,6 +250,7 @@ def write_tables(prefix, out, rel, can):
     cn = chrom[chrom.apply(lambda r: r.genome in can.index and can.at[r.genome, "arm_all"] == r.arm, axis=1)]
     tr = cn[~cn.kind.isin(["agreement", "holocentric"])]
     w("CALIBRATION", calibration(tr))
+    w("RULE_CALIBRATION", rule_calibration(tr, rel))
 
     # ---- support tier
     sup = chrom[chrom["flags"].fillna("").astype(str).str.contains("hic_support")]

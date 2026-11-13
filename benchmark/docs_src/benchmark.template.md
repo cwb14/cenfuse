@@ -68,6 +68,12 @@ The [CpG line](#kinetochores-from-cpg-methylation) says that where it passes.
 - **Holocentric genomes:** no confident call in 196 chromosome-runs.
 - **Failures:** [every confident miss](#every-confident-miss).
 
+**By the rule that set the call** (`rule` column of `<genome>.centromeres.tsv`; the same 47 genomes). `low` mixes two
+kinds of call: one tested line alone (an AT trough, Hi-C's own peak, the cis signal), nearly always right, and an untested
+satellite array, often wrong. Read a `low` call with its rule.
+
+{{RULE_CALIBRATION}}
+
 ## Every genome
 
 Right / chromosomes with truth (confidently wrong in brackets), per input set. "All inputs" names the richest set
