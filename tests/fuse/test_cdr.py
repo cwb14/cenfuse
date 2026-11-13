@@ -148,9 +148,37 @@ def test_positional_p_is_honest_for_a_call_spanning_much_of_its_chromosome():
     y[440:460] = 0.1
     ch = _chrom(y)
     d = ch.deepest(300, 600, np.ones(300, bool))
-    assert d is not None and ch.positional_p(300, 600, np.ones(300, bool), d[0]) > 0.15
+    assert d[0] is not None and ch.positional_p(300, 600, np.ones(300, bool), d) > 0.15
     small = _chrom(y[:6])                                        # fewer offsets than N_ROT: every one, once
-    assert small.positional_p(0, 6, np.ones(6, bool), 0.5) == 1 / 6
+    assert small.positional_p(0, 6, np.ones(6, bool), ((0.5, 0, 3), None)) == 1 / 6
+    assert small.positional_p(0, 6, np.ones(6, bool), (None, None)) == 1.0
+
+
+def test_minp_ranks_each_depth_among_the_windows():
+    inf = np.inf
+    v = np.array([[0.2, -9.0], [0.3, -2.0], [0.1, inf], [inf, inf]])      # window 0 and 3 rotations
+    assert cdr.minp(v) == 0.5                 # window 0: ranks 2/4 (level), 1/4 (spread): min 1/4; window 2 also 1/4
+    assert cdr.minp(v[[3, 0, 1, 2]]) == 1.0   # no dip in window 0: every window is at least as deep
+    assert cdr.minp(np.array([[0.1], [0.2], [0.3], [0.4]])) == 0.25       # one depth: the plain rank P
+
+
+def test_spread_depth_is_unchanged_by_recalibrating_the_track():
+    """Tracks of the same DNA differ by a + b x methylation (a PacBio bigWig, nanopolish): the level depth of a CDR
+    changes with them, the spread depth (in local robust SD) does not, and neither does the place of the spread dip
+    while the CDR stays MIN_DROP below its background (0.3 + 0.5 x methylation: 0.54 of it, no level dip)."""
+    rng = np.random.default_rng(11)
+    y = 0.8 + 0.03 * rng.standard_normal(1000)
+    y[480:500] = 0.15 + 0.03 * rng.standard_normal(20)
+    a = _chrom(y)
+    b = _chrom(0.3 + 0.5 * y)
+    fin = np.isfinite(a.z) & np.isfinite(b.z)
+    assert np.allclose(a.z[fin], b.z[fin])
+    m = np.ones(1000, bool)
+    (la, sa), (lb, sb) = a.deepest(400, 600, m[400:600]), b.deepest(400, 600, m[400:600])
+    for d in (sa, sb):                          # the same spread dip, +-1 bin (pooling: an edge bin, half CDR,
+        assert abs(d[1] - 80) <= 1 and abs(d[2] - 100) <= 1      # falls 34% below its background in one track only)
+    assert np.isclose(np.mean(a.z[480:500]), np.mean(b.z[480:500]))
+    assert la is not None and la[0] < 0.3 and lb is None    # the level dip is gone: 0.375 over 0.7
 
 
 def test_profile_keeps_the_length_of_tiny_sequences():
@@ -174,12 +202,13 @@ L, CALL, NULLS, STEP = 20_000_000, (1_000_000, 1_500_000), (3_000_000, 3_400_000
 DIP, MOVED = (1_200_000, 1_300_000), (3_100_000, 3_200_000)
 
 
-def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0):
+def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0, scale=(0.0, 1.0)):
     """n chromosomes of L bp: a centromeric array over CALL with a 100-kb dip (DIP), an interstitial array over
     NULLS without one; a CpG every STEP bp (bedGraph fractions). shift: positions moved by L/2 (the negative control).
     everywhere: methylated 0.8 along the whole chromosome with a 100-kb dip every 400 kb (dips are not positional).
     moved: chromosomes whose dip lies in the interstitial array (MOVED) instead. keep_array: the share of the
-    arrays' 50-kb blocks that keep their rows (a coverage hole elsewhere)."""
+    arrays' 50-kb blocks that keep their rows (a coverage hole elsewhere). scale: (a, b), the track recalibrated to
+    a + b x methylation (a compressed track: its CDR is no level dip)."""
     rng = np.random.default_rng(seed)
     rows, arrays, calls = [], [], {}
     for i in range(n):
@@ -198,6 +227,7 @@ def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(),
         p = (pos + L // 2) % L if shift else pos
         keep = ~sat | (rng.random(L // 50_000 + 1)[pos // 50_000] < keep_array)
         o = np.argsort(p[keep])
+        y = scale[0] + scale[1] * y
         rows += [(c, int(a), int(a) + 2, round(float(v), 3)) for a, v in zip(p[keep][o], y[keep][o])]
         arrays += [(c, CALL[0], CALL[1], "centromeric"), (c, NULLS[0], NULLS[1], "interstitial")]
         calls[c] = (CALL[0], CALL[1], "high")
@@ -221,6 +251,60 @@ def test_shifted_track_fails_the_gate(tmp_path):
     f, calls, arrays = small_genome(tmp_path, shift=True)
     t = cdr.run([f], calls, arrays)["table"]
     assert not t.gate_pass.any() and (t.kt_start < 0).all()
+
+
+def _genome_like(rng, n=4000, array=(1500, 2100), level=0.85, noise=None):
+    """A chromosome of 5-kb bins: flanks methylated 0.7 with unmethylated islands (2% of bins at 0.05: the track's
+    floor), a centromeric array at `level` with its own noise (default 0.02 Gaussian), no CDR."""
+    y = 0.7 + 0.05 * rng.standard_normal(n)
+    y[rng.random(n) < 0.02] = 0.05
+    a0, a1 = array
+    y[a0:a1] = level + (noise(a1 - a0) if noise else 0.02 * rng.standard_normal(a1 - a0))
+    cen = np.zeros(n, bool)
+    cen[a0:a1] = True
+    return np.clip(y, 0, 1), cen
+
+
+def _chrom_masked(y, cen):
+    b = np.vstack([y * 100, np.full(len(y), 100.0), np.full(len(y), 50.0)])
+    return cdr.Chrom(b, cen, cen.copy(), len(y) * B)
+
+
+def test_spread_dips_need_a_real_drop():
+    """Noise is not a CDR: heavy-tailed noise (t, 3 df) in an array, a saturated array with a 3% wiggle and a flat
+    chromosome with a 1% wiggle make no spread dip; the same array with a compressed CDR (0.61 of its background) does."""
+    rng = np.random.default_rng(2)
+    heavy = 0
+    for k in range(20):
+        y, cen = _genome_like(rng, noise=lambda m: 0.03 * rng.standard_t(3, m))
+        ch = _chrom_masked(y, cen)
+        heavy += ch.deepest(1500, 2100, cen[1500:2100])[1] is not None
+    assert heavy == 0
+    y, cen = _genome_like(rng, level=0.99, noise=lambda m: 0.003 * rng.standard_normal(m))
+    y[1800:1806] = 0.96
+    ch = _chrom_masked(y, cen)
+    assert ch.deepest(1500, 2100, cen[1500:2100]) == (None, None)
+    flat = np.full(400, 0.8)
+    flat[100:106] = 0.79
+    assert _chrom(flat).deepest(0, 400, np.ones(400, bool)) == (None, None)
+    y, cen = _genome_like(rng)
+    y[1790:1810] = 0.85 * 0.61                                    # a CDR no level dip finds
+    lv, sp = _chrom_masked(y, cen).deepest(1500, 2100, cen[1500:2100])
+    assert lv is None and sp is not None and abs(sp[1] - 290) <= 1 and abs(sp[2] - 310) <= 1
+
+
+def test_recalibrated_track_keeps_its_verdict_and_kinetochores(tmp_path):
+    """The planted genome with its track compressed to 0.3 + 0.5 x methylation (arrays 0.7, CDRs 0.375: 0.54 of their
+    background, no level dip): the spread dips pass the gate and place the kinetochores; shifted, the gate fails."""
+    f, calls, arrays = small_genome(tmp_path, scale=(0.3, 0.5))
+    t = cdr.run([f], calls, arrays)["table"].set_index("chrom")
+    assert ((t.dip_depth > cdr.FRAC) & (t.dip_depth < 1)).all() and (t.dip_z < -cdr.Z_DIP).all()   # the spread
+                                                                  # dip's depths, by both measures
+    assert t.gate_pass.all() and (t.pos_p <= cdr.DIP_P).all()
+    assert ((t.kt_start - DIP[0]).abs() <= B).all() and ((t.kt_end - DIP[1]).abs() <= B).all()
+    f2, calls, arrays = small_genome(tmp_path, scale=(0.3, 0.5), shift=True)
+    t2 = cdr.run([f2], calls, arrays)["table"]
+    assert not t2.gate_pass.any() and (t2.kt_start < 0).all()
 
 
 def test_dips_everywhere_are_not_positional(tmp_path):
@@ -335,6 +419,15 @@ def test_contest_points_to_the_other_array(tmp_path):
     prep = cdr.prepare([f], arrays, chroms=list(calls))
     t2 = cdr.assess(prep, calls, res["table"], contested=set()).set_index("chrom")   # the fusion contested none
     assert (t2.alt_start < 0).all() and t2.gate_pass.all()
+
+
+def test_contest_finds_a_spread_only_cdr(tmp_path):
+    """The contest on a compressed track: c0's CDR lies in its interstitial array and is no level dip there; the
+    other array's spread dip is tested and named."""
+    f, calls, arrays = small_genome(tmp_path, moved=("c0",), scale=(0.3, 0.5))
+    t = cdr.run([f], calls, arrays)["table"].set_index("chrom")
+    assert t.gate_pass.all() and t.at["c0", "kt_start"] < 0
+    assert abs(t.at["c0", "alt_start"] - MOVED[0]) <= B and abs(t.at["c0", "alt_end"] - MOVED[1]) <= B
 
 
 def test_pbcpg_rows_are_read_with_their_coverage(tmp_path):

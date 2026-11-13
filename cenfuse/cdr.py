@@ -8,26 +8,37 @@ array (0.8-5.6 Mb in T2T mammals); the dip locates the kinetochore inside it (te
 
 - **Profile** (per chromosome): CpG methylation per BIN (CDR-Finder's 5-kb window), each bin pooling the calls of the
   SMOOTH bins around it (methylated over valid); the background is the running median of the profile over +-SURR.
-- **Dips**: runs of at least MIN_RUN bins below FRAC x the background (one missing bin bridged), on array bins only
-  (bins that arrays cover for at least half: the unmethylated DNA between arrays, CpG islands and genes, would be the
-  deepest valleys). A dip's depth is its mean methylation over its mean background; the deepest dip in a call's
-  centromeric-role arrays is its kinetochore candidate.
-- **Positional test** (per call): the dip is deeper than the deepest dip that the chromosome's methylation, rotated by
-  N_ROT random offsets (any offset, so the observed window is one of the rotations: an exact test up to Monte Carlo
+- **Dips**: runs of at least MIN_RUN bins (one missing bin bridged) on array bins only (bins that arrays cover for at
+  least half: the unmethylated DNA between arrays, CpG islands and genes, would be the deepest valleys), by two
+  measures of depth below the background:
+  - *level*: below FRAC x the background; depth = the run's mean methylation over its mean background;
+  - *spread*: more than Z_DIP robust SD below the background, the SD from the running median of |methylation -
+    background| over the same +-SURR, and at least MIN_DROP below the background (more than one bin can make through
+    the pooling); depth = the run's mean in those SD (negative).
+  Tracks of the same DNA encode methylation differently (genome-wide median bin 0.36-0.92 across the benchmark
+  tracks): on the same HG002 arrays the CDR falls to 0.14 of its background in the ONT track and only to 0.41 in the
+  PacBio bigWig, a level that rotated genic methylation reaches too. The level depth changes with such a
+  recalibration (a + b x methylation), the spread depth does not (docs/design.md). The kinetochore candidate is the
+  deepest level dip in a call's centromeric-role arrays, the deepest spread dip where there is no level dip (the
+  level dips' places agree best between two technologies on the same assembly).
+- **Positional test** (per call): the dips are deeper than the deepest dips that the chromosome's methylation, rotated
+  by N_ROT random offsets (any offset, so the observed window is one of the rotations: an exact test up to Monte Carlo
   error; excluding offsets near the call made P <= 0.05 three times as common as 5% when calls span a sixth of their
   chromosome), makes on the same array bins. Same bins, same window: only where the methylation comes from differs.
-  Depth, not width or deficit: the partially methylated domains of cultured cells (the T2T chimpanzee track) and
-  subtelomeric caps make wide shallow dips anywhere; a CDR falls to 10-35% of its array (survey of the CENP-A truth
-  genomes, docs/benchmark.md). A call spanning much of its chromosome cannot reach a small P: its test is weak, never
-  anti-conservative.
+  The two depths are combined by minP: each window's two depths ranked among the observed and rotated windows, the
+  smaller rank of each window compared (exact, whatever the depths' correlation; minp). Depth, not width or deficit:
+  the partially methylated domains of cultured cells (the T2T chimpanzee track) and subtelomeric caps make wide
+  shallow dips anywhere; a CDR falls to 10-35% of its array (survey of the CENP-A truth genomes, docs/benchmark.md). A
+  call spanning much of its chromosome cannot reach a small P: its test is weak, never anti-conservative.
 - **Gate** (per chromosome, leave-one-chromosome-out as the Hi-C gate): references are the other chromosomes' high
   calls (high + medium when fewer than GATE_MIN_REF + 1 are high) that can be tested; their positional P values,
   combined by Fisher's method (independent chromosomes, valid P values), must give P <= GATE_P. Every reference counts
   by its P, so many calls with moderate dips (wide ape calls: few can reach P <= 0.05 on their own) pass as well as a
   few with strong ones; gate_k counts the references with P <= DIP_P.
-- **Kinetochore**: where the gate passes, the deepest dip of every call with one.
-- **Contest**: where the gate passes, a call whose centromeric arrays have data (MIN_BINS) and no dip, while the
-  deepest dip on the chromosome's other satellite arrays passes the positional test on its array, has its CDR elsewhere:
+- **Kinetochore**: where the gate passes, the kinetochore candidate of every call with one.
+- **Contest**: where the gate passes, a call whose centromeric arrays have data (MIN_BINS) and no dip by either
+  measure, while the deepest dip on the chromosome's other satellite arrays passes the positional test on its array,
+  has its CDR elsewhere:
   the fusion contests the call (fuse._cpg: one level down, as a contesting Hi-C line) and never moves it (in the
   truth genomes such a dip was the centromere once and elsewhere twice, docs/benchmark.md). The dip is reported.
 - **Coverage holes**: arrays with data in fewer than HOLE x the genome's share of bins are reported: tracks piled up
@@ -57,7 +68,14 @@ SMOOTH = 3                # bins pooled into each bin's methylation (15 kb): a l
 MIN_SITES = 5             # CpG rows in a SMOOTH window for its methylation to count (heuristic; alpha satellite holds ~30-60
                           # per 5 kb, so only bins with almost no data are dropped)
 SURR = 500_000            # the background: running median over +-SURR, wider than CDRs (20-200 kb), narrower than arrays
-FRAC = 0.5                # a dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey)
+FRAC = 0.5                # a level dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey)
+Z_DIP = 3.0               # a spread dip: more than 3 robust SD below the background (conventional outlier level; heuristic)
+MAD_SD = 1.4826           # a median absolute deviation in SD of a normal distribution
+MIN_DROP = 0.34           # a spread dip also falls >= 34% below its background (CDR-Finder's minimal valley height, 0.34 of
+                          # the array median: Mastrorosa et al. 2024): more than one 5-kb bin can make through the pooling
+                          # over SMOOTH bins (a third), so no single aberrant bin and no wiggle of a saturated array qualifies
+SPREAD_FLOOR = 0.05       # the local spread is at least this share of the chromosome's (a perfectly flat stretch would make
+                          # any wiggle a deep spread dip; heuristic, scales with the track)
 MIN_RUN = 3               # bins in a dip (15 kb): the narrowest CDRs are ~20 kb
 ARRAY_COVER = 0.5         # a bin is array sequence when arrays cover most of it (majority rule)
 MIN_BINS = 10             # array bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic)
@@ -220,19 +238,55 @@ def background(y: np.ndarray) -> np.ndarray:
     return pd.Series(y).rolling(2 * half + 1, center=True, min_periods=max(5, half // 4)).median().to_numpy()
 
 
-def dips(y: np.ndarray, bg: np.ndarray, mask: np.ndarray) -> list:
-    """[(depth, first bin, end bin)] of the runs of >= MIN_RUN mask bins below FRAC x bg, deepest first; one missing bin
-    inside a run is bridged. depth = the run's mean methylation over its mean background."""
-    with np.errstate(invalid="ignore"):
-        low = (y < FRAC * bg) & mask
-    gap = ~np.isfinite(y) & mask & np.r_[False, low[:-1]] & np.r_[low[1:], False]
+def spread(y: np.ndarray, bg: np.ndarray) -> np.ndarray:
+    """The local spread of y around its background bg, in SD of a normal: the running median of |y - bg| over +-SURR
+    times MAD_SD, at least SPREAD_FLOOR x the chromosome's (NaN where it has too few bins, as background)."""
+    dev = np.abs(y - bg)
+    half = SURR // BIN
+    s = pd.Series(dev).rolling(2 * half + 1, center=True, min_periods=max(5, half // 4)).median().to_numpy() * MAD_SD
+    whole = float(np.nanmedian(dev)) * MAD_SD if np.isfinite(dev).any() else 0.0
+    return np.maximum(s, max(SPREAD_FLOOR * whole, 1e-9))
+
+
+def _runs(low: np.ndarray, x: np.ndarray, mask: np.ndarray) -> list:
+    """(first bin, end bin) of the runs of >= MIN_RUN bins of low; one missing (NaN in x) mask bin inside a run is
+    bridged."""
+    gap = ~np.isfinite(x) & mask & np.r_[False, low[:-1]] & np.r_[low[1:], False]
     low = low | gap
     d = np.diff(np.r_[0, low.astype(np.int8), 0])
-    out = []
-    for i, j in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)):
-        if j - i >= MIN_RUN:
-            out.append((float(np.nanmean(y[i:j]) / np.nanmean(bg[i:j])), int(i), int(j)))
-    return sorted(out)
+    return [(int(i), int(j)) for i, j in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)) if j - i >= MIN_RUN]
+
+
+def dips(y: np.ndarray, bg: np.ndarray, mask: np.ndarray) -> list:
+    """Level dips: [(depth, first bin, end bin)] of the runs of >= MIN_RUN mask bins below FRAC x bg, deepest first; one
+    missing bin inside a run is bridged. depth = the run's mean methylation over its mean background."""
+    with np.errstate(invalid="ignore"):
+        low = (y < FRAC * bg) & mask
+    return sorted((float(np.nanmean(y[i:j]) / np.nanmean(bg[i:j])), i, j) for i, j in _runs(low, y, mask))
+
+
+def spread_dips(z: np.ndarray, y: np.ndarray, bg: np.ndarray, mask: np.ndarray) -> list:
+    """Spread dips: [(depth, first bin, end bin)] of the runs of >= MIN_RUN mask bins more than Z_DIP robust SD below
+    the background (z = (y - bg) / spread) and at least MIN_DROP below it, deepest first; one missing bin bridged.
+    depth = the run's mean z."""
+    with np.errstate(invalid="ignore"):
+        low = (z < -Z_DIP) & (y <= (1 - MIN_DROP) * bg) & mask
+    return sorted((float(np.nanmean(z[i:j])), i, j) for i, j in _runs(low, z, mask))
+
+
+def minp(v: np.ndarray) -> float:
+    """P of window 0 among the windows (rows) of v, from several depths (columns; smaller is deeper, inf without a dip):
+    each depth's rank P in every window (windows at least as deep, itself included, over the windows; 1 without a dip),
+    each window's smallest rank P, and the share of windows whose smallest is at most window 0's. Exact when the
+    windows are exchangeable under the null (rotations), whatever the depths' correlation."""
+    n = len(v)
+    r = np.ones(v.shape)
+    for c in range(v.shape[1]):
+        x = v[:, c]
+        fin = np.isfinite(x)
+        r[fin, c] = np.searchsorted(np.sort(x), x[fin], side="right") / n
+    m = r.min(axis=1)
+    return float((m <= m[0]).sum() / n)
 
 
 def array_bins(arrays: pd.DataFrame, chrom: str, nb: int) -> np.ndarray:
@@ -270,12 +324,15 @@ def _run(mask: np.ndarray, a: int, b: int) -> tuple:
 
 
 class Chrom:
-    """One chromosome's CpG profile: methylation y and its background bg per BIN, the centromeric-role and all
-    satellite-array bins. Its verdicts on an interval are memoized (the fusion asks for a call more than once)."""
+    """One chromosome's CpG profile: methylation y, its background bg and its deviation in local spreads z per BIN, the
+    centromeric-role and all satellite-array bins. Its verdicts on an interval are memoized (the fusion asks for a call
+    more than once)."""
 
     def __init__(self, b: np.ndarray, cen: np.ndarray, sat: np.ndarray, length: int | None = None):
         self.y = profile(b)
         self.bg = background(self.y)
+        with np.errstate(invalid="ignore"):
+            self.z = (self.y - self.bg) / spread(self.y, self.bg)
         self.cen, self.sat, self.nb = cen, sat, len(self.y)
         self.length = length or self.nb * BIN
         self._memo = {}
@@ -283,28 +340,30 @@ class Chrom:
     def window(self, s: int, e: int) -> tuple:
         return max(0, s // BIN), min(self.nb, -(-e // BIN))
 
-    def deepest(self, i: int, j: int, mask: np.ndarray, o: int = 0):
-        """The deepest dip of bins [i, j) on mask, the methylation moved by o bins (rotation); None without one."""
+    def deepest(self, i: int, j: int, mask: np.ndarray, o: int = 0) -> tuple:
+        """(level dip, spread dip): the deepest of each on the bins [i, j) of mask, the methylation moved by o bins
+        (rotation); each (depth, first bin, end bin) relative to i, or None without one."""
         idx = (np.arange(i, j) + o) % self.nb if o else slice(i, j)
-        d = dips(self.y[idx], self.bg[idx], mask)
-        return d[0] if d else None
+        y, bg = self.y[idx], self.bg[idx]
+        d, z = dips(y, bg, mask), spread_dips(self.z[idx], y, bg, mask)
+        return (d[0] if d else None), (z[0] if z else None)
 
-    def positional_p(self, i: int, j: int, mask: np.ndarray, depth: float) -> float:
-        """P that methylation from elsewhere on the chromosome makes a dip at least `depth` deep on the bins [i, j)
-        of mask: N_ROT rotations by offsets drawn from all others (every one when there are fewer)."""
-        if self.nb < 2:
+    def positional_p(self, i: int, j: int, mask: np.ndarray, obs: tuple) -> float:
+        """P that methylation from elsewhere on the chromosome makes dips at least as deep on the bins [i, j) of mask
+        as the observed (level, spread) dips obs: N_ROT rotations by offsets drawn from all others (every one when there
+        are fewer), the two depths combined by minp."""
+        if self.nb < 2 or all(d is None for d in obs):
             return 1.0
         offs = np.arange(1, self.nb) if self.nb - 1 <= N_ROT else \
             np.random.default_rng([SEED, i, j]).integers(1, self.nb, N_ROT)
-        ge = 0
-        for o in offs:
-            d = self.deepest(i, j, mask, int(o))
-            ge += d is not None and d[0] <= depth
-        return (1 + ge) / (1 + len(offs))
+        depth = lambda ds: [d[0] if d is not None else np.inf for d in ds]
+        v = np.array([depth(obs)] + [depth(self.deepest(i, j, mask, int(o))) for o in offs])
+        return minp(v)
 
     def assess(self, s: int, e: int) -> dict:
-        """The call [s, e) on its centromeric arrays: bins with data, the share of array bins with data, the deepest
-        dip (depth 1 without one) and its positional P, the kinetochore candidate and the methylation of both."""
+        """The call [s, e) on its centromeric arrays: bins with data, the share of array bins with data, the kinetochore
+        candidate (the deepest level dip, else the deepest spread dip) and its depth by both measures (1 and 0 without
+        one), the positional P of the two deepest dips, and the methylation of the candidate and the arrays."""
         key = ("assess", s, e)
         if key in self._memo:
             return self._memo[key]
@@ -313,16 +372,17 @@ class Chrom:
         y = self.y[i:j]
         has = np.isfinite(y) & m
         r = dict(tested_bins=int(has.sum()), array_bins=int(m.sum()), array_data=float(has.sum() / m.sum()) if m.any()
-                 else np.nan, dip_depth=np.nan, pos_p=np.nan, kt_start=-1, kt_end=-1,
+                 else np.nan, dip_depth=np.nan, dip_z=np.nan, pos_p=np.nan, kt_start=-1, kt_end=-1,
                  array_meth=float(np.median(y[has])) if has.any() else np.nan, kt_meth=np.nan)
         if r["tested_bins"] >= MIN_BINS:
-            d = self.deepest(i, j, m)
-            if d is None:
-                r.update(dip_depth=1.0, pos_p=1.0)
+            lv, sp = self.deepest(i, j, m)
+            if lv is None and sp is None:
+                r.update(dip_depth=1.0, dip_z=0.0, pos_p=1.0)
             else:
-                depth, a, b = d
-                r.update(dip_depth=depth, pos_p=self.positional_p(i, j, m, depth), kt_start=max(s, (i + a) * BIN),
-                         kt_end=min(e, (i + b) * BIN), kt_meth=float(np.nanmean(y[a:b])))
+                _, a, b = lv or sp                       # the candidate's depth by both measures
+                r.update(dip_depth=float(np.nanmean(y[a:b]) / np.nanmean(self.bg[i + a:i + b])),
+                         dip_z=float(np.nanmean(self.z[i + a:i + b])), pos_p=self.positional_p(i, j, m, (lv, sp)),
+                         kt_start=max(s, (i + a) * BIN), kt_end=min(e, (i + b) * BIN), kt_meth=float(np.nanmean(y[a:b])))
         self._memo[key] = r
         return r
 
@@ -338,12 +398,14 @@ class Chrom:
             i, j = self.window(s, e)
             other = self.sat.copy()
             other[i:j] = False
-            d = dips(self.y, self.bg, other)
-            if d:
-                depth, a, b = d[0]
+            for d in (dips(self.y, self.bg, other), spread_dips(self.z, self.y, self.bg, other)):
+                if not d:                                # the deepest level dip, then the deepest spread dip
+                    continue
+                _, a, b = d[0]
                 lo, hi = _run(other, a, b)
-                if self.positional_p(lo, hi, other[lo:hi], depth) <= DIP_P:
+                if self.positional_p(lo, hi, other[lo:hi], self.deepest(lo, hi, other[lo:hi])) <= DIP_P:
                     out = (a * BIN, min(b * BIN, self.length))
+                    break
         self._memo[key] = out
         return out
 
@@ -410,7 +472,7 @@ def assess(prep: dict, calls: dict, gates: pd.DataFrame | None = None, contested
     rows = []
     for c, (s, e, conf) in calls.items():
         r = dict(chrom=c, confidence=conf, tested_bins=0, array_bins=0, array_data=np.nan, dip_depth=np.nan,
-                 pos_p=np.nan, kt_start=-1, kt_end=-1, array_meth=np.nan, kt_meth=np.nan)
+                 dip_z=np.nan, pos_p=np.nan, kt_start=-1, kt_end=-1, array_meth=np.nan, kt_meth=np.nan)
         ch = prep["chroms"].get(c)
         if s >= 0 and ch is not None:
             r.update(ch.assess(s, e))
@@ -432,6 +494,11 @@ def assess(prep: dict, calls: dict, gates: pd.DataFrame | None = None, contested
     return t
 
 
+def has_dip(t: pd.DataFrame) -> pd.Series:
+    """Tested calls with a dip by either measure (level depth below 1 or spread depth below 0)."""
+    return (t.dip_depth < 1) | (t.dip_z < 0)
+
+
 def array_data(t: pd.DataFrame, prep: dict) -> float:
     """The median share of array bins with data over the calls with MIN_BINS array bins, over the genome's share."""
     x = t.array_data[t.array_bins >= MIN_BINS]
@@ -442,7 +509,7 @@ def summary(t: pd.DataFrame, prep: dict) -> float:
     """Log the line's counts and a coverage hole; returns the array data ratio (array_data)."""
     ad = array_data(t, prep)
     shown = t.kt_start >= 0
-    log.info(f"CpG: dips in {int((t.dip_depth < 1).sum())}/{int(t.dip_depth.notna().sum())} tested calls, positional "
+    log.info(f"CpG: dips in {int(has_dip(t).sum())}/{int(t.dip_depth.notna().sum())} tested calls, positional "
              f"in {int((t.pos_p <= DIP_P).sum())}; gate passes on {int(t.gate_pass.sum())}/{len(t)} chromosomes; "
              f"kinetochores on {int(shown.sum())}; another array's dip on {int((t.alt_start >= 0).sum())}")
     if np.isfinite(ad) and ad < HOLE:
@@ -460,8 +527,8 @@ def run(files: list, calls: dict, arrays: pd.DataFrame, lengths: dict | None = N
     return dict(table=t, bad_rows=prep["bad_rows"], array_data=summary(t, prep), chroms=prep["chroms"])
 
 
-COLS = ["cpg_gate", "cpg_gate_k", "cpg_gate_n", "cpg_gate_p", "cpg_dip_depth", "cpg_pos_p", "cpg_kt_start",
-        "cpg_kt_end", "cpg_array_meth", "cpg_kt_meth", "cpg_array_data", "cpg_alt_start", "cpg_alt_end"]
+COLS = ["cpg_gate", "cpg_gate_k", "cpg_gate_n", "cpg_gate_p", "cpg_dip_depth", "cpg_dip_z", "cpg_pos_p",
+        "cpg_kt_start", "cpg_kt_end", "cpg_array_meth", "cpg_kt_meth", "cpg_array_data", "cpg_alt_start", "cpg_alt_end"]
 
 
 def columns(t: pd.DataFrame, res: dict | None) -> pd.DataFrame:
@@ -485,6 +552,7 @@ def columns(t: pd.DataFrame, res: dict | None) -> pd.DataFrame:
     t["cpg_gate_n"] = [one(c, lambda r: r.gate_n) for c in t.chrom]
     t["cpg_gate_p"] = [one(c, lambda r: num(r.gate_p)) for c in t.chrom]
     t["cpg_dip_depth"] = [one(c, lambda r: num(r.dip_depth)) for c in t.chrom]
+    t["cpg_dip_z"] = [one(c, lambda r: num(r.dip_z)) for c in t.chrom]
     t["cpg_pos_p"] = [one(c, lambda r: num(r.pos_p)) for c in t.chrom]
     t["cpg_kt_start"] = [one(c, lambda r: r.kt_start + 1 if r.kt_start >= 0 else na) for c in t.chrom]
     t["cpg_kt_end"] = [one(c, lambda r: r.kt_end if r.kt_start >= 0 else na) for c in t.chrom]

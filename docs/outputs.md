@@ -8,7 +8,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | file | content |
 |---|---|
 | `asm.centromeres.tsv` | one row per chromosome: the call and everything behind it (columns below) |
-| `asm.centromeres.bed`, `.gff3` | the calls; the GFF3 also holds each CpG kinetochore (`regional_centromere_central_core`, Name=kinetochore; dip_depth, pos_p, kt_meth, array_meth) |
+| `asm.centromeres.bed`, `.gff3` | the calls; the GFF3 also holds each CpG kinetochore (`regional_centromere_central_core`, Name=kinetochore; dip_depth, dip_z, pos_p, kt_meth, array_meth) |
 | `cenfuse_report.md` | per genome, in words: each line's result and test, what the centromeres are made of, the calls that are not `high` with what would settle them, morphology and completeness, the other features and their 3D association, notes on the inputs |
 | `cenfuse_summary.tsv` | one row per genome (columns below); warnings are in the log and the report |
 | `run_info.json` | the run manifest: cenfuse's version and git commit, the command, host, threads and times, Python and package versions, every external tool's path, version and conda package, a content fingerprint of every input, how the run ended (`status`: `running`, `done`, `failed` with the error; `incomplete` outputs), and what it cost (`cost`: `wall_minutes`, `cpu_hours` of cenfuse and every process it started, `peak_memory_gb` of the whole process tree, sampled every 30 s, and `memory`, what that measured; also the run's last log line) |
@@ -89,9 +89,10 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `meth_seq`, `meth_hic`, `meth_call` (+ `_score`) | the CHG line's label at the sequence call, at the Hi-C peak and at the final call: `centromere_like`, `dip`, `no_signature_data` or `no_data` |
 | `meth_samples` | the methylation samples that decided |
 | `cpg_gate`, `cpg_gate_k`, `cpg_gate_n`, `cpg_gate_p` | the CpG test for this chromosome: do the other chromosomes' calls hold CpG dips deeper than methylation from elsewhere would put there, beyond chance? `k` of `n` references with `cpg_pos_p` ≤ 0.05; `p` combines all `n` P values (Fisher's method) |
-| `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the deepest CpG dip (CDR) in the call's centromeric arrays, shown where the test passes. It refines the call |
-| `cpg_dip_depth` | that dip's methylation over its surroundings' (a dip falls below 0.5; 1 = no dip; `.` = fewer than 50 kb of array with data) |
-| `cpg_pos_p` | the dip is deeper than methylation from elsewhere on the chromosome makes on the same array bins (the test counts these) |
+| `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the deepest CpG dip (CDR) in the call's centromeric arrays, shown where the test passes; the deepest spread dip where no dip falls below half its surroundings. It refines the call |
+| `cpg_dip_depth` | the kinetochore candidate's methylation over its surroundings' (a level dip falls below 0.5; 1 = no dip; `.` = fewer than 50 kb of array with data) |
+| `cpg_dip_z` | the same dip's methylation below its surroundings', in robust SD of the surroundings' own variation (a spread dip falls below -3 and at least 34% below its surroundings; 0 = no dip). Unlike `cpg_dip_depth`, it does not change when a track encodes methylation on another scale (a PacBio bigWig, nanopolish) |
+| `cpg_pos_p` | the dips are deeper than methylation from elsewhere on the chromosome makes on the same array bins, by either measure of depth (minP over the same rotations; the test counts these) |
 | `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore; median over the call's arrays |
 | `cpg_array_data` | the share of the call's array bins with CpG data (a low share is a coverage hole: tracks piled up at MAPQ 60 lose most reads in arrays) |
 | `cpg_alt_start`, `cpg_alt_end` | where the test passes and the call's arrays have data but no dip: the CDR-like dip on another satellite array of the chromosome (deeper than methylation from elsewhere makes there). The call is contested (`cpg_elsewhere`) and kept |

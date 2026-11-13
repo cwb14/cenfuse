@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from . import __version__, morphology
-from .cdr import DIP_P
+from .cdr import DIP_P, has_dip
 from .params import AXIS_LEAN_P, GATE_MIN_REF
 from .runtime import atomic_csv, atomic_open
 from .sat.karyotype import sentence
@@ -67,7 +67,8 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
             f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
             if getattr(r, "cpg_kt_start", ".") != ".":           # the CpG line's kinetochore inside the call
                 k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", Name="kinetochore",
-                         dip_depth=r.cpg_dip_depth, pos_p=r.cpg_pos_p, kt_meth=r.cpg_kt_meth, array_meth=r.cpg_array_meth)
+                         dip_depth=r.cpg_dip_depth, dip_z=r.cpg_dip_z, pos_p=r.cpg_pos_p, kt_meth=r.cpg_kt_meth,
+                         array_meth=r.cpg_array_meth)
                 f.write(f"{r.chrom}\tcenfuse\tregional_centromere_central_core\t{r.cpg_kt_start}\t{r.cpg_kt_end}"
                         f"\t.\t.\t.\t{_attrs(k)}\n")
 
@@ -218,7 +219,7 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
     if cpg is not None:
         c = cpg["table"]
         d.update(cpg_gate_pass=int(c.gate_pass.sum()),
-                 cpg_dips=f"{int((c.dip_depth < 1).sum())}/{int(c.dip_depth.notna().sum())}",
+                 cpg_dips=f"{int(has_dip(c).sum())}/{int(c.dip_depth.notna().sum())}",
                  cpg_positional=f"{int((c.pos_p <= DIP_P).sum())}/{int(c.pos_p.notna().sum())}",
                  cpg_kinetochores=int((c.kt_start >= 0).sum()), cpg_elsewhere=int((c.alt_start >= 0).sum()),
                  cpg_array_data=round(float(cpg["array_data"]), 3) if np.isfinite(cpg["array_data"]) else ".")

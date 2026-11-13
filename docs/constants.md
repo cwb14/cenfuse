@@ -28,7 +28,11 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `SMOOTH` | `3` | bins pooled into each bin's methylation (15 kb): a lone 5-kb bin of a sparse track is noise |  |
 | `MIN_SITES` | `5` | CpG rows in a SMOOTH window for its methylation to count (heuristic; alpha satellite holds ~30-60 per 5 kb, so only bins with almost no data are dropped) | heuristic |
 | `SURR` | `500_000` | the background: running median over +-SURR, wider than CDRs (20-200 kb), narrower than arrays |  |
-| `FRAC` | `0.5` | a dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey) |  |
+| `FRAC` | `0.5` | a level dip: methylation below half its background (CDRs fall to 10-35% of their arrays; survey) |  |
+| `Z_DIP` | `3.0` | a spread dip: more than 3 robust SD below the background (conventional outlier level; heuristic) | heuristic |
+| `MAD_SD` | `1.4826` | a median absolute deviation in SD of a normal distribution |  |
+| `MIN_DROP` | `0.34` | a spread dip also falls >= 34% below its background (CDR-Finder's minimal valley height, 0.34 of the array median: Mastrorosa et al. 2024): more than one 5-kb bin can make through the pooling over SMOOTH bins (a third), so no single aberrant bin and no wiggle of a saturated array qualifies |  |
+| `SPREAD_FLOOR` | `0.05` | the local spread is at least this share of the chromosome's (a perfectly flat stretch would make any wiggle a deep spread dip; heuristic, scales with the track) | heuristic |
 | `MIN_RUN` | `3` | bins in a dip (15 kb): the narrowest CDRs are ~20 kb |  |
 | `ARRAY_COVER` | `0.5` | a bin is array sequence when arrays cover most of it (majority rule) |  |
 | `MIN_BINS` | `10` | array bins with data for a call to be tested (50 kb: a dip needs shoulders; heuristic) | heuristic |
