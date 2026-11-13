@@ -291,19 +291,25 @@ bedMethyl, pb-CpG-tools, or a bedGraph of methylated fraction), on reference CpG
   methylation rotated onto the arrays reaches too (the rotation test then fails on 46 of 46 chromosomes). The spread depth
   does not move. A call's kinetochore candidate is the deepest level dip in its centromeric arrays, or the deepest spread
   dip where there is none: the level dips' places agree best between two technologies on the same assembly.
-- **Positional test.** The dips are deeper than the deepest dips that the chromosome's methylation, rotated by 200 random
-  offsets (any offset: the observed window is one of the rotations, so P is exact up to Monte Carlo error), makes on the
-  same array bins. The two depths are combined by minP: each window's two depths are ranked among the observed and the
-  rotated windows, and the observed window's smaller rank is compared with the rotated windows' smaller ranks (exact,
-  whatever the depths' correlation). Depth, not length: the partially methylated domains of cultured cells (the T2T
-  chimpanzee track) and subtelomeric caps make wide shallow dips anywhere, which failed the length test on every
-  chimpanzee call. A call spanning much of its chromosome cannot reach a small P (a 3-Mb call on a 60-Mb chromosome:
-  about 0.05 at best).
+- **Width.** 0.15.0's measure: the half-depth run of the arrays' most prominent valley (topographic prominence, so an
+  array edge is none), the bins below the midpoint between its bottom and the arrays' median. Like the spread depth, it
+  does not move with a track's scale. In the macaques every call holds a level dip, but methylation from elsewhere makes
+  dips as deep (a median P of 0.96-1 by either depth); their CDRs stand out by width (a median 115 kb; P ≤ 0.05 on 15-18
+  of 21 calls). Width finds some valley in any array, so it never places a kinetochore.
+- **Positional test.** The call's arrays hold dips deeper, or a valley wider, than the chromosome's methylation, rotated
+  by 200 random offsets (any offset: the observed window is one of the rotations, so P is exact up to Monte Carlo error),
+  makes on the same array bins. The three measures are combined by minP: each window's measures are ranked among the
+  observed and the rotated windows, and the observed window's smallest rank is compared with the rotated windows'
+  smallest ranks (exact, whatever the measures' correlation). Width alone is not enough: the partially methylated domains
+  of cultured cells (the T2T chimpanzee track) and subtelomeric caps make wide shallow valleys anywhere, which failed the
+  length test on every chimpanzee call; the depths carry those tracks. A call spanning much of its chromosome cannot reach
+  a small P (a 3-Mb call on a 60-Mb chromosome: about 0.05 at best).
 - **The test (gate).** References: the other chromosomes' `high` calls (with `medium` if fewer than 4 are `high`; fewer than
   3: `untested`). Their positional P values, combined by Fisher's method, must give P ≤ 0.01: many moderate dips count, as
   wide ape calls rarely reach P ≤ 0.05 one by one. It is computed on the provisional calls, before the final integration.
 - **Role.** Where the gate passes, each call with a dip gets its kinetochore (`cpg_kt_*`). A sequence call whose arrays have
-  data and no dip, while the deepest dip on its chromosome's other satellite arrays passes the positional test there, is
+  data, no dip and no positional P (a valley wider than chance is CDR evidence in the call), while the deepest dip on its
+  chromosome's other satellite arrays passes the positional test of its two depths there (the dip's own measures), is
   contested (`cpg_elsewhere`: one level below what the agreeing lines give, the dip in `cpg_alt_*`). CpG never moves a call: in the truth genomes such a
   dip was the centromere once (stickleback) and elsewhere twice.
 - **Coverage holes.** Calls whose arrays have data in under 0.8 of the genome's share of bins are reported: tracks piled up
@@ -408,8 +414,8 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 | CpG dip inside a call | the deepest run below half the ±500-kb running median | the deepest bin: lands on array edges. The longest run below half the array median: on the CDR 52/90. The most prominent valley, its half-depth run (0.10-0.15): on CENP-A 57/67 right calls in five truth genomes (deepest run 61/67, same width) |
 | CpG rotations | any offset | offsets at least a tenth of the chromosome away (0.15, the survey's): P ≤ 0.05 for 7%, 15% and 32% of null calls spanning 5%, 15% and 30% of their chromosome |
 | CpG gate pooling | Fisher's method over the references' P | the count of P ≤ 0.05 (binomial at 0.05, 0.10-0.15): with exact rotations it fails chimpanzee and gorilla (P 0.03), whose wide calls rarely reach 0.05 one by one |
-| CpG depth measure | level and spread depth, combined by minP; the level dip places the kinetochore | chosen on six genomes with two tracks of the same assembly (HG002 ONT and PacBio; five apes, ONT R9 and HiFi), by a rule fixed beforehand and blind to truth: the most positional calls on the weaker track of each pair (sum over the pairs; pairs passing on both tracks). Level alone 30 (4 pairs): fails HG002 PacBio and CHM13 (nanopolish). Spread alone 26 (2): fails bonobo, whose small calls take their spread from the flanks. Genome-wide quantile ranks 10 (1). The dip's length 14 (4). Level + spread 33 (5); with spread dips at least 34% below their background 38 (5): a code review found spread dips made by heavy-tailed noise and by single aberrant bins pooled over three (measuring the 34% from the track's 1st-percentile bin instead of from 0 kept the scale invariance, scored 34 (5), and let a bin below that floor still make one). Level + spread + length 28 (5), and passes both macaques, whose dips miss CENP-A on Anvil. Placing by the spread dip first: 0.81 of the pairs' kinetochores within 50 kb of each other, by the level dip first 0.85 |
-| CpG null | positional (rotation) test of the dip's depth for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla. The dip's length (0.10-0.15): failed on every chimpanzee call (cell-line partially methylated domains) |
+| CpG measures | level depth, spread depth and the 0.15.0 width, combined by minP; the level dip places the kinetochore, else the spread dip; width never places | first chosen on six genomes with two tracks of the same assembly (HG002 ONT and PacBio; five apes, ONT R9 and HiFi), by a rule fixed beforehand and blind to truth: the most positional calls on the weaker track of each pair (sum over the pairs; pairs passing on both tracks). Level alone 30 (4 pairs): fails HG002 PacBio and CHM13 (nanopolish). Spread alone 26 (2): fails bonobo, whose small calls take their spread from the flanks. Genome-wide quantile ranks 10 (1). The dip's length 14 (4). Level + spread 33 (5); with spread dips at least 34% below their background 38 (5): a code review found spread dips made by heavy-tailed noise and by single aberrant bins pooled over three (measuring the 34% from the track's 1st-percentile bin instead of from 0 kept the scale invariance, scored 34 (5), and let a bin below that floor still make one). Level + spread + width 29 (5). A review against 0.15.0 (after the truth had been seen; disclosed) found level + spread swapping genomes with 0.15.0 (chimpanzee, HG002 HiFi and siamang gained; gorilla, the three macaques, duck and two fish lost), and that the rule's metric, positional calls one by one, is not what places kinetochores: the gate is. Adding the width passes the gate on each of the 26 paired and truth tracks at least as often, agrees better between the two tracks of a pair (verdicts 0.82 vs 0.78; weaker track's Fisher -log10 P 31.7 vs 31.5), and stays calibrated (simulated misplaced tracks: 0.1% of genomes pass, at most 0.3%). The earlier reason against the width, the pig-tailed macaque's dips off CENP-A on Anvil (4 of 9), rests on cross-species ChIP; the crab-eating macaque's own ChIP agrees with its width-passed dips on 12 of 15. Placing by the spread dip first: 0.81 of the pairs' kinetochores within 50 kb of each other, by the level dip first 0.85 |
+| CpG null | positional (rotation) test of the dips' depths and the valley's width for the gate | dips in other satellite clusters: passed on misplaced methylation in gorilla. The dip's length (0.10-0.15): failed on every chimpanzee call (cell-line partially methylated domains) |
 | CpG choosing between arrays | not done; a dipless call is contested where another array holds a positional dip | least-methylated window: on the CDR 3/23; most prominent valley across clusters: wrong cluster on 8-10/25 |
 | a centromeric region (call + nearby clusters) | not reported | precision 0.07 in apes: an interspersed family chains whole chromosomes |
 | the chromosome set | tenfold drop, tapering tail cut, optional list | the drop alone kept 5,614 extra scaffolds over 121 polyploid assemblies; other cuts dropped dot chromosomes or microchromosomes |
@@ -447,7 +453,8 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
 - **The one-per-chromosome test** has no power with few chromosomes, and passes any family that happens to lie once per
   chromosome.
 - **The CpG line** was designed on the primate tracks it is benchmarked on; its depth measures were chosen on the paired
-  tracks without truth, and the truth genomes test it. Wide calls weaken its test: gorilla's dips lie on CENP-A on 10 of 10
+  tracks without truth, and the truth genomes test it; the width joined them after a review that had seen the truth, on
+  grounds without it (gate passes and agreement on the paired tracks, calibration). Wide calls weaken its test: gorilla's dips lie on CENP-A on 10 of 10
   chromosomes with DiMeLo-seq data, but its 3.5-8 Mb calls keep its test below the gate with either technology.
 - **Morphology** is only as right as the call; an incomplete chromosome shifts the index.
 - **Old satellite outputs** read with `--satellite-dir` keep their version's rules; rerun without `--satellite-dir`.

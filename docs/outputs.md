@@ -92,10 +92,10 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `cpg_kt_start`, `cpg_kt_end` | the kinetochore: the deepest CpG dip (CDR) in the call's centromeric arrays, shown where the test passes; the deepest spread dip where no dip falls below half its surroundings. It refines the call |
 | `cpg_dip_depth` | the kinetochore candidate's methylation over its surroundings' (a level dip falls below 0.5; 1 = no dip; `.` = fewer than 50 kb of array with data) |
 | `cpg_dip_z` | the same dip's methylation below its surroundings', in robust SD of the surroundings' own variation (a spread dip falls below -3 and at least 34% below its surroundings; 0 = no dip). Unlike `cpg_dip_depth`, it does not change when a track encodes methylation on another scale (a PacBio bigWig, nanopolish) |
-| `cpg_pos_p` | the dips are deeper than methylation from elsewhere on the chromosome makes on the same array bins, by either measure of depth (minP over the same rotations; the test counts these) |
+| `cpg_pos_p` | the call's arrays hold dips deeper, or a valley wider, than methylation from elsewhere on the chromosome makes on the same array bins (level depth, spread depth and the most prominent valley's half-depth width, combined by minP over the same rotations; the test counts these). A call without a dip can have a small P, from its valley's width: it gets no kinetochore |
 | `cpg_kt_meth`, `cpg_array_meth` | mean methylation in the kinetochore; median over the call's arrays |
 | `cpg_array_data` | the share of the call's array bins with CpG data (a low share is a coverage hole: tracks piled up at MAPQ 60 lose most reads in arrays) |
-| `cpg_alt_start`, `cpg_alt_end` | where the test passes and the call's arrays have data but no dip: the CDR-like dip on another satellite array of the chromosome (deeper than methylation from elsewhere makes there). The call is contested (`cpg_elsewhere`) and kept |
+| `cpg_alt_start`, `cpg_alt_end` | where the test passes and the call's arrays have data but no dip and no `cpg_pos_p` ≤ 0.05: the CDR-like dip on another satellite array of the chromosome (deeper than methylation from elsewhere makes there). The call is contested (`cpg_elsewhere`) and kept |
 
 **Several plants**: `hic_library`, `hic_provenance`, `plants_shared`, `plants_shifted`, `plants_absent`,
 `plants_unresolved` ([plants.md](plants.md)).

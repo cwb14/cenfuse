@@ -1,5 +1,5 @@
-"""The CpG line (cdr.py): dips, the permutation test, both input formats, the gate, and the line on a small genome with
-planted dips (and its shifted negative control)."""
+"""The CpG line (cdr.py): dips, the width valley, the rotation test, the input formats, the gate, and the line on a
+small genome with planted dips (and its shifted negative control)."""
 import sys
 from pathlib import Path
 
@@ -147,11 +147,12 @@ def test_positional_p_is_honest_for_a_call_spanning_much_of_its_chromosome():
     y = np.full(1000, 0.8)
     y[440:460] = 0.1
     ch = _chrom(y)
-    d = ch.deepest(300, 600, np.ones(300, bool))
+    d = ch.measures(300, 600, np.ones(300, bool))
     assert d[0] is not None and ch.positional_p(300, 600, np.ones(300, bool), d) > 0.15
     small = _chrom(y[:6])                                        # fewer offsets than N_ROT: every one, once
     assert small.positional_p(0, 6, np.ones(6, bool), ((0.5, 0, 3), None)) == 1 / 6
-    assert small.positional_p(0, 6, np.ones(6, bool), (None, None)) == 1.0
+    assert small.positional_p(0, 6, np.ones(6, bool), ((0.5, 0, 3), None, None)) == 1 / 6
+    assert small.positional_p(0, 6, np.ones(6, bool), (None, None, None)) == 1.0
 
 
 def test_minp_ranks_each_depth_among_the_windows():
@@ -160,6 +161,9 @@ def test_minp_ranks_each_depth_among_the_windows():
     assert cdr.minp(v) == 0.5                 # window 0: ranks 2/4 (level), 1/4 (spread): min 1/4; window 2 also 1/4
     assert cdr.minp(v[[3, 0, 1, 2]]) == 1.0   # no dip in window 0: every window is at least as deep
     assert cdr.minp(np.array([[0.1], [0.2], [0.3], [0.4]])) == 0.25       # one depth: the plain rank P
+    w = np.array([[inf, inf, -30.0], [0.2, -9.0, -5.0], [0.3, -2.0, -4.0], [0.1, inf, -3.0]])   # + width (-run length)
+    assert cdr.minp(w[:, :2]) == 1.0          # window 0 has no dip ...
+    assert cdr.minp(w) == 0.75                # ... but the widest valley: rank 1/4, as two other windows' smallest
 
 
 def test_spread_depth_is_unchanged_by_recalibrating_the_track():
@@ -174,11 +178,72 @@ def test_spread_depth_is_unchanged_by_recalibrating_the_track():
     fin = np.isfinite(a.z) & np.isfinite(b.z)
     assert np.allclose(a.z[fin], b.z[fin])
     m = np.ones(1000, bool)
-    (la, sa), (lb, sb) = a.deepest(400, 600, m[400:600]), b.deepest(400, 600, m[400:600])
+    (la, sa, wa), (lb, sb, wb) = a.measures(400, 600, m[400:600]), b.measures(400, 600, m[400:600])
     for d in (sa, sb):                          # the same spread dip, +-1 bin (pooling: an edge bin, half CDR,
         assert abs(d[1] - 80) <= 1 and abs(d[2] - 100) <= 1      # falls 34% below its background in one track only)
     assert np.isclose(np.mean(a.z[480:500]), np.mean(b.z[480:500]))
     assert la is not None and la[0] < 0.3 and lb is None    # the level dip is gone: 0.375 over 0.7
+    assert wa == wb and wa[1] <= 80 and wa[2] >= 100           # the width: the same valley, the CDR inside
+
+
+def test_valley_is_the_half_depth_run_of_the_most_prominent_valley():
+    """0.15.0's width: the most prominent valley (an array edge is none), its run of bins below the midpoint between its
+    bottom and the median; one missing bin is interpolated, two break the run; a recalibrated track keeps it."""
+    y = np.full(100, 0.8)
+    y[20:24] = 0.1                                                 # narrow and deep: the most prominent
+    y[60:80] = 0.6                                                 # wide and shallow
+    m = np.ones(100, bool)
+    assert cdr.valley(y, m) == (-4.0, 20, 24)
+    y[20:24] = 0.7                                                 # now the wide one is the most prominent
+    assert cdr.valley(y, m) == (-20.0, 60, 80)
+    assert cdr.valley(0.3 + 0.5 * y, m) == (-20.0, 60, 80)        # unchanged by a + b x methylation
+    y2 = y.copy()
+    y2[70] = np.nan                                                # one missing bin: interpolated, the run holds
+    assert cdr.valley(y2, m) == (-20.0, 60, 80)
+    y2[71] = np.nan                                                # two: the run breaks, each half a valley no more
+    assert cdr.valley(y2, m)[0] > -20
+    m2 = m.copy()
+    m2[:65] = False                                                # the arrays start inside the valley: an edge
+    assert cdr.valley(y, m2) is None
+    assert cdr.valley(np.linspace(0.2, 0.9, 50), np.ones(50, bool)) is None   # monotone: no valley
+
+
+def test_width_adds_evidence_and_places_nothing(tmp_path, monkeypatch):
+    """Wide shallow CDRs (0.6 in arrays at 0.8: no level dip, no spread dip, 0.75 of the background): the width is
+    positional on every call, the gate passes, and no kinetochore is placed (only dips place). Without the width the
+    calls have nothing to test (P = 1) and the gate fails; shifted, the gate fails with it."""
+    f, calls, arrays = small_genome(tmp_path, cdr_level=0.6)
+    t = cdr.run([f], calls, arrays)["table"]
+    assert (t.dip_depth == 1).all() and (t.dip_z == 0).all() and (t.pos_p <= cdr.DIP_P).all()
+    assert t.gate_pass.all() and (t.kt_start < 0).all()
+    f2, calls, arrays = small_genome(tmp_path, cdr_level=0.6, shift=True)
+    assert not cdr.run([f2], calls, arrays)["table"].gate_pass.any()
+    monkeypatch.setattr(cdr, "valley", lambda y, mask: None)      # the two depths alone
+    t = cdr.run([f], calls, arrays)["table"]
+    assert (t.pos_p == 1).all() and not t.gate_pass.any()
+
+
+def test_contest_spares_a_call_with_a_positional_valley():
+    """A call with no dip but a wide shallow valley that methylation from elsewhere does not make (positional width):
+    its arrays carry CDR evidence, so another array's dip does not contest it; the same call flat is contested."""
+    rng = np.random.default_rng(0)
+    n = 6000
+    y = 0.8 + 0.02 * rng.standard_normal(n)
+    y[1040:1070] = 0.65 + 0.02 * rng.standard_normal(30)         # 150 kb at 0.81 of the background: no dip
+    y[4040:4060] = 0.1                                            # a deep dip on another array
+    cen = np.zeros(n, bool)
+    cen[1000:1100] = True
+    sat = cen.copy()
+    sat[4000:4100] = True
+    mk = lambda v: cdr.Chrom(np.vstack([v * 100, np.full(n, 100.0), np.full(n, 50.0)]), cen, sat, n * B)
+    a = mk(y)
+    r = a.assess(1000 * B, 1100 * B)
+    assert r["kt_start"] < 0 and r["dip_depth"] == 1 and r["pos_p"] <= cdr.DIP_P
+    assert a.elsewhere(1000 * B, 1100 * B) is None
+    y[1040:1070] = 0.8 + 0.02 * rng.standard_normal(30)
+    b = mk(y)
+    assert b.assess(1000 * B, 1100 * B)["pos_p"] > cdr.DIP_P
+    assert b.elsewhere(1000 * B, 1100 * B) == (4040 * B, 4060 * B)
 
 
 def test_profile_keeps_the_length_of_tiny_sequences():
@@ -202,13 +267,15 @@ L, CALL, NULLS, STEP = 20_000_000, (1_000_000, 1_500_000), (3_000_000, 3_400_000
 DIP, MOVED = (1_200_000, 1_300_000), (3_100_000, 3_200_000)
 
 
-def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0, scale=(0.0, 1.0)):
+def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(), keep_array=1.0, scale=(0.0, 1.0),
+                 cdr_level=0.15):
     """n chromosomes of L bp: a centromeric array over CALL with a 100-kb dip (DIP), an interstitial array over
     NULLS without one; a CpG every STEP bp (bedGraph fractions). shift: positions moved by L/2 (the negative control).
     everywhere: methylated 0.8 along the whole chromosome with a 100-kb dip every 400 kb (dips are not positional).
     moved: chromosomes whose dip lies in the interstitial array (MOVED) instead. keep_array: the share of the
     arrays' 50-kb blocks that keep their rows (a coverage hole elsewhere). scale: (a, b), the track recalibrated to
-    a + b x methylation (a compressed track: its CDR is no level dip)."""
+    a + b x methylation (a compressed track: its CDR is no level dip). cdr_level: the CDRs' methylation (noisy as the
+    arrays when above 0.15)."""
     rng = np.random.default_rng(seed)
     rows, arrays, calls = [], [], {}
     for i in range(n):
@@ -220,7 +287,8 @@ def small_genome(tmp_path, shift=False, n=6, seed=3, everywhere=False, moved=(),
         if c in moved:
             y[(pos >= MOVED[0]) & (pos < MOVED[1])] = 0.15
         else:
-            y[(pos >= DIP[0]) & (pos < DIP[1])] = 0.15
+            d = (pos >= DIP[0]) & (pos < DIP[1])
+            y[d] = 0.15 if cdr_level == 0.15 else cdr_level + 0.05 * rng.standard_normal(d.sum())
         if everywhere:
             y = 0.8 + 0.05 * rng.standard_normal(len(pos))
             y[(pos % 400_000) >= 300_000] = 0.15
@@ -278,18 +346,18 @@ def test_spread_dips_need_a_real_drop():
     for k in range(20):
         y, cen = _genome_like(rng, noise=lambda m: 0.03 * rng.standard_t(3, m))
         ch = _chrom_masked(y, cen)
-        heavy += ch.deepest(1500, 2100, cen[1500:2100])[1] is not None
+        heavy += ch.measures(1500, 2100, cen[1500:2100])[1] is not None
     assert heavy == 0
     y, cen = _genome_like(rng, level=0.99, noise=lambda m: 0.003 * rng.standard_normal(m))
     y[1800:1806] = 0.96
     ch = _chrom_masked(y, cen)
-    assert ch.deepest(1500, 2100, cen[1500:2100]) == (None, None)
+    assert ch.measures(1500, 2100, cen[1500:2100], width=False) == (None, None)
     flat = np.full(400, 0.8)
     flat[100:106] = 0.79
-    assert _chrom(flat).deepest(0, 400, np.ones(400, bool)) == (None, None)
+    assert _chrom(flat).measures(0, 400, np.ones(400, bool))[:2] == (None, None)
     y, cen = _genome_like(rng)
     y[1790:1810] = 0.85 * 0.61                                    # a CDR no level dip finds
-    lv, sp = _chrom_masked(y, cen).deepest(1500, 2100, cen[1500:2100])
+    lv, sp, _ = _chrom_masked(y, cen).measures(1500, 2100, cen[1500:2100])
     assert lv is None and sp is not None and abs(sp[1] - 290) <= 1 and abs(sp[2] - 310) <= 1
 
 
@@ -408,7 +476,8 @@ def test_contest_points_to_the_other_array(tmp_path):
     f, calls, arrays = small_genome(tmp_path, moved=("c0",))
     res = cdr.run([f], calls, arrays)
     t = res["table"].set_index("chrom")
-    assert t.gate_pass.all() and t.at["c0", "kt_start"] < 0 and t.at["c0", "pos_p"] == 1.0
+    assert t.gate_pass.all() and t.at["c0", "kt_start"] < 0 and t.at["c0", "pos_p"] > cdr.DIP_P   # its widest valley:
+                                                                  # noise, not positional
     assert abs(t.at["c0", "alt_start"] - MOVED[0]) <= B and abs(t.at["c0", "alt_end"] - MOVED[1]) <= B
     assert (t.drop(index="c0").alt_start < 0).all()
     ch = res["chroms"]["c0"]
