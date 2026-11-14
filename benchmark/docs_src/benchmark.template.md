@@ -251,6 +251,36 @@ Pooled, {{TOM14_POOLED}}.
 - **Truth caveats.** {{TOM14_CROSS}}. *S. lycopersicoides*' ChIP is weak (at most 5.2-fold); without it the `tes/`
   arms are 107 of 144 right and 11 confidently wrong.
 
+### The tomatoes' own Hi-C (0.16)
+
+Each of the 13 tomatoes has Hi-C from the same project (CNCB CRA018974; the first 50 M read pairs of each run, 27-31 M pairs
+mapped with chromap's Hi-C preset), and *S. verrucosum* its own Omni-C (SRR18554188, 56 M pairs): Hi-C on 14 more genomes of
+the genus where the LTR line is weakest. Right / chromosomes (confidently wrong):
+
+| genome | FASTA | + `tes/` | + Hi-C | + `tes/` + Hi-C |
+|---|---|---|---|---|
+{{TOM16_HIC_ROWS}}
+
+Pooled {{TOM16_HIC_POOLED}}
+
+- **Most of these libraries do not show the centromeres.** Hi-C's prior-free peaks are right on 21 of 161 chromosomes over
+  the 14 genomes. The cis and trans readouts meet beyond chance in 9 of them, but on at most half of the chromosomes (3-6 of
+  12) except in TS-60 (10 of 12), so the line acts only there and the other FASTA-only calls stay as they were. With `tes/`,
+  Hi-C anchored on the LTR cores raises the calls it agrees with, and adds 2 confident errors where the core is wrong
+  (LA0111, LA2134).
+- **Where a library does, Hi-C works as in the benchmark tomato.** TS-60: the cis extremes and the trans contacts meet on 10
+  of 12 chromosomes (P 1e-13). From the FASTA, 8 `low` calls move onto CENH3 and the 2 in a terminal eighth move to their
+  own trans pair (`cis_end_pair`): 1 -> 11 of 12, the remaining wrong call raised to `medium` where an extreme agrees with
+  it. With `tes/` the cis signal passes against the LTR cores too, and its 2 confidently wrong LTR calls move onto CENH3
+  (`cis_trans_pair`): 8 -> 11 of 12, no confident error (one right `low` call moves to a wrong extreme). TS-60 is the second
+  genome for both 0.16 rules (2 of 2 each), still too few to make them confident. TS-9 with `tes/`: the cis extremes lower
+  its 2 confident errors and move 3 `low` calls onto CENH3, 7 -> 10 of 12.
+- ***S. verrucosum*'s Omni-C** passes the cis test against the LTR cores only at its support tier (6 of 12); there it raises
+  the calls it agrees with (2 of them wrong) and, since 0.16, moves none: the 3 `low` calls 0.15's rules moved were all
+  wrong ([future.md #53](future.md#53-where-the-cis-trans-line-passes-every-extreme-is-trusted)).
+
+What the Hi-C rules did in these arms: {{TOM16_RULES}}
+
 ## Point, regional and AT-rich centromeres
 
 ![Hi-C finds centromeres where nuclei cluster them](img/benchmark_hic.png)
@@ -279,6 +309,25 @@ evenly than a random deal. The test asks this of the deepest class of troughs, a
 19, *C. neoformans* in anaphase 6, *C. tropicalis* 6, yeast 3), `medium` where an AT trough agrees (*M. sympodialis* 7,
 *C. neoformans* in anaphase 4). *C. tropicalis* (3C-seq) passes no test; its peaks count although their null test
 cannot run there. *C. neoformans* in G1 is placed by the [cis signal](#hi-cs-two-readouts-test-each-other).
+
+### Repeat centromeres from the FASTA (0.16)
+
+Two lines read repeats without an annotation, each tested one per chromosome as the AT troughs are ([design](design.md)), and
+each runs only where most chromosomes have no confident sequence call. The scans below ran them on every FASTA-only genome
+with truth, whether cenfuse would run them there or not.
+
+- **Repeat density** (each chromosome's densest stretch of repeated sequence): passes in *C. neoformans* (both assemblies,
+  14 of 14 peaks on CENP-A, P 0.0004), *Chlamydomonas* (17 of 17), *Chlorella* (10 of 10) and *V. dahliae* (8 of 8); no large
+  genome passes. It places what nothing else places (`rep_only`): *C. neoformans* from the FASTA, 0 -> 14 of 14 in each
+  assembly, and *Chlorella* 9 more.
+- **Repeat families** (sampled 31-mers that cluster at one locus on most chromosomes): passes in 32 of 71 genomes, its peaks
+  right on 323 of 363 chromosomes: every *Solanum* genome (7-12 of 12, where the FASTA-only calls get 0-5), *Ae. geniculata*
+  14 of 14 (the FASTA-only calls 0), the *B. rapa* lines, maize, sorghum, soybean, rice, *Chlamydomonas*, *Chlorella*, *N.
+  crassa* and *V. dahliae*. Mammals, chicken and the four holocentric genomes fail; T2T mouse, whose centromeres lie in the
+  terminal eighths the line skips, comes near (P 0.015) with every peak interstitial. Where most calls are `low` and the
+  line passes, it flags the `low` calls it contradicts (`fam_elsewhere`): its window was right on 89 of 110 such calls,
+  the calls on 8, but moving them brought the polyploid panel's homoeologous calls no closer, so the calls stay `low` where
+  they are and the caveat names the window ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)).
 
 ## Hi-C
 
@@ -333,7 +382,8 @@ maps simulated with the same coverage and distance decay, and the test cenfuse r
 {{CIS_FLAT}}
 
 - **Tomato:** the peak lies on CENH3 on all 12 chromosomes. Against the LTR cores it passes (8 of 12, P 2.4e-5), moves
-  the `low` calls and lowers the confident calls it contradicts: 10 of 12 right, none confidently wrong.
+  the `low` calls and lowers the confident calls it contradicts; since 0.16 the 2 confident calls it contradicts move to
+  it where the trans contacts confirm the extreme too (`cis_trans_pair`, `low`): 12 of 12 right, none confidently wrong.
 - **Potato:** the dip, at a flank of the centromere, passes against the cores (7 of 12, P 1.4e-5): 9 of 11 right, 1
   confidently wrong.
 - **Effect on calls** (tomato, potato, *Ae. tauschii*): it raises 17 calls a level, all right; moves 6 `low` calls (4
@@ -354,11 +404,13 @@ since chromosome ends cluster whatever the centromere. Runs where it passes or s
 
 {{CIS_TRANS_FAIL}} {{CIS_TRANS_RANDOM}}
 
-- **Tomato** from the FASTA and Hi-C: it moves 9 `low` satellite calls onto CENH3 and raises the one it agrees with:
-  10 of 12 right. The other 2 lie in a terminal eighth, where it cannot see (`cis_blind`;
-  [future.md #32](future.md#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts)).
-- ***C. neoformans* in G1**, where the prior-free peaks sit at the chromosome ends and every other line fails: 14 `low`
-  calls, 12 right and 2 at 19-20 kb from CENP-A.
+- **Tomato** from the FASTA and Hi-C: it moves 9 `low` satellite calls onto CENH3 and raises the one it agrees with. The
+  other 2 lie in a terminal eighth, where it cannot see; since 0.16 they move to the interior extreme where the
+  chromosome's own trans peak lies (`cis_end_pair`, `low`; [future.md #32](future.md#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts)):
+  12 of 12 right. TS-60 repeats both moves ([its own Hi-C](#the-tomatoes-own-hi-c-016)).
+- ***C. neoformans* in G1**, where the prior-free peaks sit at the chromosome ends: since 0.16 the AT trough or the
+  repeat-density peak that agrees with a cis call gives its interval and makes it `medium` (`at_pair` 5, `rep_pair` 8): 13
+  of 14 right, all 13 `medium`; the remaining call stays `low`, 19 kb from CENP-A.
 - Where the anchored test passes on most chromosomes (rice, soybean, the apes) it does not run.
 
 ### Which end

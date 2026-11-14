@@ -32,19 +32,26 @@ before trusting it.
 2. **AT troughs** (from the FASTA). Many fungal and protist centromeres sit on the most AT-rich stretch of their
    chromosome. If the deepest troughs fall one per chromosome, they place calls where nothing else does and choose
    between the two candidate arrays of a `low` call (mouse: the CENP-A minor satellite on 17 of 20 chromosomes).
-3. **LTR retrotransposons** (`tes/`). cenfuse learns which retrotransposon families pile up once per chromosome in
+3. **Repeats** (from the FASTA). Where centromeres are built from transposons, no annotation is needed. In small genomes
+   each chromosome's densest stretch of repeated sequence marks it (*Cryptococcus*, *Chlorella*, *Chlamydomonas*); in
+   large ones, repeat families (sampled 31-mers) that cluster once per chromosome do (tomato, potato, *Brassica*, maize).
+   If they fall one per chromosome, they place calls where nothing else does, give a Hi-C call a second line, and flag a
+   `low` call they contradict (*C. neoformans* from the FASTA alone: 14 of 14 on CENP-A; repeat-family peaks right on 323
+   of 363 chromosomes in the 32 benchmark genomes where they pass).
+4. **LTR retrotransposons** (`tes/`). cenfuse learns which retrotransposon families pile up once per chromosome in
    this genome (CRM in grasses, Tekay in tomato, Bryco in moss) and finds their densest cluster on each chromosome. A
    strong signature can replace a satellite call.
-4. **Hi-C** (`hic/`). Centromeres touch each other in the nucleus. Before Hi-C may act, it must find the *other*
+5. **Hi-C** (`hic/`). Centromeres touch each other in the nucleus. Before Hi-C may act, it must find the *other*
    chromosomes' centromeres in your library (or the LTR cores, or pass its own internal checks). It can then confirm
    or move a call, or place one where the sequence gives none (yeasts and other fungi; untested Hi-C alone gives only
    `low` calls).
-5. **Methylation** (`meth/`). In primates and some other vertebrates, a dip in CpG methylation marks the kinetochore
+6. **Methylation** (`meth/`). In primates and some other vertebrates, a dip in CpG methylation marks the kinetochore
    inside the call, and a call whose arrays lack one, while another array holds one, is contested (never moved). In
    plants, CHG methylation can be a second line of evidence.
-6. **Integration.** The sequence call stands unless tested evidence moves it. Agreement raises the confidence,
-   disagreement lowers it, and moving a `high` call takes two tested lines. cenfuse prefers an honest `low` to a
-   confident error.
+7. **Integration.** The sequence call stands unless tested evidence moves it. Agreement raises the confidence,
+   disagreement lowers it, and moving a `high` call takes two tested lines. Two lines from two inputs at one place (a Hi-C
+   call and an AT trough or a repeat peak) make a call `medium` even where nothing else is known. cenfuse prefers an
+   honest `low` to a confident error, and says so when no line passed a test in your genome.
 
 More: [docs/design.md](docs/design.md).
 
@@ -53,8 +60,8 @@ More: [docs/design.md](docs/design.md).
 | your genome | its centromeres are usually | give cenfuse | from the benchmark |
 |---|---|---|---|
 | mammals, birds; plants with a centromeric satellite (rice, *Brassica*, soybean, maize, *Arabidopsis*) | satellite arrays | the FASTA; Hi-C and genes add a check | right on most chromosomes from the FASTA alone |
-| plants without a dominant centromeric satellite (barley, *Aegilops*, potato, tomato), moss, green algae | clusters of LTR retrotransposons, or no repeat | the FASTA + `tes/`; add Hi-C if you have it | with `tes/`: barley 0 → 7/7, potato 2 → 10/11; with Hi-C: tomato 1 → 10/12 |
-| yeasts, other fungi, *Plasmodium* | point, regional or AT-rich | the FASTA + Hi-C | AT-rich ones from the FASTA alone; the rest need Hi-C |
+| plants without a dominant centromeric satellite (barley, *Aegilops*, potato, tomato), moss, green algae | clusters of LTR retrotransposons, or no repeat | the FASTA + `tes/`; add Hi-C if you have it | with `tes/`: barley 0 → 7/7, potato 2 → 10/11; with Hi-C: tomato 1 → 12/12 (where the library shows the centromeres) |
+| yeasts, other fungi, *Plasmodium* | point, regional, AT-rich or transposon-rich | the FASTA + Hi-C | AT-rich and transposon-rich ones (*Cryptococcus*) from the FASTA alone; the rest need Hi-C |
 | primates, to place the kinetochore | alpha-satellite arrays | + CpG methylation (ONT or PacBio HiFi) | kinetochore within 50 kb of CENP-A on 53 of 63 |
 | holocentric species (nematodes, moths, *Rhynchospora*) | no single centromere | anything | no confident call (0 in 46 chromosomes) |
 
@@ -65,7 +72,7 @@ Adding inputs is safe: Hi-C or methylation that fails its test in your genome is
 Calls were scored against centromeres mapped by CENP-A/CENH3 ChIP (or CUT&Tag, DiMeLo-seq) on the same assembly. A
 call is right when it overlaps the CENP-A domain (mammals), lies within about 1 Mb of the CENH3 domain (plants; 100 kb
 for moss and algae) or within one Hi-C bin (fungi, *Plasmodium*). *Confident* = `high` or `medium`. Numbers are from
-cenfuse 0.15.0. Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every genome's overview
+cenfuse 0.16.0. Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every genome's overview
 page: [docs/gallery.md](docs/gallery.md).
 
 | genomes | centromeres made of | FASTA only: right, confidently wrong | more inputs: right, confidently wrong |
@@ -84,22 +91,26 @@ page: [docs/gallery.md](docs/gallery.md).
 | potato | satellite on half, none on half | 2/11, 0 | + `tes/`: 10/11, 1; + Hi-C too: 9/11, 1 |
 | *Aegilops tauschii* | CRM beside satellites | 1/7, 0 | + `tes/`: 5/7, 2 |
 | moss (*Physcomitrium*) | Copia (Bryco) retrotransposon clusters | 16/26, 0 (all `low`) | + `tes/`: 26/26, 0; + Hi-C: 21/26, 0; both: 26/26, 0 |
-| *Chlorella sorokiniana* | 2-7 Copia (Osser) insertions | 0/10, 0 | + `tes/`: 9/10, 0 |
+| *Chlorella sorokiniana* | 2-7 Copia (Osser) insertions | 9/10, 0 | + `tes/`: 9/10, 0 |
 | *Chlamydomonas* | LINE clusters | 6/17, 0 (all `low`) | + `tes/`: unchanged |
-| tomato | no repeat, beside a dominant satellite | 1/12, 0 | + Hi-C: 10/12, 0; + `tes/`: 8/12, 2; both: 10/12, 0 |
+| tomato | no repeat, beside a dominant satellite | 1/12, 0 | + Hi-C: 12/12, 0; + `tes/`: 8/12, 2; both: 12/12, 0 |
 | horse EquCab3 (older assembly) | satellites; chr11 none | 3/5, 0 (all `low`) | + Hi-C: unchanged |
 | budding and fission yeast, *Plasmodium*, *Neurospora* | point, regional, AT-rich | 20/40, 0 | + Hi-C: 40/40, 0 |
-| 5 more fungi (6 Hi-C libraries) | regional | 16/72, 0 | + Hi-C: 66/72, 0 |
+| 5 more fungi (6 Hi-C libraries) | regional | 44/72, 0 | + Hi-C: 68/72, 0 |
 | 4 holocentric genomes (any confident call is wrong) | no single centromere | 0 confident in 46 | + Hi-C: 0 confident |
 
 - **Confidence is calibrated.** Over the 47 genomes with truth, each with all its inputs, `high` calls were right 406
-  of 410 times, `medium` 64 of 69 and `low` 118 of 145.
+  of 410 times, `medium` 83 of 88 and `low` 103 of 127.
 - **Evidence that fails its test changes nothing.** On randomized Hi-C (57 runs) and misplaced methylation (8
   primates) no test passed and no call changed. Shuffled LTR positions give no centromeric signature; shuffled GC
-  blocks pass the AT test 3.9% of the time, under its 5% level. On holocentric genomes no call is confident.
+  blocks pass the AT test 3.9% of the time, under its 5% level. On holocentric genomes no call is confident, and neither
+  repeat line passes.
 - **Satellite-free centromeres are harder.** In 13 tomato genomes with `tes/`, 115 of 156 chromosomes are right, but
   14 of the 72 confident calls are wrong: treat a `medium` call from a Tekay core with caution. The allotetraploid
-  *Ae. geniculata*: 13 of 14 right with `tes/` (1 confidently wrong); the wild potato *S. verrucosum*: 8 of 12.
+  *Ae. geniculata*: 13 of 14 right with `tes/` (1 confidently wrong); the wild potato *S. verrucosum*: 8 of 12. From the
+  FASTA alone the repeat-family line finds these centromeres (peaks right on 7-12 of 12 in each tomato, 14 of 14 in
+  *Ae. geniculata*), but only flags the `low` calls it contradicts. With their own Hi-C, the 14 *Solanum* genomes go from
+  123 to 130 of 168 with `tes/`.
 - **Kinetochores from CpG methylation** (5 great apes with DiMeLo-seq CENP-A): a median 45 kb wide inside calls of
   3.0 Mb; 53 of 63 lie within 50 kb of CENP-A. All five pass with ONT and with PacBio.
 
@@ -110,7 +121,9 @@ page: [docs/gallery.md](docs/gallery.md).
   reads (about 70 M pairs for a 3-Gb genome). Its cis signal works in some plants and fungi but in no mammal.
 - A small active array beside a large inactive one of the same satellite is called on the large one (one orangutan
   chromosome).
-- Right calls are often left `low` (chicken 27 of 33, *Z. tritici* 19 of 21).
+- Right calls are often left `low` (chicken 27 of 33, *Z. tritici* 19 of 21), and in retrotransposon genomes from the
+  FASTA alone the right place is often only named in the caveat (`fam_elsewhere`): moving those calls was right on 89 of 110
+  benchmark chromosomes but did not hold up on the polyploid panel.
 - In allopolyploids, a family that looks like a satellite can be a chain of partial retrotransposon copies. Such calls
   are flagged (`partial_chain`) and held to `medium` at most, a choice no genome with truth has tested yet.
 
@@ -120,7 +133,7 @@ page: [docs/gallery.md](docs/gallery.md).
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-pytest -q -n 8          # optional: about 1,180 tests on tiny synthetic genomes, a few minutes
+pytest -q -n 8          # optional: about 1,230 tests on tiny synthetic genomes, a few minutes
 ```
 
 On linux-64, `mamba create -n cenfuse --file environment.lock.txt` gives the benchmark's exact environment.
@@ -140,7 +153,8 @@ it reuses the finished work.
 size. From the FASTA: a 0.7-Gb wild potato 16 min at 16 threads; 13 tomato genomes (0.8-1.2 Gb) 13-50 min at 16
 threads and 7-46 GB; the 7.9-Gb allotetraploid *Ae. geniculata* 64 min at 32 threads and 17.5 GB; T2T mammals
 (2.6-3.6 Gb) 1-10 h at 12 threads and up to 74 GB. Adding `tes/` to a finished run takes 1-12 min; Hi-C and the
-integration take minutes.
+integration take minutes. Where most chromosomes have no confident sequence call, the two repeat lines read the whole FASTA
+on one thread: up to 27 and 15 min on 4-5 Gb (*Ae. geniculata*, barley), a few minutes below 1 Gb.
 
 ## Inputs
 

@@ -34,8 +34,8 @@ LTRquest annotations; the DANTE_LTR and EDTA + TEsorter readers are kept, with t
 ## Stages
 
 ```
-satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> repeats -> genotype -> hic -> karyotype -> fold -> provisional ->
-meth -> fuse -> cpg -> plants -> morphology -> interpret -> output -> loci -> report -> plot
+satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> repeats -> repfam -> genotype -> hic -> karyotype -> fold ->
+provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> output -> loci -> report -> plot
 ```
 
 The LTR line reads `tes/` right after the satellite stage; insertion ages are read before the provisional call. `genotype`,
@@ -119,12 +119,6 @@ satellite fails and its Tekay family decides; *Arabidopsis*' CEN180 passes and A
   is then chosen again (`seq_rejected_family`).
 - *Agrees:* a call that agrees with the core is at least `medium` (`te_concordant`), and the two caps above do not apply to it.
   A chromosome without a call takes the core, `medium`.
-- *An untested array in a core* (0.16, `satellite_in_core`; [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)).
-  Where the satellites failed the one-per-chromosome test or none dominates, an array's place is untested: a call that agrees
-  with a decisive core without holding all of it (at its edge, or beside it) gives way to the core, `medium`; a call that
-  holds the whole core stays. Over the 98 `tes/` arms of the 0.15 release this made right *Ae. tauschii* Chr5 and Chr7 (arrays
-  at the edge of 7-9-Mb CRM cores holding CENH3) and *S. lycopersicoides* CM175231.1, and turned potato chr08's confident miss
-  `low` with Hi-C; satellite arrays that passed their test keep their place (rice, *B. rapa*, *Arabidopsis*, grape).
 - *Replaces* a weak array beside it, and a satellite call away from it that is `low` on its own. A `high` or `medium` call away
   from it, or a satellite array beside it, it replaces only when the core is ≥ 10-fold on its chromosome and the signature's
   elements sit significantly more in the core than in the call (binomial at 1/2, P ≤ 0.01). A confident call away from it
@@ -195,13 +189,55 @@ windows whose midpoint lies in a terminal eighth are left out (chromosome ends g
 
 **The test** is the AT line's, on the negated readout, at P ≤ 0.01 after the correction for the window sizes: block shuffles
 (2,100 of 8 genomes) passed it 6.5% of the time at 0.05. It runs where most chromosomes have no confident sequence call.
-Developed in `dev/repeats` (rules fixed before computing): *C. neoformans* P 0.0004, all 14 peaks on CENP-A (median width
+Development (rules fixed before computing): *C. neoformans* P 0.0004, all 14 peaks on CENP-A (median width
 49 kb, centromeres 20-65 kb); *V. dahliae*, *Chlorella* and *Chlamydomonas* pass, every peak right; *C. elegans*,
 *C. nigoni*, *B. mori*, *M. sympodialis* and tomato are silent; soybean and rice, whose centromeres are satellite arrays,
 are silent once the arrays are left out.
 
-**What it may change.** Like a trough, it places only a chromosome nothing else places, `low` (`rep_only`), and never
-moves, opposes or raises a call. The AT trough, where its test passes, places first.
+**What it may change.** Like a trough, it places only a chromosome nothing else places, `low` (`rep_only`); where its peaks
+were tested against the Hi-C readout that placed a call on a chromosome without a sequence call and agree with it there, it
+is that call's second line and gives the interval (`rep_pair`, `medium`). It never moves, opposes or raises a sequence call.
+The AT trough, where its test passes, places and pairs first.
+
+## Repeat families (`famline.py`, 0.16)
+
+**Reads** the FASTA (every sequence counts copies) and the satellite engine's arrays. Where centromeres are clusters of
+particular retrotransposon families (Tekay-type elements in *Solanum*, CRM in grasses) and no satellite family passes its
+one-per-chromosome test, the FASTA still holds what the LTR line reads from an annotation: families concentrated at one
+locus on most chromosomes. Repeat density cannot see them in large genomes, where the whole pericentromere is dense (its
+peaks: 0-2 of 12 right in the tomatoes, 0 of 7 in barley).
+
+**The readout.** K-mers stand in for families. A fixed hash keeps 1 in 32 canonical 31-mers (every copy of a kept 31-mer is
+kept, so its copy number is exact). Left out: 31-mers that touch a satellite array (a 31-mer with half its copies in arrays is
+dropped), 31-mers with a period of at most 15 bp (tandem units), and 31-mers with fewer than 1.5 N copies (N chromosomes). A
+31-mer is concentrated on a chromosome where at least 3 of its copies lie there and at least half of them in one window; a
+family 31-mer is concentrated on at least half of the chromosomes. Each family 31-mer votes once per chromosome where it is
+concentrated, at the centre of its densest window. The profile is the votes per window (0.1, 0.3, 1 and 3 Mb).
+
+**The test** is the AT line's, on the negated votes, at P <= 0.01 after the correction for the window sizes, with windows in a
+terminal eighth left out. It runs where the repeat-density line runs: most chromosomes have no confident sequence call.
+What a pass means: every family 31-mer votes at most once per chromosome, so a genome whose families each cluster at one locus
+per chromosome passes wherever those loci are. A pass says such families exist; in monocentric genomes they mark the
+centromeres, and holocentric genomes have none. For the same reason block shuffles are no null here (moving 100-kb blocks
+spreads a family's clusters one per chromosome: 12 of 160 shuffles passed); the controls are holocentric genomes.
+Development (rules fixed before computing; one sampled K-mer table per genome): the line passes in 32 of the benchmark's 71
+FASTA-only genomes, and there its peaks are right on 323 of 363 chromosomes: the 14 *Solanum* genomes (the 13 tomatoes,
+potato and *S. verrucosum*; 7-12 of 12 each, where the satellite line gets 0-5), *Ae. geniculata* (14 of 14, the satellite line
+0), the 10 *B. rapa* lines, maize, sorghum, soybean, rice (7 of 12), *Chlamydomonas* (17 of 17), *Chlorella*, *N. crassa* and
+*V. dahliae*. It fails in every mammal and
+in chicken (their satellite arrays left out), in the four holocentric genomes (P 0.34-0.71), in barley and *Brachypodium*
+(7 and 5 chromosomes: too few; barley's peaks are right on 7 of 7) and in *C. neoformans* (which the repeat-density line
+places). T2T mouse, whose centromeres lie in the terminal eighths the line does not read, comes near (P 0.015) with every
+peak interstitial.
+
+**What it may change.** It places only a chromosome nothing else places, `low` (`fam_only`), after the AT trough and the
+repeat-density peak, and is the second line of a Hi-C call on a chromosome without a sequence call where its peaks were
+tested against that Hi-C readout (`fam_pair`, `medium`), after the trough and the density peak. On a `low` sequence call
+outside the terminal eighths whose chromosome's family window lies elsewhere it says so (`fam_elsewhere`, in the caveat)
+and the call stays: moving such calls onto the window was right far more often on the benchmark (89 of 110 against 8, in
+18 genomes: 14 *Solanum*, *Ae. geniculata*, *Chlamydomonas*) but brought the polyploid panel's homoeologous calls no closer (64 pairs: 24 closer, 27
+farther), so it waits for more truth where the line passes ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)).
+It never moves, opposes or raises a sequence call.
 
 ## rDNA and telomeres
 
@@ -283,8 +319,10 @@ the LTR cores (weak ones included), not the sequence calls:
   marks the centromere in many plants and fungi, not in mammals, and its sign differs (a peak in tomato, a dip in potato), so
   the LTR cores choose the sign (Bonferroni over two). The chance is the larger of the zone's share and the rate in 200 maps
   simulated with the same coverage and distance decay. At `support` or `pass`: an extreme at the call raises it (`cis_agrees`);
-  within 4 bins, nothing (`cis_near`); farther, a `low` call moves to it and stays `low` (`cis_only`), and a confident call
-  stays, flagged (`cis_elsewhere`), one level lower at `pass`.
+  within 4 bins, nothing (`cis_near`); farther, at `pass` a `low` call moves to it and stays `low` (`cis_only`), and a confident
+  call stays, flagged (`cis_elsewhere`), one level lower. At `support` (0.16) a call it contradicts stays, flagged: like the
+  gate's support tier, a readout right on a minority of chromosomes raises the calls it agrees with and moves none
+  (*S. verrucosum* with `tes/` and Omni-C, the first cis line at `support`: its 3 moves were all wrong).
 - **The cis extreme tested twice** (0.16, future.md #27). Where the LTR cores pass the cis signal, the library's trans contacts
   test it too (as below, without LTR cores). A confident call the extreme contradicts moves to it where the chromosome's own
   trans peak lies at that extreme (`cis_trans_pair`): the extreme has passed two genome-wide tests and is marked by the
@@ -386,14 +424,17 @@ trough refines it last, and the Rabl axis may contest it. The `rule` column name
 | support tier; the call's own significant peak agrees | `concordant`, one level up (`hic_support`) |
 | no reference calls in the genome, no sequence call, a clean `high` prior-free peak | the prior-free core, `functional_only`, `low` (`hic_denovo_only`) |
 | gate failed; Hi-C's peak at the LTR core, tested genome-wide | a call on the core rises a level (`te_hic_pair`); a `low` call off it moves to the core, `medium`; at `pass` any call does, and a `high` one stays `high` |
-| gate failed; the cis signal tested against the LTR cores | at the call one level up (`cis_agrees`); within 4 bins nothing (`cis_near`); farther, a `low` call moves, still `low` (`cis_only`), and a confident call stays (`cis_elsewhere`), one level lower at `pass` |
+| gate failed; the cis signal tested against the LTR cores | at the call one level up (`cis_agrees`); within 4 bins nothing (`cis_near`); farther, at `pass` a `low` call moves, still `low` (`cis_only`), and a confident call stays one level lower (`cis_elsewhere`); at `support` both stay, flagged (0.16) |
 | gate failed; the LTR cores and the trans contacts both pass the cis signal; the chromosome's own trans peak at its extreme; a confident call elsewhere | moves to the extreme, `low` (`cis_trans_pair`; a named heuristic from tomato) |
 | gate failed; no LTR cores; the cis signal tested by trans contacts at `pass` | the same rules, outside the terminal eighths only; a `low` call in a terminal eighth moves to the interior extreme where the chromosome's own trans peak lies, still `low` (`cis_end_pair`; tomato) |
 | gate failed; no Rabl axis; a call in a terminal eighth at the end with the higher anchored score, as on most such chromosomes | one level up (`hic_end`) |
 | no call from sequence, Hi-C or LTRs; AT troughs passed | the trough, `low` (`at_only`); `medium` where Hi-C's prior-free peaks validated the troughs |
 | no call from any line above; the repeat-density test passed | the densest repeat stretch, `low` (`rep_only`, 0.16) |
+| no call from any line above; the repeat-family test passed | the strongest family window, `low` (`fam_only`, 0.16) |
+| a `low` sequence call outside the terminal eighths; the repeat-family test passed; its window elsewhere on this chromosome | the call stays, flagged (`fam_elsewhere`, 0.16): said in the caveat |
 | a `low` call with a competing cluster; AT troughs passed; the deepest trough window on the cluster, not on the call | that cluster, `low` unless another line agrees there (`at_chose_alt`); not where validated Hi-C can tell the two apart |
 | a Hi-C call on a chromosome without a sequence call; a tested trough agrees | the trough's interval, one level up (`at_pair`): the troughs tested against the prior-free peaks, or against the cis extremes for a `cis_only` call (0.16) |
+| the same, no agreeing trough; a tested repeat-density peak (then a repeat-family window) agrees | its interval, one level up (`rep_pair`, `fam_pair`, 0.16) |
 | no call from any line; a trough and a clean prior-free peak (that placed no call) agree, in a genome where the two agree beyond chance | the trough, `low` (`at_denovo_pair`) |
 
 CpG kinetochores are added after the integration. The CpG gate and its contest (`cpg_elsewhere`) enter it as one line against a kept sequence call, as a contesting Hi-C line; CpG never moves or raises a call.

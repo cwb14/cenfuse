@@ -48,23 +48,28 @@ An entry is done only when these hold (design.md, Principles).
 
 ## Where to start
 
-0.15.0: 2,236 of 2,624 chromosome-runs with truth right in the real arms (85.2%; 0.14: 82.9%; confident errors unchanged). Taking, on
-each, a line whose own locus is right would reach 91.3%; most headroom is in AT troughs (91 of 161, nearly all *C. neoformans*) and
-competing clusters (30). Confident misses: 12 in the release runs ([benchmark.md](benchmark.md#every-confident-miss)), and 16 with `tes/` in the genomes added
-since 0.14 (2 in *Ae. geniculata* and *S. verrucosum*, 14 in the 13 tomatoes). In order:
+0.16.0: 2,309 of 2,624 chromosome-runs with truth right in the real arms (88.0%; 0.15: 85.2%), 35 confidently wrong (0.15: 36):
+the new repeat lines place *C. neoformans* and *Chlorella* from the FASTA, and pairing a Hi-C call with a tested trough or repeat
+peak makes 38 calls `medium`, all right. The largest headroom left is in retrotransposon genomes from the FASTA alone, where the
+repeat-family window is right on 89 of the 110 `low` calls it contradicts but only flags them (#76); then the competing
+clusters (40 chromosome-runs where the second array is right) and yeasts' AT troughs, which are "right" only at the 250-kb
+tolerance (#37). Confident misses: [benchmark.md](benchmark.md#every-confident-miss). In order:
 
-1. **#27, #46, #72**: wrong LTR cores in non-CRM genomes (tomatoes: cores right on 117 of 156; 14 of 72 confident calls wrong).
+1. **#76, #27, #72**: retrotransposon centromeres: truth beyond *Solanum* where the repeat-family line passes and the calls are
+   `low` (the panel did not confirm moving them); Hi-C settles them only where the library shows the centromeres (TS-60).
 2. **#35**: the public sets (Solanaceae with Hi-C or ChIP, wheat, oat, soybean lines, cattle, gibbon, a same-animal horse).
-3. **#45**: calls at the edge of a wide LTR core (5 confident errors); tie-break the core's maximum first.
-4. **#28, #39, #47**: *C. neoformans*, whose troughs are right but fail the test and whose LTR elements have no lineage.
-5. **#37, #38, #50**: the 7 mammal misses of the 12 (6 scored against other animals' ChIP or another caller).
-6. **#63**: the remaining large functions.
-7. **#32**: the own-trans-pair rule, once a second genome shows the case.
+3. **#32, #27**: `cis_end_pair` and `cis_trans_pair` are right on 4 of 4 in two genomes each (tomato, TS-60); a third genome
+   with the case would let them make confident calls.
+4. **#45**: calls at the edge of a wide LTR core; `satellite_in_core` failed the panel, so the question is which locus holds
+   CENH3 where an array sits at a core's edge.
+5. **#37, #38, #50**: the mammal misses (6 scored against other animals' ChIP or another caller).
+6. **#74, #76**: the repeat lines read the FASTA on one thread (up to 27 + 15 min on 4-5 Gb); one process per sequence.
+7. **#63**: the remaining large functions.
 8. **#60, #65**: CI's first result.
 
 ## All entries
 
-Closed, one line each under [Closed entries](#closed-entries): 11, 12, 17, 18, 19, 20, 21, 23, 24, 25, 26, 36, 59, 64.
+Closed, one line each under [Closed entries](#closed-entries): 11, 12, 17, 18, 19, 20, 21, 23, 24, 25, 26, 33, 36, 59, 64, 69.
 
 | # | area | problem | status | next step |
 |---|---|---|---|---|
@@ -81,15 +86,14 @@ Closed, one line each under [Closed entries](#closed-entries): 11, 12, 17, 18, 1
 | [13](#13-bird-microchromosomes-in-hi-c) | Hi-C | bird microchromosomes in Hi-C | waiting for data | deeper chicken Hi-C |
 | [14](#14-the-rabl-axis-where-the-fold-has-no-power) | Hi-C | the Rabl axis where the fold has no power | partly done | partners on confident calls; Rabl tissue |
 | [15](#15-centromeres-at-the-edge-of-a-terminal-unmappable-array) | Hi-C | centromeres at the edge of a terminal unmappable array | partly done | chicken; the sheep X call |
-| [16](#16-the-chg-line-has-changed-no-call) | methylation | the CHG line has changed no call | open | same-plant CHG with CENH3 (data exist) |
+| [16](#16-the-chg-line-has-changed-no-call) | methylation | the CHG line has changed no call | open | rice (same assembly) changes nothing; barley, CPC54 data downloaded |
 | [22](#22-pa1a-in-other-p-annua-plants) | plants | Pa1A in other *P. annua* plants | waiting for data | CENH3 or deeper reads from those plants |
-| [27](#27-wrong-ltr-cores-that-look-right) | LTR | wrong LTR cores that look right | open | an independent line; non-CRM genomes beyond *Solanum* |
+| [27](#27-wrong-ltr-cores-that-look-right) | LTR | wrong LTR cores that look right | open | an independent line in *Solanum*: the 13 tomatoes' own Hi-C sees no centromere |
 | [28](#28-where-at-troughs-do-not-work) | AT | where AT troughs do not work | open | a second feature that *C. neoformans* passes |
 | [29](#29-what-the-contact-crossing-a-centromere-is) | Hi-C | what the contact crossing a centromere is | waiting for data | the gap artifact; mutant or cell-cycle Hi-C |
 | [30](#30-a-hi-c-test-with-too-few-confident-references) | Hi-C | a Hi-C test with too few confident references | built, unchecked | a genome where it acts, with truth |
 | [31](#31-a-centromere-that-left-its-satellite-and-its-ltr-families) | LTR | a centromere that left its satellite and its LTR families | built, unchecked | CENH3 of *P. annua* |
-| [32](#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts) | Hi-C | calls in a terminal eighth that an interior line contradicts | open | a second genome for the own-trans-pair rule |
-| [33](#33-cis-and-trans-at-one-locus-as-a-confident-call) | Hi-C | cis and trans at one locus as a confident call | open | the AT trough's finer interval |
+| [32](#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts) | Hi-C | calls in a terminal eighth that an interior line contradicts | built, low | a second genome with `cis_blind` |
 | [34](#34-the-benchmark-cannot-be-rerun-from-the-repository) | benchmark | the benchmark cannot be rerun from the repository | partly done | the scripts still outside; a fresh run of every arm |
 | [35](#35-truth-on-disk-or-public-not-yet-used) | benchmark | truth on disk or public, not yet used | partly done | fetch and score the public sets |
 | [37](#37-scoring-rules-and-controls-to-tighten) | benchmark | scoring rules and controls to tighten | partly done | the end-conditioned chance model; full-depth controls |
@@ -99,16 +103,16 @@ Closed, one line each under [Closed entries](#closed-entries): 11, 12, 17, 18, 1
 | [41](#41-right-calls-held-at-low-by-the-honesty-cap) | satellites | right calls held at low by the honesty cap | open | a stability test of dominance |
 | [42](#42-the-one-per-chromosome-test-near-its-level) | satellites | the one-per-chromosome test near its level | open | potato with genes; oat |
 | [43](#43-assemblies-that-lack-or-misassemble-the-centromeric-array) | satellites | assemblies that lack or misassemble the centromeric array | open | the 56 repaired ape centromeres as positives |
-| [44](#44-holocentric-genomes-one-low-call-per-chromosome) | satellites | holocentric genomes: one low call per chromosome | open | score the satellite holocentromeres with CENH3 |
-| [45](#45-confident-calls-at-the-edge-of-a-wide-ltr-core) | LTR | confident calls at the edge of a wide LTR core | open | tied maxima; agreement judged by chance |
+| [44](#44-holocentric-genomes-one-low-call-per-chromosome) | satellites | holocentric genomes: one low call per chromosome | partly done | the report's verdict built; a holocentric flag |
+| [45](#45-confident-calls-at-the-edge-of-a-wide-ltr-core) | LTR | confident calls at the edge of a wide LTR core | open | `satellite_in_core` failed the panel; truth where an array sits at a core's edge |
 | [46](#46-crm-decides-by-its-name) | LTR | CRM decides by its name | partly done | the same test for CRM; tobacco, eggplant |
-| [47](#47-centromeric-retroelements-the-ltr-line-cannot-read) | LTR | centromeric retroelements the LTR line cannot read | open | fungal lineage labels; non-LTR families |
+| [47](#47-centromeric-retroelements-the-ltr-line-cannot-read) | LTR | centromeric retroelements the LTR line cannot read | partly done | *C. neoformans* placed by repeat density; fungal lineage labels |
 | [48](#48-how-much-the-ltr-line-depends-on-the-annotation) | LTR | how much the LTR line depends on the annotation | open | rerun the thinning on current code |
 | [49](#49-hi-c-cannot-see-inside-megabase-arrays) | Hi-C | Hi-C cannot see inside megabase arrays | open | multi-mapped reads or array-unique k-mers |
 | [50](#50-satellite-free-centromeres-in-mammals) | Hi-C | satellite-free centromeres in mammals | open | same-animal horse data |
 | [51](#51-hi-c-tests-at-their-threshold) | Hi-C | Hi-C tests at their threshold | open | the depth series on current code; the bin |
 | [52](#52-hi-c-alone-untested) | Hi-C | Hi-C alone, untested | partly done | an effect-size guard; the read-class split |
-| [53](#53-where-the-cis-trans-line-passes-every-extreme-is-trusted) | Hi-C | where the cis-trans line passes, every extreme is trusted | tested, not adopted | the diagnostic on gate-passing genomes |
+| [53](#53-where-the-cis-trans-line-passes-every-extreme-is-trusted) | Hi-C | where the cis-trans line passes, every extreme is trusted | partly done | the support tier no longer moves calls; the diagnostic |
 | [54](#54-the-support-tiers-evidence) | Hi-C | the support tier's evidence | open | score its raises against functional truth |
 | [55](#55-cpg-kinetochores-outside-primates) | methylation | CpG kinetochores outside primates | open | HGSVC3 CDRs; a mouse negative |
 | [56](#56-telomeres-and-rdna-arrays-the-benchmark-does-not-count) | features | telomeres and rDNA arrays the benchmark does not count | partly done | single-end telomere arrays; a 2-copy rDNA rule |
@@ -122,10 +126,13 @@ Closed, one line each under [Closed entries](#closed-entries): 11, 12, 17, 18, 1
 | [66](#66-statements-the-013-outputs-no-longer-bear-out) | docs | statements the 0.13 outputs no longer bear out | partly done | the old figures; the audit as a release step |
 | [67](#67-fragments-and-solo-ltrs-as-a-core-locator) | LTR | fragments and solo LTRs as a core locator | tested, not adopted | a larger gain than the age choice's |
 | [68](#68-homoeolog-agreement-on-the-polyploid-panel) | benchmark | homoeolog agreement on the polyploid panel | built, unchecked | a panel species with CENH3 truth |
-| [69](#69-why-a-null-test-could-not-be-run) | Hi-C | why a null test could not be run | open | a distinct flag for the degenerate case |
 | [70](#70-the-at-trough-choosing-between-two-satellites-rests-on-one-genome) | AT | the AT trough choosing between two satellites rests on one genome | open | a second genome with two satellites per centromere |
 | [71](#71-age-choice-and-family-composition) | LTR | age choice and family composition | open | the age test within one family |
 | [72](#72-minority-cores-beyond-solanum) | LTR | minority cores beyond *Solanum* | open | non-CRM genomes with truth outside *Solanum* |
+| [73](#73-the-cpg-test-in-wide-calls) | methylation | the CpG test in wide calls | partly done | genomes of small chromosomes (duck) |
+| [74](#74-the-repeat-density-line) | repeats | the repeat-density line | built | a large genome with truth where it passes |
+| [75](#75-split-ties-in-ltr-core-profiles) | LTR | split ties in LTR core profiles | tested, not adopted | a smoother density estimator |
+| [76](#76-the-repeat-family-line-and-low-calls-it-contradicts) | repeats | the repeat-family line and low calls it contradicts | built; the move not adopted | truth beyond *Solanum* where it passes; a family-level null |
 
 ## Benchmark, truth and validation
 
@@ -320,6 +327,8 @@ EquCab3 calls); the one-per-chromosome test fails there (P 0.13-0.73) and in man
 on satellite holocentromeres (*R. breviuscula*, *Chionographis japonica*, *Luzula sylvatica*: #35). An LTR signature can form at the
 ends (*R. breviuscula*: Athila, 5.8-fold, cores within 1 Mb of an end on 4 of 5); Hi-C there is guarded, but a non-CRM signature
 above 10-fold or a CRM seed would place calls at the ends from `tes/` alone.
+- **0.16.** The report now ends a genome's section with a verdict where no call is confident and no line passed a genome-level test:
+  the calls are each line's best untested candidate. The holocentric controls get it; the flag itself (#44's approach) remains open.
 - **Approach.** Several independent signs, each tested on the three genomes with CENH3: no dominant satellite, a failed
   one-per-chromosome test, Hi-C's holocentric signature, CENH3-domain-like arrays along the chromosome. **Settle:** the four
   holocentric controls flagged, no monocentric genome flagged. **Code:** `sat/signature.py`, `interpret.py`.
@@ -354,6 +363,13 @@ Partly done. Open questions on the branches that move, overrule or lower a call 
 
 Open. A signature learned from the other chromosomes can mark where centromeric families accumulated beside the centromere, and no
 statistic of the signature tells those cores from the right ones.
+- **0.16.** The 13 tomatoes' own Hi-C (CNCB CRA018974, first 50 M read pairs, 20-31 M mapped pairs each) and *S. verrucosum*'s
+  Omni-C (56 M pairs) were mapped (chromap 0.3.2 --preset hic). Hi-C's prior-free peaks are right on 21 of 161 chromosomes,
+  and the cis and trans readouts meet on most chromosomes only in TS-60, so Hi-C changes few FASTA-only calls (14 genomes: 25
+  -> 35 of 168, all 10 gained in TS-60). With `tes/` it goes 123 -> 130 of 168 and 15 -> 14 confident errors: TS-60's cis
+  signal passes both tests and moves its 2 confident LTR errors onto CENH3 (`cis_trans_pair`), TS-9's lowers its 2, and
+  Hi-C anchored on wrong cores adds 2 (LA0111, LA2134). An independent line for the LTR cores exists only where the library
+  shows the centromeres: [benchmark.md](benchmark.md#the-tomatoes-own-hi-c-016).
 - **Tomatoes.** Under 0.15's rules the cores are right on 117 of 156 chromosomes of the 13 tomatoes (102 of 151 under 0.14's) and the
   benchmark tomato's wrong cores fell from 5 to 4. With `tes/`, 14 of 72 confident calls are wrong, 5 of the 18 that merely agree with
   the core (benchmark.md, Thirteen tomatoes). Without Hi-C two benchmark-tomato misses stay `medium` (CM175074.1, CM175078.1); with
@@ -393,6 +409,11 @@ Open; 0.15's LTR rules do not reach these calls. A call agrees with a core when 
 (`te_concordant`), and an agreeing core lifts both the honesty cap and the one-per-chromosome cap. Of 130 such calls with truth in the
 0.13 FASTA + `tes/` arms, 125 are right and 5 confidently wrong, 5 of the 7 confident errors of those arms. In 3 of the 4 below the
 core holds CENH3 and the call sits at its edge:
+- **0.16.** `satellite_in_core` (an untested array that agrees with a decisive core gives way to the core) made Ae. tauschii
+  Chr5/Chr7 and S. lycopersicoides CM175231.1 right, but on the polyploid panel it changed 80 calls in 17 species and the
+  homoeologous pairs touched came apart (67 pairs: 26 closer, 40 farther; agreeing 40 -> 34), also when restricted to arrays
+  overlapping the core. Not shipped (rule 5). The tie-break of the core's maximum: 52,949 profiles, 82% with tied maxima, half in
+  separate runs; a tie-break by elements moved 24 of 634 final cores, no gain (#75).
 
 | chromosome | confidence | call (Mb) | LTR core (Mb) | CENH3 (Mb) |
 |---|---|---|---|---|
@@ -437,6 +458,8 @@ none has a REXdb lineage (unknown, chromo-outgroup), so the FASTA and `tes/` pla
 neoformans* and 3 of 8 *V. dahliae* but never significant (too few independent insertions; the 3-site minimum is what a pooled test
 would give up). *Chlamydomonas*' centromeres are clusters of ZeppL, a LINE bound by two CENH3 paralogs; LTRquest finds 669 elements,
 613 without lineage; 6 of 17, all `low`.
+- **0.16.** The repeat-density line (#74) places *C. neoformans* from the FASTA, without lineage labels: P 0.0004, 14 of 14 peaks on
+  CENP-A, in both assemblies.
 - **Approach.** Lineage labels covering fungal Ty3 and chromoviruses ("chromo-outgroup" may be the centromeric ones); a non-LTR
   annotation read by the family signature; each needs a second genome with truth. **Settle:** *Cryptococcus* (both nuclear states,
   no Hi-C) and *Chlamydomonas* placed; fish and *Oryza* unchanged; shuffled positions silent. **Code:** `sat/te.py` (reads
@@ -473,6 +496,13 @@ HTH), right in 0.14, 2.1 Mb off in 0.15, still `low`, the only right calls 0.15 
 calls in 3 species (*Arabidopsis suecica*, *Malus toringoides*, *Sphagnum papillosum*); the 11 pairs they touch agree in 7 against 3
 under 0.14's rules. It makes no confident call. **Settle:** non-CRM genomes with truth outside *Solanum* (#35). **Code:**
 `sat/centromere.py`, `sat/signature.py`.
+
+### 75. Split ties in LTR core profiles
+
+New in 0.16 (from #45). Of 52,949 core profiles of the 0.15 `tes/` runs, 82% have tied maxima of the smoothed counts and 50% tied
+maxima in separate half-maximum runs, so the leftmost maximum decides half of all cores. A tie-break by the run holding more
+elements moved 24 of 634 final cores (11 right -> right, 2 wrong -> right, 4 right -> wrong, 7 wrong -> wrong) and 3 seeds: no
+gain, not adopted. A smoother density estimator would change cores broadly; not tried. **Code:** `sat/te.py`, `sat/signature.py`.
 
 ## Hi-C
 
@@ -539,15 +569,8 @@ the strongest clustering lies at the interior extreme. Both tomato calls are suc
 extremes 27.00-27.25 in CENH3 26.1-27.5 Mb, 20.25-20.50 in 19.6-20.9 Mb); an acrocentric chromosome among metacentric ones has no pair
 and keeps its call. Tomato is the only genome with `cis_blind`. **Settle:** tomato moves its 2 calls; goat, sheep and mouse keep
 theirs. **Code:** `hicfuse.py` (`cis_trans_line`), `fuse.py`.
-
-### 33. Cis and trans at one locus as a confident call
-
-Open. Where the cis-trans line passes, a chromosome whose own trans peak lies at its cis extreme holds two readouts at one locus (as
-`te_hic_pair` does), yet stays `low`: in G1 *C. neoformans* 10 of 12 pairs lie on CENP-A and 2 lie 2 bins (19-20 kb) off, which as
-`medium` would be confident errors. The FASTA-only AT trough is finer (16-40 kb), overlaps CENP-A on 12 of 14 and agrees with 11 of the
-12 right cis calls (on CP003829.1 it lies on CEN10, the cis bin 19 kb off), but troughs pair only with prior-free peaks. **Approach:**
-pair the cis-trans line with the trough and take its interval; or a sub-bin fit of the trans spot (Centurion's 2D Gaussian: 2.5 kb
-mean deviation at 40-kb bins in *S. cerevisiae*). **Settle:** *V. dahliae* and *N. crassa* at 10-kb bins; randomized controls silent.
+- **0.16.** Built as `cis_end_pair` (`low`, a named heuristic): tomato without `tes/` moves its 2 calls onto CENH3. The 14 genomes
+  with new Hi-C have no `cis_blind` case (their cis lines fail), so the second genome is still missing.
 
 ### 49. Hi-C cannot see inside megabase arrays
 
@@ -604,6 +627,11 @@ never ran on rice, soybean or the apes. Acting only at pairs (0.14) would lose 6
 CP003821.1 and CP003826.1 are right non-pairs, its 2 wrong calls are pairs; tomato: CM175070.1 and CM175077.1 right non-pairs).
 **Settle:** the line as a diagnostic on gate-passing genomes with truth: rice, soybean and the apes pass nothing; the off extremes
 would not act. **Code:** `hicfuse.py` (`cis_trans_line`), `fuse.py`.
+- **0.16.** The cis line tested against the LTR cores acts at `support` too, and *S. verrucosum* with its own Omni-C is the first
+  genome where it stands there (6 of 12 at the cores, P 7e-5): its 3 moves of `low` calls were all wrong, one off a right call. At
+  `support` the cis line now raises the calls it agrees with and moves none, as the gate's support tier. `cis_agrees` at `support`
+  raised 2 wrong calls there: the cis sign and test come from the same LTR cores, so at the support tier the chromosomes that agree
+  are the ones that made the test pass (a lead).
 
 ### 54. The support tier's evidence
 
@@ -614,14 +642,6 @@ pre-registered bar (≥ 90% of raises right) was missed: 14 of 16, 88% (pig's tw
 non-centromeric trans cluster (potato: 1 of 64), is not stated in design.md. **Settle:** its raises scored against functional truth
 only (cattle and goat CENP-A first: #35), ≥ 90% right or its role narrowed; the risk stated in design.md. **Code:** `fuse.py`
 (`hic_support`).
-
-### 69. Why a null test could not be run
-
-Open (0.15 code review). `fuse._clean_denovo` counts a prior-free peak held at `medium` by `null_untestable` as having passed every test
-it could take (#52). The Hi-C engine sets that flag for two causes it does not separate: fewer than two partner chromosomes with bins
-to resample (*C. tropicalis*; what the rule means), and a non-finite observed ratio or a chromosome never scored in a replicate (a
-degenerate case). **To do:** a distinct flag for the degenerate case, in the engine's stage; it could add one `low` call, only in a
-genome that cannot test Hi-C at all (no benchmark run seen). **Code:** `hic/confidence.py`, `hic/qc.py`, `fuse.py`.
 
 ## AT troughs
 
@@ -649,6 +669,44 @@ rule does not act) have the trough on the wrong one; outside mouse the first cho
 because the call stays `low`, the flag names it and the first choice stays reported (`seq_start`, `seq_end`). **Settle:** a genome with
 two satellites at one centromere per chromosome, CENH3 or CENP-A truth and a passing AT test. **Code:** `fuse.py`, `atline.py`.
 
+## Repeat density and repeat families
+
+### 74. The repeat-density line
+
+New in 0.16 (`repline.py`). Each chromosome's densest stretch of sequence repeated elsewhere in the genome (mean log2 copy number of
+21-mers, satellite arrays left out, terminal eighths skipped), tested one per chromosome by the AT line's test at P <= 0.01. It
+passes in *C. neoformans* (14 of 14 on CENP-A), *V. dahliae*, *Chlorella*, *Chlamydomonas* (every peak right) and places only
+chromosomes nothing else places (`rep_only`, `low`), or pairs with a tested Hi-C call (`rep_pair`, `medium`).
+- **Calibration.** Block shuffles passed the test 6.5% of the time at 0.05 (2,100 of 8 genomes), 1.3% at 0.01 (3.3% in *B. mori*).
+- **Large genomes.** No large benchmark genome passes; 24 of 106 polyploids do, 20 at 500-kb windows with pericentromere-scale
+  peaks (0.7-3.5 Mb). Replacing the low calls it contradicts was right on 14 of 14 benchmark cases (13 of them *Chlamydomonas*)
+  but took the panel's homoeologous calls apart (36 pairs: agreeing 21 -> 11): not adopted. In *Malus toringoides* it placed 4
+  chromosomes that had no call; the 2 homoeologous pairs they form disagree.
+- **Speed.** It runs only where most chromosomes are weak, on one thread: 27 min on *Ae. geniculata* (7.9 Gb of FASTA),
+  17 min on barley, minutes below 1 Gb (the release runs). The K-mer pass could run one process per sequence.
+- **Settle:** a large genome with truth where it passes. **Code:** `repline.py`, `fuse.py` (`rep_only`, `rep_pair`).
+
+### 76. The repeat-family line and low calls it contradicts
+
+New in 0.16 (`famline.py`). Repeat families concentrated at one locus on most chromosomes, read from sampled 31-mers (1 in 32 by
+hash, every copy counted), satellite arrays left out; each family 31-mer votes once per chromosome at its densest window, and the
+votes are read by the AT line's one-per-chromosome test (0.1-3 Mb windows, P <= 0.01). It runs where the repeat-density line runs.
+- **What it finds.** It passes in 32 of 71 benchmark FASTA-only genomes, with peaks right on 323 of 363 chromosomes: all 14 *Solanum*
+  genomes (7-12 of 12 each, where the satellite line gets 0-5), *Ae. geniculata* (14 of 14; the satellite line 0), 10 *B. rapa* lines, maize, sorghum, soybean, rice (7 of 12),
+  *Chlamydomonas*, *Chlorella*, *N. crassa*, *V. dahliae*. Holocentric genomes, mammals and chicken fail; T2T mouse (centromeres in
+  the terminal eighths it skips) comes near, P 0.015, every peak interstitial.
+- **What it may change.** Only chromosomes without a call (`fam_only`) and tested Hi-C calls (`fam_pair`). Moving the `low` calls
+  it contradicts (outside the terminal eighths) onto its window was right on 89 of 110 benchmark cases against 8 for the calls
+  (18 genomes: 14 *Solanum*, *Ae. geniculata*, *Chlamydomonas*, and 3 with none to move), but on the polyploid panel the homoeologous pairs touched came no closer (64 pairs: 24 closer,
+  27 farther; agreeing 20 -> 17): not adopted; such calls are flagged `fam_elsewhere` and the caveat names the window. In
+  *Solanum* FASTA-only arms this is the largest headroom left (about 60 chromosomes).
+- **The test is circular by construction.** A family 31-mer votes at most once per chromosome, so a genome whose families each
+  cluster once per chromosome passes wherever they cluster; block shuffles pass it (12 of 160) and are no null. The controls are
+  holocentric genomes and genomes with satellite centromeres.
+- **Settle:** more truth where the line passes and the calls are low (#35: oat, wheat, other
+  Solanaceae with ChIP); a family-level null (families assigned by co-occurrence, then shuffled as units).
+  **Code:** `famline.py`, `fuse.py` (`fam_only`, `fam_pair`, `fam_elsewhere`).
+
 ## Methylation
 
 ### 16. The CHG line has changed no call
@@ -657,6 +715,12 @@ Open. Only *P. annua* and *Arabidopsis* have CHG data here, and the line has nev
 annua*'s five samples are other plants, so they do not decide, though the signal is real (the dip is the chromosome's lowest point on
 12 of 14). *Arabidopsis*' expected domain (315 kb, from genome size) is far below its CEN180 arrays (2.2-3.5 Mb), so the reference
 ring (1.5-4 times the domain) falls inside the arrays. In the way:
+- **0.16.** Rice T2T-NIP with same-assembly ONT CHG (DeepPlant, Zenodo 15062213; strands assigned from the reference): the genome
+  signature forms (leave-one-out on 7 of 12), `centromere_like` on 4 of 12 calls (all right), a non-centromere-like dip on 3 right
+  calls; every rice call is `high` already, so nothing changes. Barley Morex leaf WGBS on MorexV3 (BarleyEpiBase bigWig, per-site %,
+  region-level depth) and *S. verrucosum* CPC54 ONT CG/CHG (another genotype than the benchmark's 11H23) are downloaded
+  (v16/data/meth_plants), not run: barley's FASTA-only calls are wrong where CHG cannot move them, and its `tes/` calls right
+  already.
 - **D, the domain size**, is a maize prior for every genome (22.2 Mb over Mo17's 10 centromeres, scaled by genome size, slope 0.97,
   Plackova et al. 2021); it sets the window, ring and candidate spacing, depends on the chromosomes listed, and is computed twice
   (`pipeline.py`, `methfuse.py`). A D measured from the anchor calls was never tested on a second same-plant case.
@@ -760,6 +824,8 @@ reference plant. **Code:** `plants.py`, `provenance.py`.
 ### 58. Report wording and undocumented outputs
 
 Partly done (0.14: failed sections recorded in `incomplete`; every column and the Hi-C engine flags documented, with a test). Open:
+- **0.16.** `hic_sequence_conflict` reworded as a note; `hic_rabl` documented apart; a genome-level verdict in the report where no
+  call is confident and no line passed a test (#44).
 - **One table of flag → basis phrase, caveat phrase and settling input**, read by `basis` and `caveat`, tested flag by flag (#63).
 - **`tes/` advice where it cannot act**: caveats advise `tes/` in mammals and fungi too (`interpret._could`; the siamang's confident
   misses, every *C. tropicalis* no-call); cenfuse does not know the lineage.
@@ -944,6 +1010,11 @@ evidence; most belong in that table.
 
 One line each; the full text is in git history (before 2026-11-10).
 
+- **33. Cis and trans at one locus as a confident call.** 0.16: the AT troughs are tested against the cis extremes too, and a
+  cis call whose tested trough agrees takes the trough's interval and is `medium` (`at_pair`; G1 *C. neoformans*: 5 calls, all
+  on CENP-A); a tested repeat-density or repeat-family peak does the same (`rep_pair`, `fam_pair`).
+- **69. Why a null test could not be run.** 0.16: a null that ran but could not score a chromosome is flagged `null_degenerate`
+  (P written NaN); only `null_untestable` (too few partner chromosomes) counts as a test the peak could not take.
 - **11. Hi-C anchors where the sequence line is wrong genome-wide.** 0.12: better calls (the LTR signature) make better anchors, and
   where the test still fails Hi-C is tested against the LTR cores (design.md).
 - **12. Cis signals of satellite-free centromeres.** 0.12: the cis profile, its sign and level tested against the LTR cores (design.md);

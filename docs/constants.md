@@ -57,6 +57,18 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `FASTA_WIDTH` | `60` | bases per FASTA line written (samtools faidx's) |  |
 | `COPY` | `10_000_000` | bp read at a time when a sequence is copied |  |
 
+## `famline.py`
+
+| constant | value | reason | mark |
+|---|---|---|---|
+| `K` | `31` | K-mer length: odd (no K-mer is its own reverse complement), the longest a uint64 holds; a family's copies at 90% identity still share 4% of their 31-mers, unrelated sequence none |  |
+| `SAMPLE` | `32` | keep 1 K-mer in SAMPLE by hash (FracMinHash), at every genome size: the rate the line was developed and tested at; a kept K-mer keeps every copy |  |
+| `SCALES` | `(100_000, 300_000, 1_000_000, 3_000_000)` | a x3 series over regional centromeres, fungi to large-genome plants |  |
+| `MIN_COPIES` | `3` | the fewest copies on a chromosome that can show a cluster beyond a pair |  |
+| `FAM_ALPHA` | `0.01` | conventional level, after the correction for the window sizes tried (as the repeat-density line) |  |
+| `MIN_COPY_FACTOR` | `1.5` | a K-mer needs ceil(1.5 N) copies: the least that can be concentrated (3 copies) on half of N |  |
+| `PIECE` | `1_000_000` | bp read at a time (a multiple of atline.BIN): streaming, never a whole chromosome string |  |
+
 ## `fold.py`
 
 | constant | value | reason | mark |

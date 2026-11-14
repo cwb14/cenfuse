@@ -37,7 +37,7 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `call_source` | where the final call comes from: `sequence` (satellite or TE line), `hic`, `composition` (an AT trough) or `none` |
 | `relation` | how the final call relates to the sequence call (below) |
 | `confidence` | `high`, `medium`, `low` (unsure) or `none` (no call) |
-| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call), `cpg` (against only: the call's arrays hold no CpG dip while another array does) |
+| `support`, `against` | the lines that agree with the call / point elsewhere: `satellite` (≥ 5 kb of centromeric arrays inside the call), `te`, `hic`, `at`, `repeats` (the repeat-density line), `families` (the repeat-family line), `meth`, `fold`, `align`, `age` (younger centromeric LTR copies at a moved call), `cpg` (against only: the call's arrays hold no CpG dip while another array does) |
 | `flags` | the integration's flags ([Flags](#flags)) |
 | `rule` | the rule of the integration that set the call's place or relation (below); `sequence` = the sequence line's call as it is |
 | `offset_bp` | distance between the final and the sequence call when the call was moved (0 when they overlap); `.` when the call is the sequence call or its competing cluster |
@@ -67,6 +67,8 @@ The reference for every file, column and flag cenfuse writes, and for running it
 | `at_start`, `at_end`, `at_gc` | this chromosome's deepest trough at the window the test chose, and its GC fraction |
 | `rep_gate` | the repeat-density line's test (0.16): `pass` (each chromosome's densest stretch of sequence repeated elsewhere in the genome, satellite arrays left out, falls one per chromosome at P ≤ 0.01), `fail`, or `untested`; `.` where the line did not run (most chromosomes have a confident sequence call) |
 | `rep_start`, `rep_end`, `rep_density` | this chromosome's densest stretch at the window the test chose (its half-height run), and its mean log2 copy number of 21-mers |
+| `fam_gate` | the repeat-family line's test (0.16): `pass` (repeat families, as sampled 31-mers, concentrated at one locus on most chromosomes, satellite arrays left out, their clusters falling one per chromosome at P ≤ 0.01), `fail`, or `untested`; `.` where the line did not run (it runs where most chromosomes have no confident sequence call) |
+| `fam_start`, `fam_end`, `fam_votes` | this chromosome's strongest family window at the window size the test chose (its half-height run), and the family 31-mers voting there |
 
 **Hi-C**
 
@@ -137,7 +139,7 @@ validated peak moved the call); `hic_offset` (it points elsewhere and cannot mov
 `hic_medium_peak`, `hic_denovo_only` (Hi-C placed a call where the sequence has none); `fold_pair`, `align_pair` (the Rabl-axis
 line and the prior-free peak at one locus); `fold_offset`, `align_offset`, `hic_denovo_offset` (they oppose a kept call:
 contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis_elsewhere`, `cis_trans_pair`, `cis_end_pair` (the cis signal); `at_only`,
-`at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `rep_only` (the repeat-density line); `cpg_elsewhere` (CpG finds the CDR on another array: contested); `meth_support` (methylation alone confirms the call); `none` (no call).
+`at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `rep_only` (the repeat-density line); `fam_only` (the repeat-family line); `cpg_elsewhere` (CpG finds the CDR on another array: contested); `meth_support` (methylation alone confirms the call); `none` (no call).
 
 ## Flags
 
@@ -157,7 +159,7 @@ are comma-separated.
 | `weak_core` | a decisive signature's core too thin to be significant took a chromosome without a call, or a satellite call of a family that failed the one-per-chromosome test: `low` |
 | `minority_core` | a decisive signature's significant core holding under half of the signature's elements on the chromosome replaced a satellite call that was `low` on its own: `low` (the replaced array is in `seq_overruled_*`) |
 | `te_age_core` | the chromosome's LTR core is the youngest of several comparable density peaks of the signature's elements (`te_signature.tsv`, `core_age_from`) |
-| `satellite_away_from_core`, `satellite_beside_core`, `weak_satellite_beside_core`, `satellite_in_core` | a decisive core replaced the satellite call (kept in `seq_overruled_*`): a call elsewhere that was `low` or held significantly fewer of the signature's elements; a call beside the core that held significantly fewer; a weak call beside it; a call that agrees with the core without holding all of it, where the satellites failed the one-per-chromosome test or none dominates (0.16) |
+| `satellite_away_from_core`, `satellite_beside_core`, `weak_satellite_beside_core` | a decisive core replaced the satellite call (kept in `seq_overruled_*`): a call elsewhere that was `low` or held significantly fewer of the signature's elements; a call beside the core that held significantly fewer; a weak call beside it |
 | `partial_chain` | the main family is no tandem satellite: less than half of its bp in tandem repeats and less than half in whole-unit hits. The sequence call is `low`, or at most `medium` where a retrotransposon core overlaps it (for a lineage other than CRM, only if the family is not made of it); lines that pass their tests may raise the final call |
 | `chain_to_core` | such a call narrowed to the decisive core inside it |
 | `te_derived`, `gene_rich`, `gaps:N`, `contig_end` | the main family lies mostly inside LTR retrotransposons; the call is more gene-dense than its chromosome; N assembly gaps in the call; the call reaches a contig end (`--classify-from`) |
@@ -176,6 +178,9 @@ are comma-separated.
 | `cis_agrees`, `cis_near`, `cis_only`, `cis_elsewhere` | the extreme of the contact crossing each bin, tested against the LTR cores (or, without them, by Hi-C's trans contacts on most chromosomes; column `cis_test`): at the call (one level up); within 4 bins of it (neither way); farther, a `low` call moved to it (still `low`), or a chromosome without a call placed there; farther, the call kept, one level lower if the test passed on most chromosomes (`contested`). The trans-tested signal is read outside the terminal eighths and leaves a call inside one as it is |
 | `rep_only` | a call placed by the repeat-density line alone, on a chromosome nothing else places (`low`) |
 | `rep_pair` | a Hi-C call on a chromosome without a sequence call, with the densest repeat stretch agreeing, in a genome whose repeat test passed and whose peaks were tested against the Hi-C readout that placed it (the prior-free peaks, or the cis extremes): one level up, the peak's interval taken (Hi-C places within a few bins only) |
+| `fam_only` | a call placed by the repeat-family line alone, on a chromosome nothing else places (`low`) |
+| `fam_pair` | as `rep_pair`, with the repeat-family line's window: the second line of a Hi-C call on a chromosome without a sequence call (`medium`) |
+| `fam_elsewhere` | a `low` sequence call outside the terminal eighths on a chromosome whose repeat-family window (the line passed its test) lies elsewhere: the call stays, the caveat names the window, and `families` is listed against it |
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing (the troughs tested against the Hi-C readout that placed it: the prior-free peaks, or the cis extremes where those placed it): it takes the trough's interval, one level up; the trough lies elsewhere |
 | `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
 | `at_chose_alt` | the genome's AT troughs passed their test and this chromosome's deepest trough window lies on the competing cluster of a `low` sequence call and not on the call: the competing cluster, `low` unless another line agrees there; not where validated Hi-C can tell the two clusters apart. A heuristic on the evidence of one genome (design.md) |
@@ -202,6 +207,7 @@ are comma-separated.
 | `te_marker`, `te_decisive`, `te_seed`, `te_specificity`, `te_verdict` | the LTR marker lineage, whether it is decisive, the seed and its fold enrichment, and why |
 | `at_gate`, `at_window`, `at_p`, `at_hic` | the AT-trough line: its test, the window it chose, P, and the agreement with Hi-C's prior-free peaks |
 | `rep_gate`, `rep_window`, `rep_p`, `rep_hic` | the repeat-density line: its test, the window it chose, P (corrected for the window sizes tried), and its agreement with Hi-C's prior-free peaks (or cis extremes) |
+| `fam_gate`, `fam_window`, `fam_p`, `fam_hic` | the repeat-family line: its test, the window it chose, P (corrected for the window sizes tried), and its agreement with Hi-C's prior-free peaks (or cis extremes) |
 | `telomere_unit`, `telomere_ends`, `telomere_interstitial` | the telomere repeat found, ends with a telomere array, arrays inside chromosomes |
 | `left_out_telomeric` | sequences left out of the chromosome set that hold telomere arrays at both ends (complete molecules: a small chromosome the length rule cut, a B chromosome); flagged in the report, never added |
 | `rdna_arrays`, `rdna_chromosomes`, `rdna5s_arrays`, `rdna5s_chromosomes` | 45S (NOR) and 5S rDNA arrays |
@@ -361,7 +367,7 @@ keep the plain tenfold rule unless listed.
 | `--seed-engine fastan\|trf` | the tandem-repeat finder that seeds the satellite families [fastan] |
 | `--seed-cache DIR` | a folder of tandem-repeat results shared between runs |
 | `--classify-from T=S[+S2],...` | genome T (e.g. a contig assembly) takes the centromeric families of genome(s) S |
-| `--force STAGE` | recompute STAGE: `all` (every stage), `satellite` (the whole satellite engine), `telomere`, `rdna`, `rdna5s`, `gaps`, `attrough`, `repeats`, `genotype`, `hic`, `fold`, `karyotype`, `meth`, `cpg`, or a satellite-engine stage (`seeds`, `families`, `annotate`, `classify`, `centromeres`, `hor`, `output`, `plot`: the engine from there on). A later stage reruns when what it reads changed, as on any rerun |
+| `--force STAGE` | recompute STAGE: `all` (every stage), `satellite` (the whole satellite engine), `telomere`, `rdna`, `rdna5s`, `gaps`, `attrough`, `repeats`, `repfam` (the repeat-family line), `genotype`, `hic`, `fold`, `karyotype`, `meth`, `cpg`, or a satellite-engine stage (`seeds`, `families`, `annotate`, `classify`, `centromeres`, `hor`, `output`, `plot`: the engine from there on). A later stage reruns when what it reads changed, as on any rerun |
 | `-v` | per-step progress and sanity checks |
 
 `--force` is needed only when a run stops and names a stage (see Running, below).
