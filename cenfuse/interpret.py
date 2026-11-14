@@ -102,8 +102,7 @@ def basis(r, ctx: dict) -> str:
         elif ev == "long_unit_tandem":
             out.append(f"long-unit tandem array, {size(ctx['sat_bp'](r.chrom, s, e))} of satellite in the call")
         elif ev == "retrotransposon":
-            replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core", "minority_core",
-                                 "satellite_in_core"}
+            replaced = sflags & {"weak_satellite_beside_core", "satellite_away_from_core", "satellite_beside_core", "minority_core"}
             seed = getattr(r, "te_seed", ".")
             k, n = _int(getattr(r, "te_core_elements", None)), _int(getattr(r, "te_chrom_elements", None))
             out.append(f"{r.te_clade} retrotransposon core" + ("" if replaced else " (no satellite call)") +
@@ -116,9 +115,6 @@ def basis(r, ctx: dict) -> str:
         if "satellite_beside_core" in sflags:
             out.append(f"the {r.te_clade} core replaced a satellite array beside it that holds significantly fewer "
                        f"{r.te_clade} elements" + where)
-        if "satellite_in_core" in sflags:
-            out.append(f"the {r.te_clade} core replaced the satellite array it agrees with, whose family failed the "
-                       f"one-per-chromosome test (or no family dominates), so its place was untested" + where)
         if "minority_core" in sflags:
             out.append(f"the {r.te_clade} core replaced a low-confidence satellite array elsewhere" + where)
         if "te_age_core" in sflags:
@@ -136,6 +132,10 @@ def basis(r, ctx: dict) -> str:
         out.append(f"the densest stretch of sequence repeated elsewhere in the genome (mean log2 copy number "
                    f"{float(getattr(r, 'rep_density', 'nan')):.1f}), satellite arrays left out, in a genome whose densest "
                    f"stretches fall one per chromosome")
+    elif r.call_source == "composition" and "fam_only" in flags:
+        out.append(f"the window where repeat families concentrated at one locus on most chromosomes cluster here "
+                   f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), satellite arrays left out, in a genome where "
+                   f"such families exist")
     elif r.call_source == "composition":
         out.append(f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose deepest troughs "
                    f"fall one per chromosome" if str(r.at_gate) == "pass" else
@@ -191,6 +191,10 @@ def basis(r, ctx: dict) -> str:
         if "rep_pair" in flags:
             out.append(f"the densest stretch of repeated sequence agrees (mean log2 copy number "
                        f"{float(getattr(r, 'rep_density', 'nan')):.1f}), tested against this Hi-C readout genome-wide, and gives the interval")
+        if "fam_pair" in flags:
+            out.append(f"the cluster of repeat families concentrated at one locus per chromosome agrees "
+                       f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), tested against this Hi-C readout "
+                       f"genome-wide, and gives the interval")
         if "satellite" in sup:
             out.append(f"{size(ctx['sat_bp'](r.chrom, s, e))} of centromeric satellite inside")
     for line in sup:
@@ -355,6 +359,13 @@ def caveat(r, ctx: dict) -> str:
     if "rep_only" in flags:
         out.append("a repeat-density peak alone")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
+    if "fam_elsewhere" in flags:
+        out.append(f"the repeat families that cluster at one locus per chromosome in this genome cluster elsewhere on this one "
+                   f"({interval(r.fam_start, r.fam_end)})")
+        hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
+    if "fam_only" in flags:
+        out.append("a repeat-family cluster alone")
+        hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if {"cis_trans_pair", "cis_end_pair"} & flags:
         out.append("one library's two readouts (cis and trans), by a rule shaped on one genome (tomato), so the call stays low")
         hint = hint or "CENP-A/CENH3 data would decide"
@@ -409,6 +420,8 @@ def passed_lines(summ: dict) -> list:
         out.append("the AT troughs")
     if str(summ.get("rep_gate", ".")) == "pass":
         out.append("the repeat-density peaks")
+    if str(summ.get("fam_gate", ".")) == "pass":
+        out.append("the repeat families")
     if _n(summ.get("hic_gate_pass")) or _n(summ.get("hic_gate_support")):
         out.append("Hi-C's test")
     for key, what in (("te_hic", "Hi-C on the LTR cores"), ("cis_line", "the cis Hi-C signal")):
@@ -475,8 +488,10 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              low=int(conf.get("low", 0)), none=len(t) - len(called),
              satellite_calls=len(sat), families=[(fam, int(n), ctx["unit"].get(fam)) for fam, n in fams.items()],
              te_calls=int((seq.seq_evidence == "retrotransposon").sum()),
-             at_calls=int(((called.call_source == "composition") & ~called["flags"].astype(str).str.contains("rep_only")).sum()),
+             at_calls=int(((called.call_source == "composition") &
+                           ~called["flags"].astype(str).str.contains("rep_only|fam_only")).sum()),
              rep_calls=int(called["flags"].astype(str).str.contains("rep_only").sum()),
+             fam_calls=int(called["flags"].astype(str).str.contains("fam_only").sum()),
              chain_calls=int(seq.seq_flags.astype(str).str.contains("partial_chain").sum()),
              tandem_calls=int((seq.seq_evidence == "long_unit_tandem").sum()),
              hic_moved=int((called.relation == "offset").sum()),
@@ -545,6 +560,8 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         made.append(f"AT troughs on {f['at_calls']}")
     if f.get("rep_calls"):
         made.append(f"repeat-density peaks on {f['rep_calls']}")
+    if f.get("fam_calls"):
+        made.append(f"repeat-family clusters on {f['fam_calls']}")
     if f["tandem_calls"]:
         made.append(f"long-unit tandem arrays on {f['tandem_calls']}")
     if f["hic_moved"] or f["hic_placed"]:
@@ -667,6 +684,14 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                     "cannot be tested (too few chromosomes long enough)")
                  + f" (P {summ.get('rep_p')}, windows of {summ.get('rep_window')} bp)"
                  + (f"; it placed {f['rep_calls']} calls nothing else placed" if f.get("rep_calls") else "") + ".")
+    if summ.get("fam_gate", ".") not in (".", None):
+        L.append(f"- **Repeat families** (most chromosomes have no confident sequence call): repeat families (sampled K-mers) "
+                 f"concentrated at one locus on most chromosomes, satellite arrays left out, "
+                 + ("exist, and their clusters fall one per chromosome" if summ.get("fam_gate") == "pass" else
+                    "do not show one cluster per chromosome" if summ.get("fam_gate") == "fail" else
+                    "cannot be tested (too few chromosomes long enough)")
+                 + f" (P {summ.get('fam_p')}, windows of {summ.get('fam_window')} bp)"
+                 + (f"; they placed {f['fam_calls']} calls nothing else placed" if f.get("fam_calls") else "") + ".")
     if g.meth:
         if "meth_signature" in summ:
             sig = str(summ.get("meth_signature"))

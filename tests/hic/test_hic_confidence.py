@@ -98,19 +98,23 @@ def _random_genome(nbins=100, nchrom=3):
     return b, W, good, block_means(W, b, good, members), members
 
 
-def test_null_nan_when_observed_ratio_not_finite():
+def test_null_degenerate_when_observed_ratio_not_finite():
+    """0.16 (#69): a null that ran but cannot score a chromosome is DEGENERATE (flag null_degenerate), apart from NaN
+    (the null could not run: null_untestable)."""
+    from cenfuse.hic.confidence import DEGENERATE
     b, W, good, mean, members = _random_genome()
     est = {0: 50, 1: 50, 2: 50}
     p = null_test(W, b, good, mean, members, est, est, {0: float("nan"), 1: 2.0, 2: 2.0}, n=10)
-    assert np.isnan(p[0]) and np.isfinite(p[1]) and np.isfinite(p[2])
+    assert p[0] == DEGENERATE and 0 < p[1] <= 1 and 0 < p[2] <= 1
 
 
-def test_null_nan_when_chromosome_never_scored():
+def test_null_degenerate_when_chromosome_never_scored():
+    from cenfuse.hic.confidence import DEGENERATE
     b, W, good, mean, members = _random_genome()
     members[2] = False            # chromosome 2 gets no score in any replicate
     est = {0: 50, 1: 50, 2: 50}
     p = null_test(W, b, good, mean, members, est, est, {0: 2.0, 1: 2.0, 2: 2.0}, n=10)
-    assert np.isnan(p[2]) and np.isfinite(p[0])
+    assert p[2] == DEGENERATE and 0 < p[0] <= 1
 
 
 def test_threaded_bootstrap_is_warning_free_and_leaves_filters_alone():

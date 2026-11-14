@@ -19,7 +19,7 @@ Genomes above SAMPLE_ABOVE are read from a fixed 1/SAMPLE share of K-mers (FracM
 kept, so its count is exact; a 1-kb bin then holds about 1000/SAMPLE kept positions, enough over 10-kb windows).
 
 Calls: the densest window at the chosen size, widened to its half-height run. Like the AT line, it places only chromosomes
-nothing else places, `low` (fuse._at_places: rep_only), and never moves or opposes a call. Development (dev/repeats, fixed
+nothing else places, `low` (fuse._at_places: rep_only), and never moves or opposes a call. Development (rules fixed
 before computing): C. neoformans P 0.0004, 14 of 14 peaks on CENP-A; V. dahliae, Chlorella and soybean pass, all right; 2,100
 block shuffles of 8 genomes passed 6.5% of the time at the nominal 0.05, so the line is held at 0.01 (REP_ALPHA).
 Chlamydomonas (ZeppL LINE clusters) passes too, but its chromosomes all carry low satellite calls, which the line leaves.
@@ -181,8 +181,9 @@ def scan(bins: dict, chroms: dict) -> dict:
     return res
 
 
-def with_hic(res: dict | None, hic: dict | None, chroms: dict) -> dict | None:
-    """res with the peaks tested against the deciding library's Hi-C readouts, at the window the repeat test chose
+def with_hic(res: dict | None, hic: dict | None, chroms: dict, name: str = "repeat density") -> dict | None:
+    """res (this line's or the repeat-family line's, famline.py; `name` in the log) with the peaks tested against the deciding
+    library's Hi-C readouts, at the window the line's test chose
     (atline.validate, one Hi-C bin): against the prior-free peaks (res['hic']) and, where the cis line acts and the prior-free
     peaks say nothing, against the cis extremes (res['cis']), as atline.with_hic tests the troughs. A Hi-C call that a peak
     tested this way agrees with holds two lines at one locus (fuse: rep_pair)."""
@@ -196,14 +197,14 @@ def with_hic(res: dict | None, hic: dict | None, chroms: dict) -> dict | None:
             if r.denovo_peak_start >= 0:
                 pk[r.chrom], tol[r.chrom] = (int(r.denovo_peak_start), int(r.denovo_peak_end)), int(r.bin_size)
     out = dict(res, hic=atline.validate(one, pk, tol, chroms), cis=None)
-    log.info(f"repeat density vs Hi-C's prior-free peaks: {out['hic']['k']}/{out['hic']['n']} (P {out['hic']['p']:.2g}): "
+    log.info(f"{name} vs Hi-C's prior-free peaks: {out['hic']['k']}/{out['hic']['n']} (P {out['hic']['p']:.2g}): "
              f"{out['hic']['status']}")
     from .hicfuse import cis_acts                       # here: hicfuse imports much of the Hi-C engine
     cis = hic.get("cis")
     if out["hic"]["status"] not in ("pass", "support") and cis_acts(cis):
         cpk = {c: (int(a), int(b)) for c, (a, b) in (cis.get("peaks") or {}).items() if c in bins}
         out["cis"] = atline.validate(one, cpk, {c: bins[c] for c in cpk}, chroms)
-        log.info(f"repeat density vs Hi-C's cis extremes: {out['cis']['k']}/{out['cis']['n']} (P {out['cis']['p']:.2g}): "
+        log.info(f"{name} vs Hi-C's cis extremes: {out['cis']['k']}/{out['cis']['n']} (P {out['cis']['p']:.2g}): "
                  f"{out['cis']['status']}")
     return out
 

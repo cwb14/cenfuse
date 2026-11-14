@@ -138,7 +138,7 @@ def decide_014(ev: Evidence) -> dict:
                 flags.append("hic_alt_ambiguous")
         elif _vgap(ev, cis["peak"], call, False) <= _bins(ev, HIC_FAR_BINS):           # within Hi-C's resolution: neither way
             flags.append("cis_near")
-        elif sconf == "low":                 # elsewhere, the call unsure: the better candidate, still unsure
+        elif sconf == "low" and cis["status"] == "pass":   # elsewhere, the call unsure (0.16: only where the cis line passed)
             call, relation, source, rule = cis["peak"], "offset", "hic", "cis_only"
             flags.append("cis_only")
         elif cis["status"] == "pass" and cis.get("trans_pair"):      # 0.16: tested by the LTR cores and by trans contacts
@@ -168,10 +168,17 @@ def decide_014(ev: Evidence) -> dict:
     elif call is None and getattr(ev, "rep", None) and ev.rep.get("status") == "pass":      # 0.16: the repeat-density line
         call, relation, source, rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         flags.append("rep_only")
+    elif call is None and getattr(ev, "fam", None) and ev.fam.get("status") == "pass":      # 0.16: the repeat-family line
+        call, relation, source, rule = (ev.fam["start"], ev.fam["end"]), "sequence_only", "composition", "fam_only"
+        flags.append("fam_only")
     elif at_ok and sconf == "low" and alt_iv and rule == "sequence" and (amb or not (valid and peak)) and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *alt_iv) == 0 \
             and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *call) > 0:     # 0.15: the trough on a low call's competing cluster chooses it
         call, rule = alt_iv, "at_chose_alt"
         flags.append("at_chose_alt")
+    fp0 = getattr(ev, "fam", None)                       # 0.16: said in the caveat, the call stays
+    if fp0 and fp0.get("status") == "pass" and call is not None and sconf == "low" and source == "sequence" and \
+            rule == "sequence" and not in_end_zone(ev, call) and gap(fp0["start"], fp0["end"], *call) > 0:
+        flags.append("fam_elsewhere")
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, rule="none", second=second, meth_call={"label": "", "score": np.nan})
@@ -197,6 +204,15 @@ def decide_014(ev: Evidence) -> dict:
             rep_pair = True
             call, rule = (rp["start"], rp["end"]), "rep_pair"
             flags.append("rep_pair")
+    fam_pair = False                      # 0.16: a tested repeat-family peak agrees with a Hi-C call (after the density peak)
+    fp = getattr(ev, "fam", None)
+    if not at_pair and not rep_pair and seq_iv is None and source == "hic" and fp and fp.get("status") == "pass":
+        tested = (fp.get("agrees") and (fp.get("validated") or fp.get("support"))) or \
+            ("cis_only" in flags and fp.get("cis_agrees") and (fp.get("cis_validated") or fp.get("cis_support")))
+        if tested and _vgap(ev, (fp["start"], fp["end"]), call, True) <= _bins(ev, HIC_TOL_BINS):
+            fam_pair = True
+            call, rule = (fp["start"], fp["end"]), "fam_pair"
+            flags.append("fam_pair")
     if untested and not fo and source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
         if dpk and dco and _denovo_far(ev, dpk, dco, call):
@@ -215,6 +231,8 @@ def decide_014(ev: Evidence) -> dict:
     support = ["at"] if at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if "rep_only" in flags or rep_pair:
         support.append("repeats")
+    if "fam_only" in flags or fam_pair:
+        support.append("families")
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (source == "sequence" and _te_agrees(ev, call)) or (source == "hic" and "te" in second) or "te_hic_pair" in flags:
@@ -240,6 +258,8 @@ def decide_014(ev: Evidence) -> dict:
         against.append("te")
     if "at_elsewhere" in flags:
         against.append("at")
+    if "fam_elsewhere" in flags:
+        against.append("families")
     if "cis_elsewhere" in flags:
         against.append("hic")
     against += [x for x, y in ((axis, f_opp), ("hic", d_opp)) if y]
@@ -252,13 +272,13 @@ def decide_014(ev: Evidence) -> dict:
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
     elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
-        conf = "medium" if "rep_only" not in flags and ev.at.get("validated") else "low"
+        conf = "medium" if "rep_only" not in flags and "fam_only" not in flags and ev.at.get("validated") else "low"
     elif {"cis_trans_pair", "cis_end_pair"} & set(flags):
         conf = "low"                                # 0.16: shaped on one genome, no confident call
     elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
-        conf = "medium" if at_pair or rep_pair else "low"       # 0.16: a cis call with the trough is two lines too
+        conf = "medium" if at_pair or rep_pair or fam_pair else "low"       # 0.16: a cis call with the trough is two lines too
     else:
-        conf = "high" if second or at_pair or rep_pair else "medium"
+        conf = "high" if second or at_pair or rep_pair or fam_pair else "medium"
     if rule == "sequence" and source == "sequence" and "meth" in support and relation == "concordant":
         rule = "meth_support"                # methylation alone raised or confirmed a kept call
     return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,

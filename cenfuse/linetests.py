@@ -33,6 +33,7 @@ def line_calls(r) -> dict:
                fold=_iv(r.fold_core_start, r.fold_core_end), alignment=_iv(r.align_core_start, r.align_core_end),
                at_trough=_iv(getattr(r, "at_start", "."), getattr(r, "at_end", ".")),
                repeats=_iv(getattr(r, "rep_start", "."), getattr(r, "rep_end", ".")),
+               families=_iv(getattr(r, "fam_start", "."), getattr(r, "fam_end", ".")),
                cis=_iv(getattr(r, "cis_peak_start", "."), getattr(r, "cis_peak_end", ".")))
     return {k: v for k, v in out.items() if v is not None}
 

@@ -332,8 +332,11 @@ def test_cis_at_the_call_raises_it():
 
 
 def test_cis_elsewhere_moves_only_a_low_call_and_it_stays_low():
-    d = _cis_ev("low", (30_000_000, 30_010_000))
+    d = _cis_ev("low", (30_000_000, 30_010_000), status="pass")
     assert d["call"] == (30_000_000, 30_010_000) and d["confidence"] == "low" and "cis_only" in d["flags"]
+    d = _cis_ev("low", (30_000_000, 30_010_000))           # 0.16: at the support tier it raises what it agrees with, moves none
+    assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == "low" and "cis_only" not in d["flags"]
+    assert "cis_elsewhere" in d["flags"] and d["relation"] == "sequence_only"
     for conf in ("medium", "high"):
         d = _cis_ev(conf, (30_000_000, 30_010_000))
         assert d["call"] == (1_000_000, 1_400_000) and d["confidence"] == conf and "cis_elsewhere" in d["flags"] and "hic" in d["against"]

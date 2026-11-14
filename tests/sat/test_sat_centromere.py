@@ -338,10 +338,10 @@ def test_a_long_unit_call_replaced_by_a_core_is_overruled(tmp_path, monkeypatch)
     assert all(rows[c][k] == "." for c in rows for k in over)                   # borrowed: no long-unit call at all
 
 
-def test_an_untested_array_inside_a_decisive_core_gives_way_to_the_core(tmp_path, monkeypatch):
-    """0.16 (future.md #45): where the satellites failed the one-per-chromosome test (not_one) or none dominates (capped), an
-    array that agrees with a decisive core has no tested place; the core is the call (satellite_in_core, medium), the array
-    overruled. Where the satellites passed, the array stays te_concordant; a core that does not decide changes nothing."""
+def test_an_array_that_agrees_with_a_decisive_core_keeps_its_place_untested_or_not(tmp_path, monkeypatch):
+    """An array that agrees with a decisive core (overlapping it, or beside it) stays the call, te_concordant, whether or not
+    the satellites passed their test (not_one, capped): giving way to the core where the array's place was untested
+    (satellite_in_core, tried in 0.16) took homoeologous calls of the polyploid panel apart (future.md #45)."""
     import numpy as np
     from cenfuse.sat import centromere, longunit
     from cenfuse.sat.seeds import COLS
@@ -350,20 +350,8 @@ def test_an_untested_array_inside_a_decisive_core_gives_way_to_the_core(tmp_path
     monkeypatch.setattr(longunit, "detect", lambda *a: pd.DataFrame(columns=LU_COLS))
     trf = pd.DataFrame(columns=COLS)
     core = dict(start=40_000, end=100_000, k=30, mids=Mids(sorted(np.linspace(41_000, 99_000, 30).astype(int)), 30))
-    over = ("overruled_start", "overruled_end", "overruled_family")
-    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t0", 1, Params(),
-                                      te=("CRM", {"c1": core}, True))
-    assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]       # a tested satellite stays
-    for kw in (dict(not_one=True), dict(capped=True)):
-        rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / f"t{len(kw)}{list(kw)[0]}", 1, Params(),
+    for i, kw in enumerate((dict(), dict(not_one=True), dict(capped=True))):
+        rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / f"k{i}", 1, Params(),
                                           te=("CRM", {"c1": core}, True), **kw)
         r = rows["c1"]
-        assert r["evidence"] == "retrotransposon" and "satellite_in_core" in r["flags"] and r["confidence"] == "medium"
-        assert (r["cen_start"], r["cen_end"]) == (40_000, 100_000) and [r[k] for k in over] == [0, 60_000, "A"]
-    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t3", 1, Params(),
-                                      te=("Athila", {"c1": core}, False), not_one=True)                  # flags only
-    assert rows["c1"]["evidence"] == "satellite" and "satellite_in_core" not in rows["c1"]["flags"]
-    inner = dict(start=10_000, end=50_000, k=30, mids=Mids(sorted(np.linspace(11_000, 49_000, 30).astype(int)), 30))
-    rows, _ = centromere.call_regions(g, arrays, {"A"}, None, trf, tmp_path / "t4", 1, Params(),
-                                      te=("CRM", {"c1": inner}, True), not_one=True)    # the call (0-60 kb) holds the whole core
-    assert rows["c1"]["evidence"] == "satellite" and "te_concordant" in rows["c1"]["flags"]
+        assert r["evidence"] == "satellite" and "te_concordant" in r["flags"] and (r["cen_start"], r["cen_end"]) == (0, 60_000)

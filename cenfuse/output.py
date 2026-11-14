@@ -156,7 +156,7 @@ def cis_sentence(cis: dict | None) -> str:
 def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | None, tel: dict,
                 telo: dict | None = None, verdicts: dict | None = None, ptab: pd.DataFrame | None = None,
                 nors=(), cpg: dict | None = None, five_s=(), at: dict | None = None, sat_test: dict | None = None,
-                rep: dict | None = None) -> dict:
+                rep: dict | None = None, fam: dict | None = None) -> dict:
     """One genome: what each line found, whether it was validated, calls by relation and confidence, the inputs'
     provenance and the plants' verdicts."""
     called = t[t.start != "."]
@@ -182,6 +182,10 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              rep_p=(f"{rep['p']:.3g}" if rep else "."),
              rep_hic=("; ".join(f"{w} {v['k']}/{v['n']} {v['status']}" for w, v in (("prior-free", (rep or {}).get("hic")),
                                                                                   ("cis", (rep or {}).get("cis"))) if v) or "."),
+             fam_gate=(fam["status"] if fam else "."), fam_window=(fam.get("best") or "." if fam else "."),
+             fam_p=(f"{fam['p']:.3g}" if fam else "."),
+             fam_hic=("; ".join(f"{w} {v['k']}/{v['n']} {v['status']}" for w, v in (("prior-free", (fam or {}).get("hic")),
+                                                                                  ("cis", (fam or {}).get("cis"))) if v) or "."),
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
              left_out_telomeric=",".join(c for c, _ in (telo or {}).get("left_out", [])) or ".",

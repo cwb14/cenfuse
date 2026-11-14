@@ -27,8 +27,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, ageline, atline, cdr, fold, fuse, hicfuse, inputs, interpret, linetests, loci, manifest, repline, \
-    methfuse, morphology, output, plants, provenance, rdna, seqcalls, telomere, teline
+from . import __version__, ageline, atline, cdr, famline, fold, fuse, hicfuse, inputs, interpret, linetests, loci, manifest, \
+    methfuse, morphology, output, plants, provenance, rdna, repline, seqcalls, telomere, teline
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
@@ -45,7 +45,7 @@ from .sat.util import SatelliteError
 from .runtime import Heartbeat, Usage, atomic_open, atomic_write_text, fasta_md5, file_fingerprint, release_lock, try_lock
 from .util import CenfuseError, log, obj_fingerprint
 
-STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "attrough", "repeats", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
+STAGES = ["satellite", "telomere", "rdna", "rdna5s", "gaps", "attrough", "repeats", "repfam", "genotype", "hic", "fold", "karyotype", "meth", "cpg"]
 CEN_ROLES = ("centromeric", "cen_associated")
 CHROM_RECORD = "chromosome_set.json"      # in satellite/work: {genome: sorted names} the checkpoints stand on
 LOCK = ".cenfuse.lock"                    # in OUT: 'host pid start command' of the run using the folder (runtime.try_lock)
@@ -502,6 +502,25 @@ class Run:
             log.info(f"repeats: {g.name} done ({time.time() - t0:.0f} s)")
         return hit
 
+    def stage_repfam(self, g, seq: seqcalls.SeqLine) -> dict | None:
+        """The repeat-family line (famline.py), where the repeat-density line runs: a genome where most chromosomes have no
+        confident sequence call. Every sequence of the FASTA counts K-mer copies; the satellite engine's arrays are left out of
+        the readout. Checkpointed by the assembly, the arrays and the code."""
+        weak = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem") | seq.calls.confidence.eq("low")
+        if 2 * int(weak.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
+            return None
+        arrays = {c: list(zip(d.start.astype(int), d.end.astype(int))) for c, d in seq.arrays.groupby("chrom")} \
+            if len(seq.arrays) else {}
+        fp = dict(version=__version__, code=code_key("famline.py", "repline.py", "atline.py", stage="repfam"),
+                  fai=self._assembly(g), chroms=obj_fingerprint(g.chroms), arrays=obj_fingerprint(arrays))
+        hit = self._cached("repfam", g.name, fp)
+        if hit is None:
+            t0 = time.time()
+            hit = famline.scan(famline.sample(g.fasta, g.fai, g.chroms, arrays), g.chroms)
+            self._store("repfam", g.name, fp, hit)
+            log.info(f"repfam: {g.name} done ({time.time() - t0:.0f} s)")
+        return hit
+
     def stage_genotype(self, g, samples: list, windows: list) -> dict:
         """Fixed differences of every methylation sample and the private-difference tests (provenance)."""
         files = sorted(str(f) for s in samples for f in s.files.values())
@@ -671,7 +690,8 @@ class Run:
 
     # ------------------------------------------------------------------ assembly
     @staticmethod
-    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None, at=None, ages=None, rep=None) -> list:
+    def evidences(g, seq: seqcalls.SeqLine, tel: dict, hic, meth_items=None, nors=None, at=None, ages=None, rep=None,
+                  fam=None) -> list:
         marker = tel.get("marker")
         sig = tel.get("signature")
         hrows = {} if hic is None else hic_rows(hic["table"], nors)
@@ -734,7 +754,8 @@ class Run:
                                                                     rejected_start=int(r.rejected_start),
                                                                     rejected_end=int(r.rejected_end)),
                                      te, h, meth, sat_bp(r.chrom), f, a, atline.on_chromosome(at, r.chrom),
-                                     age=(ages or {}).get(r.chrom), rep=repline.on_chromosome(rep, r.chrom)))
+                                     age=(ages or {}).get(r.chrom), rep=repline.on_chromosome(rep, r.chrom),
+                                     fam=repline.on_chromosome(fam, r.chrom)))
         return out
 
     def provenance_of(self, g, seq, sat_dir: Path, tel: dict, telo: dict):
@@ -870,6 +891,7 @@ class Run:
             gaps = self.stage_gaps(g)
             at = self.stage_attrough(g, seq)
             rep = self.stage_repeats(g, seq)
+            fam = self.stage_repfam(g, seq)
             samples, geno, hics, kar, profiles, segments, verdicts = self.provenance_of(g, seq, sat_dir, tel, telo)
             deciders = [s.name for s in samples if verdicts[("meth", s.name)]["verdict"] != "other"]
             dec_lib = deciding_library(hics, verdicts)
@@ -897,9 +919,10 @@ class Run:
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
             at = atline.with_hic(at, hic, g.chroms)
             rep = repline.with_hic(rep, hic, g.chroms)
+            fam = repline.with_hic(fam, hic, g.chroms, "repeat families")
             ages = ageline.for_genome(g.tes, g.chroms, tel.get("signature"), hic["table"] if hic is not None else None,
                                       seq.calls) if g.tes else {}
-            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at, ages=ages, rep=rep)
+            evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at, ages=ages, rep=rep, fam=fam)
             prov = [fuse.decide(e) for e in evs]
             meth, items = None, {}
             if self._chg_ok.get(g.name):
@@ -926,7 +949,8 @@ class Run:
                 pooled = meth["support"][meth["support"]["sample"] == "pooled"]
                 mi = {c: {r.item: dict(label=r.label, score=r.score) for r in d.itertuples(index=False)}
                       for c, d in pooled.groupby("chrom")}
-                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at, ages=ages, rep=rep)
+                evs = self.evidences(g, seq, tel, hic, mi, nors=self._nors.get(g.name, []), at=at, ages=ages, rep=rep,
+                                     fam=fam)
             # the CpG line: its gate from the provisional calls (the references that decided them), its contest in the
             # final fusion (fuse._cpg), its kinetochores on the final calls
             cg = [s.files["CG"] for s in samples if "CG" in s.files and s.name in deciders]
@@ -1009,7 +1033,7 @@ class Run:
                 output.write_tsv(fc, self.out / f"{g.name}.feature_contacts.tsv")
             output.write_tsv(loci.feature_signatures(lt, fc), self.out / f"{g.name}.feature_signatures.tsv")
             summary.append(output.summary_row(g.name, g, t, hic, meth, tel, telo, verdicts, ptab, nors, cpg, five_s, at, seq.test,
-                                              rep=rep))
+                                              rep=rep, fam=fam))
             try:
                 sections.append(interpret.genome_section(g.name, g, t, summary[-1], lt, fc, ictx, lines))
             except Exception as e:                   # the report never costs the results, and says what is missing

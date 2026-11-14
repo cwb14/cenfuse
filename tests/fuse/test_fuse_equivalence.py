@@ -76,7 +76,16 @@ def _evidence(r: random.Random) -> fuse.Evidence:
         meth = {k: lab() for k in ("sequence_call", "hic_peak", "provisional") if r.random() < 0.8}
     age = dict(p=r.choice([1e-4, 0.05]), premise=r.choice([1e-4, 0.3])) if r.random() < 0.2 else None
     bp = r.choice([0, 1_000, 10_000_000])
-    return fuse.Evidence("c", L, seq, te, h, meth, (lambda a, b: bp), fold, align, at, age)
+    comp = []
+    for _ in ("rep", "fam"):                 # 0.16: the repeat-density and repeat-family lines (repline.on_chromosome fields)
+        x = None
+        if r.random() < 0.3:
+            v0, v1 = _iv(r, 0)
+            x = dict(start=v0, end=v1, density=1.0, status=r.choice(["pass", "fail", "untested"]), window=100_000,
+                     validated=r.random() < 0.3, support=r.random() < 0.3, agrees=r.random() < 0.5,
+                     cis_validated=r.random() < 0.3, cis_support=r.random() < 0.3, cis_agrees=r.random() < 0.5)
+        comp.append(x)
+    return fuse.Evidence("c", L, seq, te, h, meth, (lambda a, b: bp), fold, align, at, age, rep=comp[0], fam=comp[1])
 
 
 def _same(a: dict, b: dict) -> bool:

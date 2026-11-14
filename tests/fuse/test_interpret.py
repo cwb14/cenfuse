@@ -351,3 +351,13 @@ def test_passed_lines_reads_every_test_of_the_summary():
          "hic_axis": "fold", "cpg_gate_pass": "20"}
     assert len(interpret.passed_lines(s)) == 8
     assert interpret.passed_lines({}) == []
+
+
+def test_the_caveat_names_the_family_window_a_low_call_disagrees_with():
+    """0.16 (fam_elsewhere): the call stays; the caveat says where the repeat families cluster and what would decide."""
+    r = row(confidence="low", seq_confidence="low", flags="fam_elsewhere", against="families", fam_start=70_000_001,
+            fam_end=72_000_000)
+    cav = it.caveat(r, ctx(hic=False))
+    assert "the repeat families that cluster at one locus per chromosome in this genome cluster elsewhere on this one" in cav
+    assert "70.00-72.00 Mb" in cav and cav.endswith("-> Hi-C or CENP-A/CENH3 data would decide")
+    assert it.caveat(r, ctx(hic=True)).endswith("-> CENP-A/CENH3 data would decide")
