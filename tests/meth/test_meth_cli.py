@@ -151,7 +151,7 @@ def test_exclusion_naming_no_sample_fails(syn, tmp_path, capsys):
 def test_calibration_messages(syn, tmp_path, capsys):
     o = tmp_path / "o"                                        # one folder: the runs share the bin cache
     scaf = tmp_path / "scaf.bed"
-    scaf.write_text("scaf1\t100000\t200000\tsc\n")            # in the .fai but too short to analyse
+    scaf.write_text("scaf1\t100000\t200000\tsc\n")            # in the .fai but too short to analyze
     assert cli.main(_args(syn, o / "a", "--anchors", str(scaf))) == 0
     err = capsys.readouterr().err
     assert "no anchor on an analyzed chromosome: uncalibrated run" in err

@@ -1,6 +1,7 @@
 """Command line: cenfuse run GENOME_DIR [-o OUT] [-t THREADS] [--satellite-dir DIR] [--seed-engine {fastan,trf}]
-[--seed-cache DIR] [--classify-from T=S] [--force STAGE] [-v]. Every threshold is an internal constant
-(cenfuse/params.py and the engines' params); none is an option."""
+[--seed-cache DIR] [--classify-from T=S] [--force STAGE] [-v]; cenfuse control (negative controls of one input:
+cenfuse/controls.py). Every threshold is an internal constant (cenfuse/params.py and the engines' params); none is an
+option."""
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,7 @@ def main(argv=None) -> int:
         "Centromeres from satellite arrays, LTR retrotransposons, Hi-C and methylation: each line's own call, "
         "their agreement, one integrated call per chromosome, and the other features they find, on one map."))
     ap.add_argument("--version", action="version", version=f"cenfuse {__version__}")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="{run,control}")
     sub.add_parser("control", add_help=False, help="write a negative control of one input (randomized Hi-C pairs, shuffled GC "
                                                      "blocks or LTR positions): cenfuse control -h")
     r = sub.add_parser("run", help="run every evidence line present and integrate them (resumes)",
@@ -56,8 +57,8 @@ def main(argv=None) -> int:
                                    "resumes from checkpoints.")
     r.add_argument("genome_dir", type=Path, metavar="GENOME_DIR",
                    help="one FASTA per genome (+ .fai; bgzip also .gzi) [+ <g>.chromosomes.txt: the chromosomes to "
-                        "analyze, one name per line; default: a length rule]; optional genes/<g>.gff3|.gff|.gtf, "
-                        "tes/<g>.gff3|.gff (LTR_retrotransposon with clade=, or DANTE_LTR; make it with the LTRquest "
+                        "analyze, one name per line; default: a length rule]; optional genes/<g>.gff3|.gff|.gtf[.gz], "
+                        "tes/<g>.gff3|.gff[.gz] (LTR_retrotransposon with clade=, or DANTE_LTR; make it with the LTRquest "
                         "command in the README), "
                         "hic/<g>.pairs[.gz]|.cool|.mcool (or HiC-Pro .allValidPairs[.gz], Juicer "
                         ".merged_nodups.txt[.gz]) or hic/<g>.tsv (one "

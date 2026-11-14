@@ -88,11 +88,11 @@ def columns(t: pd.DataFrame, chroms: dict, telo: dict | None, gaps: dict) -> pd.
         if s is not None and e is not None:
             s -= 1
             ks, ke = _num(getattr(r, "cpg_kt_start", None)), _num(getattr(r, "cpg_kt_end", None))
-            a, b = (ks - 1, ke) if ks is not None and ke is not None else (s, e)
-            p = int(round((a + b) / 2))
+            a, b = (ks - 1, ke) if ks is not None and ke is not None else (s, e)       # 0-based half-open
+            p = int(round((a + b) / 2))                                                # the arms split here
             ratio = _ratio(p, L)
             side = "." if a <= L / 2 <= b else "start" if p < L - p else "end"   # spans the middle: arms unordered
-            d.update(cen_point=p, short_arm=side, ci=round(min(p, L - p) / L, 3),
+            d.update(cen_point=(a + 1 + b) // 2, short_arm=side, ci=round(min(p, L - p) / L, 3),   # the middle base, 1-based
                      arm_ratio="inf" if np.isinf(ratio) else round(float(ratio), 2),
                      morphology="/".join(classes(a, b, L)), call_gaps=sum(1 for x, y in g if x < e and y > s))
         rows.append(d)

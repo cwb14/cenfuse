@@ -116,8 +116,8 @@ def test_artefacts_come_from_the_duplicated_segment(tmp_path):
     p = pair_mates(*tabs).merge(truth_t, on="k")
     art = p[p.chrom1 != p.chrom2]
     near = lambda c, x: ((c == "chr1") & (abs(x - 510_000) < 11_000)) | ((c == "chr2") & (abs(x - 1_010_000) < 11_000))
-    # smoke test: the bait may yield zero artefacts, in which case the 'near the segment' check below is vacuous
-    assert len(art) / len(p) < 0.01                       # random sequence: artefacts are rare
+    # smoke test: the bait may yield zero artifacts, in which case the 'near the segment' check below is vacuous
+    assert len(art) / len(p) < 0.01                       # random sequence: artifacts are rare
     assert len(art) == 0 or (near(art.chrom1, art.pos1) | near(art.chrom2, art.pos2)).mean() >= 0.9
 
 
@@ -169,23 +169,33 @@ def test_run_simulate_input_errors(tmp_path, monkeypatch):
         sim.run_simulate(args)
 
 
-def test_run_simulate_counts_artefacts_per_core(tmp_path, monkeypatch):
-    rng = np.random.default_rng(5)
-    fa = tmp_path / "g.fa"
-    L = 200_000
+def _small_fasta(d: Path, names=("chr1", "chr2", "chr3"), L=200_000, seed=5):
+    rng = np.random.default_rng(seed)
+    fa = d / "g.fa"
     with open(fa, "w") as f:
-        for c in ("chr1", "chr2", "chr3"):
+        for c in names:
             f.write(f">{c}\n" + "".join(rng.choice(list("ACGT"), L)) + "\n")
     pysam.faidx(str(fa))
+    return fa
+
+
+@pytest.mark.parametrize("pre, short_cis", [("chr", 0), ("chr", 100), ("", 0)])
+def test_run_simulate_counts_artefacts_per_core(tmp_path, monkeypatch, pre, short_cis):
+    """short_cis: real cis pairs < 1 kb apart, which the scale leaves out (every simulated pair is >= 1 kb apart);
+    pre "": numeric chromosome names (Ensembl style)."""
+    c1, c2, c3 = (f"{pre}{i}" for i in (1, 2, 3))
+    L = 200_000
+    fa = _small_fasta(tmp_path, (c1, c2, c3), L)
     o = tmp_path / "x"
     # cores (bin 10 kb, window = peak bin +/- 4): chr1 [50,70) kb, win [10,100); chr2 [100,120), win [60,150);
     # chr3 [20,40), win [-20,70)
-    _centromeres(f"{o}.centromeres.tsv", [["chr1", L, 20, 10_000, 50_000, 60_000, 50_000, 70_000],
-                                         ["chr2", L, 20, 10_000, 100_000, 110_000, 100_000, 120_000],
-                                         ["chr3", L, 20, 10_000, 20_000, 30_000, 20_000, 40_000]])
-    pairs = [("chr1", 1000 + 700 * i, "chr1", 60_000 + 700 * i) for i in range(100)]         # 100 cis
-    pairs += [("chr1", 55_000 + i, "chr2", 80_000 + i) for i in range(40)]                    # chr1 core x chr2 win
-    pairs += [("chr2", 105_000 + i, "chr3", 30_000 + i) for i in range(10)]                   # chr2 x chr3 cores
+    _centromeres(f"{o}.centromeres.tsv", [[c1, L, 20, 10_000, 50_000, 60_000, 50_000, 70_000],
+                                         [c2, L, 20, 10_000, 100_000, 110_000, 100_000, 120_000],
+                                         [c3, L, 20, 10_000, 20_000, 30_000, 20_000, 40_000]])
+    pairs = [(c1, 1000 + 700 * i, c1, 60_000 + 700 * i) for i in range(100)]                 # 100 cis
+    pairs += [(c1, 55_000 + i, c2, 80_000 + i) for i in range(40)]                            # chr1 core x chr2 win
+    pairs += [(c2, 105_000 + i, c3, 30_000 + i) for i in range(10)]                           # chr2 x chr3 cores
+    pairs += [(c3, 100_000 + 500 * i, c3, 100_200 + 500 * i) for i in range(short_cis)]      # cis, 200 bp apart
     (tmp_path / "real.pairs").write_text("".join(f"{a}\t{b}\t+\t{c}\t{d}\t-\n" for a, b, c, d in pairs))
     n = 200
     art1 = [(1, 55_000 + 10 * i, 2, 80_000 + 10 * i) for i in range(5)]       # -> chr1 core only
@@ -200,7 +210,7 @@ def test_run_simulate_counts_artefacts_per_core(tmp_path, monkeypatch):
 
     def fake_map(index, fq, threads, out):
         calls["map"].append(Path(index))
-        t = pd.read_csv(Path(out).parent / "sim.truth.tsv", sep="\t")
+        t = pd.read_csv(Path(out).parent / "sim.truth.tsv", sep="\t", dtype={"chrom": str})
         calls["n_truth"] = len(t)
         mate = 1 if "_1." in str(fq) else 2
         rows = []
@@ -209,12 +219,12 @@ def test_run_simulate_counts_artefacts_per_core(tmp_path, monkeypatch):
             rows.append([f"sim.{r.k}", chrom, pos, st])
         key = {}
         # first chr1-truth pairs become art1, first chr2-truth pairs become art2
-        k1 = t[t.chrom == "chr1"].k.to_numpy()[:5]
-        k2 = t[t.chrom == "chr2"].k.to_numpy()[:3]
+        k1 = t[t.chrom == c1].k.to_numpy()[:5]
+        k2 = t[t.chrom == c2].k.to_numpy()[:3]
         for k, a in zip(k1, art1):
-            key[k] = (f"chr{a[0]}", a[1]) if mate == 1 else (f"chr{a[2]}", a[3])
+            key[k] = (f"{pre}{a[0]}", a[1]) if mate == 1 else (f"{pre}{a[2]}", a[3])
         for k, a in zip(k2, art2):
-            key[k] = (f"chr{a[0]}", a[1]) if mate == 1 else (f"chr{a[2]}", a[3])
+            key[k] = (f"{pre}{a[0]}", a[1]) if mate == 1 else (f"{pre}{a[2]}", a[3])
         with open(out, "w") as f:
             for q, chrom, pos, st in rows:
                 k = int(q.split(".")[1])
@@ -236,13 +246,57 @@ def test_run_simulate_counts_artefacts_per_core(tmp_path, monkeypatch):
     assert not [p.name for p in work.iterdir() if not p.name.endswith(".log")]
     txt = Path(f"{o}.simulate.tsv").read_text().splitlines()
     assert "minimap2 -x sr or bwa mem" in "\n".join(txt[:3]) and "MAPQ >= 30" in "\n".join(txt[:3])
-    out = pd.read_csv(f"{o}.simulate.tsv", sep="\t", comment="#").set_index("chrom")
-    scale = 100 / (calls["n_truth"] - 8)                 # real cis / correctly mapped simulated cis
+    out = pd.read_csv(f"{o}.simulate.tsv", sep="\t", comment="#", dtype={"chrom": str}).set_index("chrom")
+    scale = 100 / (calls["n_truth"] - 8)                 # real cis >= 1 kb apart / correctly mapped simulated cis
     assert f"scale to real {scale:.3g}" in txt[0]
-    assert out.loc["chr1", "real_cen_contacts"] == 40 and out.loc["chr2", "real_cen_contacts"] == 10
-    assert out.loc["chr3", "real_cen_contacts"] == 10
-    for c, k in (("chr1", 5), ("chr2", 3), ("chr3", 3)):
+    assert out.loc[c1, "real_cen_contacts"] == 40 and out.loc[c2, "real_cen_contacts"] == 10
+    assert out.loc[c3, "real_cen_contacts"] == 10
+    for c, k in ((c1, 5), (c2, 3), (c3, 3)):
         assert out.loc[c, "expected_artefact_cen_contacts"] == pytest.approx(k * scale, rel=1e-3)
+
+
+def _one_core(tmp_path, monkeypatch, fake_map):
+    """run_simulate on a 3 x 200-kb genome with one called core, minimap2 replaced by fake_map."""
+    fa, o = _small_fasta(tmp_path), tmp_path / "x"
+    _centromeres(f"{o}.centromeres.tsv", [["chr1", 200_000, 20, 10_000, 50_000, 60_000, 50_000, 70_000]])
+    (tmp_path / "real.pairs").write_text("chr1\t1000\t+\tchr1\t60000\t-\n")
+
+    def fake_index(fasta, total, threads, out):
+        Path(out).write_bytes(b"index")
+        return Path(out)
+
+    monkeypatch.setattr(sim, "_build_index", fake_index)
+    monkeypatch.setattr(sim, "_map", fake_map)
+    monkeypatch.setattr(sim.shutil, "which", lambda x: "/bin/minimap2")
+    sim.run_simulate(argparse.Namespace(fasta=fa, pairs=str(tmp_path / "real.pairs"), o=str(o), fastq=None, n=50, t=1))
+
+
+def test_failed_mapping_leaves_no_large_intermediates(tmp_path, monkeypatch):
+    def failing_map(index, fq, threads, out):
+        raise InputError("minimap2 failed (exit 1)")
+
+    with pytest.raises(InputError, match="minimap2 failed"):
+        _one_core(tmp_path, monkeypatch, failing_map)
+    assert not list((tmp_path / "x.simulate").iterdir())        # reads, truth table and index removed
+
+
+def test_no_simulated_pair_kept_is_an_input_error(tmp_path, monkeypatch):
+    m = pd.DataFrame(dict(k=[1, 2], chrom=["a", "a"], pos=[100, 100], st=["+", "+"], mq=[10, 0]))
+    assert pair_mates(m, m).empty
+
+    def nothing_mapped(index, fq, threads, out):        # minimap2 exits 0 with an empty output
+        Path(out).write_text("")
+        return out
+
+    with pytest.raises(InputError, match="no simulated pair"):
+        _one_core(tmp_path, monkeypatch, nothing_mapped)
+
+
+def test_empty_fastq_is_an_input_error(tmp_path):
+    fq = tmp_path / "r.fq"
+    fq.write_text("")
+    with pytest.raises(InputError, match="no reads"):
+        sim.read_lengths(fq)
 
 
 @pytest.mark.parametrize("n", ["0", "-5", "x"])

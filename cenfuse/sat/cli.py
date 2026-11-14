@@ -4,9 +4,22 @@ import argparse
 from pathlib import Path
 
 from ..cli import _threads
+from ..inputs import chromosome_set
 from . import __version__
 from .params import Params
 from .util import SatelliteError, log, setup_logging
+
+
+def _warn_short(g) -> None:
+    """Name the sequences cenfuse's chromosome rule leaves out (organelles, unplaced scaffolds): the one-per-chromosome test
+    and family prevalence count every sequence as a chromosome. `cenfuse run` hands the engine its chromosome set."""
+    keep = chromosome_set(g.chroms)
+    short = [c for c in g.chroms if c not in keep]
+    if short:
+        names = ", ".join(repr(c) for c in short[:5]) + (f" and {len(short) - 5} more" if len(short) > 5 else "")
+        log.warning(f"{g.name}: {len(short)} of {len(g.chroms)} sequences look too short to be chromosomes ({names}); "
+                    f"the one-per-chromosome test counts them as chromosomes, which can cap every satellite call at low: "
+                    f"give a FASTA of the chromosomes only")
 
 
 def main(argv=None) -> int:
@@ -41,8 +54,12 @@ def main(argv=None) -> int:
         ap.error("give one GENOME_DIR")
     setup_logging(a.verbose)
     try:
-        Pipeline(gdir, a.threads, a.seed_cache, Params(seed_engine=a.seed_engine, classify_from=a.classify_from),
-                 force=a.force, out_dir=a.outdir).run()
+        pipe = Pipeline(gdir, a.threads, a.seed_cache, Params(seed_engine=a.seed_engine, classify_from=a.classify_from),
+                        force=a.force, out_dir=a.outdir)
+        for g in pipe.genomes:
+            if g.name not in pipe.borrow:
+                _warn_short(g)
+        pipe.run()
     except SatelliteError as e:
         log.error(str(e))
         return 1

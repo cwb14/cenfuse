@@ -26,13 +26,14 @@ LEVEL = {"centromere": 0, "satellite_DNA": 1, "tandem_repeat": 1, "higher_order_
 _ESC = {"%": "%25", ";": "%3B", "=": "%3D", "&": "%26", "\t": "%09", "\n": "%0A", "\r": "%0D"}
 
 
-def _esc(v) -> str:
-    return "".join(_ESC.get(ch, ch) for ch in str(v))
+def _esc(v, one: bool = False) -> str:
+    return "".join(_ESC.get(ch, "%2C" if one and ch == "," else ch) for ch in str(v))
 
 
 def attrs(d: dict) -> str:
-    """GFF3 column 9; commas are kept (multi-value lists), reserved characters percent-encoded."""
-    return ";".join(f"{k}={_esc(v)}" for k, v in d.items() if v is not None)
+    """GFF3 column 9; commas are kept (multi-value lists) except in ID and Parent, which hold one value (a sequence name
+    with a comma), reserved characters percent-encoded."""
+    return ";".join(f"{k}={_esc(v, k in ('ID', 'Parent'))}" for k, v in d.items() if v is not None)
 
 
 def copy_spacing(mon: pd.DataFrame, family: str):

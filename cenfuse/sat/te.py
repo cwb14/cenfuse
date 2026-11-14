@@ -1,7 +1,6 @@
 """Retrotransposon evidence: the LTR-RT clade that concentrates at one locus per chromosome marks the centromere
 (Athila in A. thaliana, CRM in grasses). Optional input GENOME_DIR/tes/<genome>.gff3|.gff[.gz]; design:
-docs/design.md ('Satellites and TEs')."""
-import gzip
+docs/design.md ('LTR retrotransposons')."""
 import math
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import numpy as np
 
 from .params import (TE_ALPHA, TE_BINS, TE_CENTROMERIC_CLADE, TE_CONTRA_ALPHA, TE_MIN_BIN, TE_MIN_SITES, TE_SMOOTH,
                      TE_SPECIFIC_FOLD)
-from .util import SatelliteError, log, merge_intervals
+from .util import SatelliteError, log, merge_intervals, open_text
 
 IGNORED_CLADES = {"unknown", "mixture", "na", "none", "."}
 # DANTE_LTR (REXdb) classification ranks above the lineage: an element classified only this far has no clade
@@ -79,7 +78,7 @@ def _te_rows(gff, chroms: dict):
     """(chrom, start, end, clade) of every classified LTR retrotransposon on the genome's sequences (0-based); malformed
     lines are skipped and counted (Coords)."""
     xy = Coords(gff)
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+    with open_text(gff) as f:
         for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue
@@ -98,7 +97,7 @@ def te_census(gff, chroms: dict) -> dict:
     on other sequence names (foreign). Tells an unclassified file (EDTA without TEsorter: superfamily only) or one for
     another naming from one whose clades are merely not concentrated."""
     n = dict(ltr=0, classified=0, foreign=0)
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+    with open_text(gff) as f:
         for line in f:
             if line.startswith("#"):
                 continue
@@ -287,12 +286,6 @@ def choose_marker(tes: dict, chroms: dict, cands: list):
             log.debug(f"te: {clade} significant on {len(sig)}/{len(chroms)} sequences: its cores there")
             return (m[0], {**m[1], **sig}, False) if m is not None else (clade, sig, False)
     return m
-
-
-def centromeric_clade(tes: dict, chroms: dict):
-    """(clade, {chrom: significant core}) of the most concentrated candidate clade, or (None, {})."""
-    c = candidate_clades(tes, chroms)
-    return c[0] if c else (None, {})
 
 
 def gap(a0: int, a1: int, b0: int, b1: int) -> int:

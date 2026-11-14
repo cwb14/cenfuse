@@ -8,6 +8,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -19,7 +20,7 @@ from .classes import ClassMap, classify
 from .io import open_tabix, read_bedmethyl
 
 log = logging.getLogger("cenfuse-meth")
-CACHE_VERSION = 1       # the class-bin cache's format: bump when its content changes (fingerprint)
+CACHE_VERSION = 2       # the class-bin cache's format: bump when its content changes (fingerprint)
 
 
 @dataclass
@@ -54,23 +55,27 @@ def bin_chromosome(path, chrom: str, length: int, segs, other: int, n_classes: i
     nb = n_bins(length)
     acc = np.zeros((3, nb * n_classes), dtype=np.int64)
     bad = 0
-    pysam.set_verbosity(0)                 # htslib notes (e.g. index age) are reported once by io.read_samples
-    with open_tabix(path) as tb:
-        for s in range(0, length, params.CHUNK):
-            pos, v, m, b = read_bedmethyl(tb, chrom, s, min(s + params.CHUNK, length), params.MIN_CALLS_SITE)
-            bad += b
-            if len(pos) == 0:
-                continue
-            key = (pos // params.BIN) * n_classes + classify(segs, pos, other)
-            for i, w in enumerate((None, v, m)):
-                acc[i] += np.bincount(key, weights=w, minlength=nb * n_classes).astype(np.int64)
+    verbosity = pysam.set_verbosity(0)     # htslib notes (e.g. index age) are reported once by io.read_samples
+    try:
+        with open_tabix(path) as tb:
+            for s in range(0, length, params.CHUNK):
+                pos, v, m, b = read_bedmethyl(tb, chrom, s, min(s + params.CHUNK, length), params.MIN_CALLS_SITE)
+                bad += b
+                if len(pos) == 0:
+                    continue
+                key = (pos // params.BIN) * n_classes + classify(segs, pos, other)
+                for i, w in enumerate((None, v, m)):
+                    acc[i] += np.bincount(key, weights=w, minlength=nb * n_classes).astype(np.int64)
+    finally:
+        pysam.set_verbosity(verbosity)
     nz = np.flatnonzero(acc[0])
     return ChromBins((nz // n_classes).astype(np.int32), (nz % n_classes).astype(np.int16),
                      acc[0, nz], acc[1, nz], acc[2, nz]), bad
 
 
 def fingerprint(paths, extra: str = "") -> str:
-    """Fast input fingerprint: name, size, mtime, first and last MiB of each file (not a full checksum)."""
+    """Fast input fingerprint: name, size, mtime, first and last MiB of each file (the whole file up to 2 MiB; not a
+    full checksum)."""
     h = hashlib.md5(f"{CACHE_VERSION}:{params.BIN}:{params.MIN_CALLS_SITE}:{extra}".encode())
     n = params.CACHE_FP_BYTES
     for p in paths:
@@ -79,8 +84,8 @@ def fingerprint(paths, extra: str = "") -> str:
         h.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode())
         with open(p, "rb") as f:
             h.update(f.read(n))
-            if st.st_size > 2 * n:
-                f.seek(-n, 2)
+            if st.st_size > n:
+                f.seek(max(n, st.st_size - n))
                 h.update(f.read())
     return h.hexdigest()[:16]
 
@@ -97,8 +102,12 @@ def _job(a):
     cb, bad = bin_chromosome(path, chrom, length, segs, other, k)
     if cache_file is not None:
         tmp = cache_file.with_name(cache_file.name + f".{os.getpid()}.tmp.npz")
-        np.savez(tmp, key=np.array(key), bin=cb.bin, cls=cb.cls, n=cb.n, v=cb.v, m=cb.m)
-        os.replace(tmp, cache_file)
+        try:
+            np.savez(tmp, key=np.array(key), bin=cb.bin, cls=cb.cls, n=cb.n, v=cb.v, m=cb.m)
+            os.replace(tmp, cache_file)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
     return cb, bad, False
 
 
@@ -113,9 +122,9 @@ def collect(samples, chroms: dict[str, int], cmap: ClassMap, ann_key: str, cache
     for smp in samples:
         for ctx, path in smp.files.items():
             fkey = fingerprint([path], f"{ann_key}:{k}")
-            for c, L in chroms.items():
-                cf = cache_dir / f"{smp.name}.{ctx}.{c}.npz" if cache_dir is not None else None
-                jobs.append((path, c, L, cmap.segs.get(c), cmap.other, k, cf, fkey))
+            for c, L in chroms.items():          # the name quoted: a sequence name may hold '/'
+                cf = cache_dir / f"{smp.name}.{ctx}.{quote(c, safe='')}.npz" if cache_dir is not None else None
+                jobs.append((path, c, L, cmap.segs.get(c), cmap.other, k, cf, f"{fkey}:{L}"))
                 ids.append((smp.name, ctx, c))
     out, bad, cached = {}, 0, 0
     if threads > 1:
@@ -163,7 +172,7 @@ def depth_filter(bins, samples, chroms: dict[str, int], excl: pd.DataFrame | Non
             ex = np.zeros(len(d), bool)
             if excl is not None and len(excl):
                 e = excl[(excl.chrom == c) & ((excl["sample"] == "") | (excl["sample"] == smp.name))]
-                for s0, e0 in zip(e.start.to_numpy(), e.end.to_numpy()):
+                for s0, e0 in zip(e.start.to_numpy().clip(0), e.end.to_numpy().clip(0)):     # a BED start may be < 0
                     ex[s0 // params.BIN:-(-e0 // params.BIN)] = True
             n_dep += int((bad & ~ex & np.isfinite(d)).sum())
             n_exc += int((ex & np.isfinite(d)).sum())

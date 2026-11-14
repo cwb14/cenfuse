@@ -223,8 +223,8 @@ def seed_genomes(genomes, cache_dir, threads: int, p) -> dict:
         gk = genome_key(g)
         path, old = cache_path(cache_dir, gk, p), cache_path(cache_dir, gk, p, legacy=True)
         if not path.exists() and old != path and old.exists():
-            log.info(f"seeds: {g.name}: reusing {old.name}, cached before the cache recorded FasTAN's binary (run_info.json "
-                     f"records the one this run uses)")
+            log.info(f"seeds: {g.name}: reusing {old.name}, cached before the cache recorded FasTAN's binary (under "
+                     f"`cenfuse run`, run_info.json records the one this run uses)")
             path = old
         out[g.name] = path
         if path.exists():
@@ -254,4 +254,4 @@ def seed_genomes(genomes, cache_dir, threads: int, p) -> dict:
 
 
 def load_seeds(path) -> pd.DataFrame:
-    return pd.read_csv(path, sep="\t", dtype={"chrom": str, "consensus": str})
+    return pd.read_csv(path, sep="\t", dtype={"consensus": str}, converters={"chrom": str})   # chrom verbatim (NA, 01)

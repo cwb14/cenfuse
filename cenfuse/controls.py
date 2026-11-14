@@ -14,12 +14,12 @@ control is deterministic given its seed (numpy's default_rng).
   ltr-shuffle   the LTR line's control: every LTR retrotransposon, with the features under it, moves to a uniform
                 random position on its own sequence, keeping its length and its attributes (clade, family, age).
 
-The Hi-C controls are v2/scripts/permute_pairs.py (--mode repair | relocate) as a module: a seed writes the same bytes
-as that script (checked on the stored NEG2 control of C. tropicalis), because the same numbers are drawn in the same
-order. Both test their own output with dispersion() and stop when its contacts are clumped: the re-pairing of
-v11/bench/repair_pairs.sh (`shuf --random-source=<(yes 7)`, withdrawn) gave clumped contacts that nothing caught until a
-figure measured them. The GC and LTR shuffles follow v11/bench/at_shuffle.py and control_te.py, which drew theirs in
-memory; these write them out as inputs for a run."""
+The Hi-C controls are the benchmark's control generator (permute_pairs.py, --mode repair | relocate; a script outside this
+repository) as a module: a seed writes the same bytes as that script (checked on the stored NEG2 control of C. tropicalis),
+because the same numbers are drawn in the same order. Both test their own output with dispersion() and stop when its
+contacts are clumped: an earlier re-pairing by `shuf --random-source=<(yes 7)` (withdrawn) gave clumped contacts that
+nothing caught until a figure measured them. The GC and LTR shuffles follow the benchmark's shuffles of GC blocks and LTR
+positions (at_shuffle.py, control_te.py), which drew theirs in memory; these write them out as inputs for a run."""
 from __future__ import annotations
 
 import argparse
@@ -50,7 +50,7 @@ DISP_Z = 10             # clumped above 1 + 10 null sd (the sd of the index for 
                         # is 0.85-1.1x it). Random controls sit at 1: 40 seeds of C. tropicalis Hi-C (11 M pairs, 1024
                         # bins) gave 0.9999 +- 0.0017 re-paired and 1.0002 +- 0.0047 relocated, at most +2.2 sd; 200
                         # seeds of a 3,000-pair fixture at most +3.0 sd; the 14 stored NEG2 controls -1.4 to +0.5 sd,
-                        # the stored NEG of mouse MMU8 +1.7 sd. The clumped `shuf` partners (v11/data/neg) scored
+                        # the stored NEG of mouse MMU8 +1.7 sd. The withdrawn re-pairing's clumped `shuf` partners scored
                         # 176-1,712, over 88,000 sd
 GC_BLOCK = 100_000      # at_shuffle.py's blocks (100 bins of 1 kb): the benchmark's GC control
 FASTA_WIDTH = 60        # bases per FASTA line written (samtools faidx's)

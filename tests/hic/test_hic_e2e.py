@@ -1,7 +1,10 @@
 """End-to-end: the full Hi-C engine `call` pipeline on a synthetic genome with planted centromeres."""
 from __future__ import annotations
 
+import bz2
+import gzip
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -103,6 +106,64 @@ def _pairs_read_too_early(*a, **k):
 
 def _stop_after_startup(*a, **k):
     raise InputError("stopped after the startup checks")
+
+
+def _fai3(d, L=25_000_000):
+    fai = d / "g.fai"
+    fai.write_text("".join(f"chr{i}\t{L}\t0\t60\t61\n" for i in (1, 2, 3)))
+    return fai
+
+
+def test_compressed_or_binary_pairs_exit_2(tmp_path, capsys):
+    """gzip data in a file named .pairs, a .bz2 file and a BAM: a clear error, not a traceback."""
+    fai, line = _fai3(tmp_path), b"chr1\t10\t+\tchr2\t20\t-\n"
+    for name, data in (("z.pairs", gzip.compress(line)), ("z.pairs.bz2", bz2.compress(line)),
+                       ("z.bam", gzip.compress(b"BAM\x01" + bytes(range(256)) * 8))):
+        (tmp_path / name).write_bytes(data)
+        with pytest.raises(SystemExit) as e:
+            main(["call", "--pairs", str(tmp_path / name), "--fai", str(fai), "-o", str(tmp_path / "o" / "x")])
+        assert e.value.code == 2 and f"{name}: " in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("second", ["same", "empty", "header_only", "bad_layout"])
+def test_every_pairs_file_is_checked_before_any_is_read(tmp_path, monkeypatch, capsys, second):
+    """A file given twice (its contacts would count twice), an empty or header-only library, or an unknown layout among
+    the replicates fails in seconds, before the first library is read."""
+    fai, good = _fai3(tmp_path), tmp_path / "good.txt"
+    good.write_text("chr1\t10\t+\tchr2\t20\t-\n")
+    f2 = tmp_path / "second.pairs"
+    f2.write_text({"same": "", "empty": "", "bad_layout": "r1 chr1 11 chr2 21 + - UU\n",
+                   "header_only": "## pairs format v1.0\n#columns: readID chrom1 pos1 chrom2 pos2\n"}[second])
+    monkeypatch.setattr(cli, "_base_matrix", _pairs_read_too_early)
+    with pytest.raises(SystemExit) as e:
+        main(["call", "--pairs", str(good), str(good if second == "same" else f2), "--fai", str(fai), "-o",
+              str(tmp_path / "o" / "x")])
+    assert e.value.code == 2 and "cenfuse-hic: error:" in capsys.readouterr().err
+
+
+def test_no_usable_pairs_gives_the_counts(tmp_path, capsys):
+    """Every pair below MAPQ 30 (e.g. Juicer's placeholder MAPQ 0): the error names the file and the MAPQ filter, not
+    a sequence-name mismatch."""
+    p = tmp_path / "q0.pairs"
+    p.write_text("## pairs format v1.0\n#columns: readID chrom1 pos1 chrom2 pos2 strand1 strand2 mapq1 mapq2\n"
+                 + "".join(f"r{i}\tchr1\t{100 + i}\tchr2\t{500 + i}\t+\t-\t0\t0\n" for i in range(3)))
+    with pytest.raises(SystemExit) as e:
+        main(["call", "--pairs", str(p), "--fai", str(_fai3(tmp_path)), "-o", str(tmp_path / "o" / "x")])
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "q0.pairs: no usable pairs" in err and "3 with MAPQ < 30" in err
+
+
+def test_cache_key_covers_the_middle_of_a_small_file(tmp_path):
+    """A file of 1-2 MiB is fingerprinted whole: a same-size edit past its first MiB changes the key."""
+    p = tmp_path / "p.txt"
+    data = bytearray(b"a" * (3 << 19))                  # 1.5 MiB
+    p.write_bytes(bytes(data))
+    st = p.stat()
+    k1 = cli.fast_checksum(p)
+    data[5 << 18] = ord("b")                            # at 1.25 MiB
+    p.write_bytes(bytes(data))
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert cli.fast_checksum(p) != k1
 
 
 @pytest.mark.parametrize("opt", ["--satellites", "--repeats"])
@@ -291,8 +352,8 @@ def test_replicate_libraries_are_merged(tmp_path):
 
 
 def test_replicates_in_different_pair_layouts(tmp_path, caplog):
-    """Code review (v10.1): a 4DN file with MAPQ columns and a simple 6-column file as replicates: each is read with
-    its own layout; MAPQ is reported unchecked (one file has none) and nothing crashes."""
+    """A 4DN file with MAPQ columns and a simple 6-column file as replicates: each is read with its own layout; MAPQ
+    is reported unchecked (one file has none) and nothing crashes."""
     t = make_genome(tmp_path / "g", n_trans=60_000, n_cis=60_000)
     lines = Path(t["pairs"]).read_text().splitlines()
     four = tmp_path / "a.pairs"

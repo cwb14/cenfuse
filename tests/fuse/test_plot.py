@@ -62,6 +62,59 @@ def test_overview_marks_45s_and_5s_rdna_arrays():
     assert "No 45S or 5S rDNA array was found" in plot.legends(f)[1]
 
 
+def _composition(f, i, flag, line):
+    """Chromosome i's call placed by a FASTA line alone (call_source composition): an AT trough, a repeat-density peak or a
+    repeat-family cluster, with no sequence call."""
+    for k, v in dict(call_source="composition", seq_start=".", seq_end=".", confidence="low", flags=flag, support=line).items():
+        f["calls"].loc[i, k] = v
+
+
+def test_repeat_line_calls_have_their_own_band_key_and_columns():
+    """0.16's repeat-density and repeat-family calls are drawn in the repeat lines' color and named so in the key, not as AT
+    troughs, and panel B shows their lines (rep, fam) with the supporting dot on each call's row. C. neoformans from the FASTA
+    (0.16.0): 14 of 14 calls rep_only, drawn as 'integrated call (AT trough)' with an empty panel B."""
+    from matplotlib.colors import to_hex
+    f = _fig(dict(nors=[], five_s=[]), n=3)
+    _composition(f, 0, "rep_only", "repeats")
+    _composition(f, 1, "fam_only", "families")
+    fig = plot._pages(f)[0]
+    keys = [t.get_text() for t in fig.legends[0].get_texts()]
+    assert "integrated call (repeat peak)" in keys and "integrated call (AT trough)" not in keys
+    bands = {round(p.get_y()): to_hex(p.get_facecolor()) for p in fig.axes[0].patches if p.get_zorder() == 0}
+    band = {k: to_hex(v) for k, v in plot.BAND.items()}
+    assert bands == {2: band["repeats"], 1: band["repeats"], 0: band["sequence"]}                    # rows top-down
+    assert band["repeats"] not in (band["composition"], band["hic"], band["sequence"])
+    cols = [t.get_text() for t in fig.axes[1].get_xticklabels()]
+    assert cols == ["sat", "TE", "Hi-C", "rep", "fam", "meth"]
+    dots = {(round(float(x.get_xdata()[0])), float(x.get_ydata()[0])) for x in fig.axes[1].lines if x.get_marker() == "o"}
+    assert dots == {(cols.index("rep"), 2.5), (cols.index("fam"), 1.5), (cols.index("sat"), 0.5)}
+    guides = sorted(float(x.get_xdata()[0]) for x in fig.axes[1].lines if to_hex(x.get_color()) == "#ebebeb")
+    assert guides == list(range(len(cols)))                     # a guide under every column, not only the first four
+    plt.close(fig)
+    _composition(f, 2, "at_only", "at")                         # with an AT call too: both keys, each band its own color
+    fig = plot._pages(f)[0]
+    keys = [t.get_text() for t in fig.legends[0].get_texts()]
+    assert "integrated call (repeat peak)" in keys and "integrated call (AT trough)" in keys
+    bands = {round(p.get_y()): to_hex(p.get_facecolor()) for p in fig.axes[0].patches if p.get_zorder() == 0}
+    assert bands[0] == band["composition"] and bands[2] == band["repeats"]
+    plt.close(fig)
+
+
+def test_the_long_legend_names_every_rule_that_places_a_call():
+    """The 'Terms' paragraph names the rules that can place a call besides the Hi-C gate and the Rabl axis (stale since 0.12):
+    the LTR cores, the cis signal, the AT troughs and (0.16) the two repeat lines; panel A's legend says what each band color
+    means, and panel B's what its AT and repeat columns mean."""
+    f = _fig(dict(nors=[], five_s=[]), n=2)
+    _composition(f, 0, "rep_only", "repeats")
+    long = plot.legends(f)[1]
+    terms = long.split("\n\n")[0]
+    for x in ("LTR core", "cis signal", "AT trough", "densest stretch of repeated sequence", "repeat-family cluster"):
+        assert x in terms, x
+    a = long.split("\n\n")[1]
+    assert "wine: a repeat peak" in a and "green" not in a       # only the bands drawn are named
+    assert "AT, rep and fam" in long.split("\n\n")[2]
+
+
 def test_relation_labels_end_inside_the_page():
     """Panel B's longest label ("sequence only, medium") ends inside the page: the PNG has no margin to spare (10 of
     the 23 v8 gallery pages cut it at the right edge)."""

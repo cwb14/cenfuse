@@ -64,6 +64,17 @@ def test_outputs_exist_and_gffs_valid(synth_run):
     assert cols == FAMTAB_COLS_WRITTEN and not set(cols) & (set(COST_COLS) - {"family"})
 
 
+def test_stage_scratch_is_removed(synth_run):
+    """BLAST, cd-hit, rRNA-search and model-building scratch (GB on large genomes) does not stay in work/ once its stage
+    has written its outputs; the outputs and checkpoints do."""
+    cdir, _, _, _ = synth_run
+    work = cdir / "centromere" / "work"
+    left = [str(x.relative_to(work)) for pat in ("families/blast*", "families/rdna", "families/fam[0-9]*", "classify/rdna_*",
+                                                  "centromeres/tmp_*", "hor/tmp_*") for x in work.glob(pat)]
+    assert not left
+    assert (work / "families" / "families.hmm").exists() and (work / "hor.done").exists()
+
+
 def test_search_cost_table_of_a_run(synth_run):
     """work/annotate/<genome>.search_cost.tsv: one row per family, its monomers add up to the monomers table."""
     from cenfuse.sat.annotate import COST_COLS
@@ -237,6 +248,28 @@ def test_bgzipped_inputs_give_identical_results(tmp_path):
     assert fam(gdir).equals(fam(cdir))
 
 
+def test_sequence_names_read_as_missing_or_numbers_are_called(tmp_path):
+    """Chromosomes named NA, None and 01 (pandas reads the first two as missing, the third as the number 1) each get the
+    call on their planted array."""
+    import numpy as np
+    import pysam
+    from cenfuse.sat.pipeline import Pipeline
+    from sat_synth import CEN_START, L, MON, mutate, rseq
+    rng = np.random.default_rng(5)
+    cen = rseq(rng, MON)
+    gdir = tmp_path / "Edge"
+    gdir.mkdir()
+    with open(gdir / "Edge.fa", "w") as f:
+        for name in ("NA", "None", "01"):
+            core = "".join(mutate(rng, cen, 0.08) for _ in range(150))
+            f.write(f">{name}\n{rseq(rng, CEN_START) + core + rseq(rng, L - CEN_START - len(core))}\n")
+    pysam.faidx(str(gdir / "Edge.fa"))
+    Pipeline(gdir, 1, None, Params(**TEST_PARAMS)).run()
+    s = pd.read_csv(gdir / "centromere" / "Edge_centromere_summary.tsv", sep="\t", dtype=str, keep_default_na=False)
+    assert list(s.chrom) == ["NA", "None", "01"] and set(s.evidence) == {"satellite"}
+    assert all(abs(int(x) - CEN_START) <= MON for x in s.cen_start)
+
+
 def test_cli_help_is_short():
     """Thresholds are internal constants (params.py), not options."""
     r = subprocess.run([sys.executable, "-m", "cenfuse.sat", "run", "--help"], capture_output=True, text=True)
@@ -248,6 +281,9 @@ def test_cli_help_is_short():
 def test_cli_needs_a_genome_dir_and_fails_clearly(tmp_path):
     run = lambda *a: subprocess.run([sys.executable, "-m", "cenfuse.sat", "run", *a], capture_output=True, text=True)
     assert run().returncode == 2
+    r = run(str(tmp_path / "missing"))
+    assert r.returncode == 1 and "missing: no such folder" in r.stderr
+    (tmp_path / "empty").mkdir()
     r = run(str(tmp_path / "empty"))
     assert r.returncode == 1 and "no *.fa genomes" in r.stderr
     r = run("--complex-dir", str(tmp_path / "empty"))                      # hidden alias of GENOME_DIR

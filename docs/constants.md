@@ -52,7 +52,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `DISP_BINS` | `1024` | the finest genome-wide bins of the dispersion check: a power of 2, so that halving keeps the bins nested; 1024 bins make 524,800 bin pairs |  |
 | `DISP_MIN_E` | `5` | a bin pair is tested when its count's null variance is >= 5 (Cochran's rule for Pearson's statistic: >= 5 expected for Poisson counts) |  |
 | `DISP_MIN_CELLS` | `10` | fewer testable bin pairs: untested, with a warning |  |
-| `DISP_Z` | `10` | clumped above 1 + 10 null sd (the sd of the index for independent counts; the spread measured is 0.85-1.1x it). Random controls sit at 1: 40 seeds of C. tropicalis Hi-C (11 M pairs, 1024 bins) gave 0.9999 +- 0.0017 re-paired and 1.0002 +- 0.0047 relocated, at most +2.2 sd; 200 seeds of a 3,000-pair fixture at most +3.0 sd; the 14 stored NEG2 controls -1.4 to +0.5 sd, the stored NEG of mouse MMU8 +1.7 sd. The clumped `shuf` partners (v11/data/neg) scored 176-1,712, over 88,000 sd |  |
+| `DISP_Z` | `10` | clumped above 1 + 10 null sd (the sd of the index for independent counts; the spread measured is 0.85-1.1x it). Random controls sit at 1: 40 seeds of C. tropicalis Hi-C (11 M pairs, 1024 bins) gave 0.9999 +- 0.0017 re-paired and 1.0002 +- 0.0047 relocated, at most +2.2 sd; 200 seeds of a 3,000-pair fixture at most +3.0 sd; the 14 stored NEG2 controls -1.4 to +0.5 sd, the stored NEG of mouse MMU8 +1.7 sd. The withdrawn re-pairing's clumped `shuf` partners scored 176-1,712, over 88,000 sd |  |
 | `GC_BLOCK` | `100_000` | at_shuffle.py's blocks (100 bins of 1 kb): the benchmark's GC control |  |
 | `FASTA_WIDTH` | `60` | bases per FASTA line written (samtools faidx's) |  |
 | `COPY` | `10_000_000` | bp read at a time when a sequence is copied |  |
@@ -148,7 +148,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 
 | constant | value | reason | mark |
 |---|---|---|---|
-| `CACHE_VERSION` | `1` | the class-bin cache's format: bump when its content changes (fingerprint) |  |
+| `CACHE_VERSION` | `2` | the class-bin cache's format: bump when its content changes (fingerprint) |  |
 
 ## `meth/io.py`
 
@@ -185,7 +185,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `LOW_DEPTH` | `8.0` | warn below 8x median depth: few repeat cytosines reach MIN_CALLS_SITE |  |
 | `CHUNK` | `10_000_000` | bedMethyl region read at once (bp): bounds memory. Each worker holds one chunk of rows (~0.5 GB CHG, ~1 GB CHH at plant densities), so a run needs about threads x 1-2 GB |  |
 | `SEED` | `7` | fixed seed: reruns give identical P values |  |
-| `CACHE_FP_BYTES` | `1 << 20` | cache key reads the first and last MiB of each input (a fast fingerprint, not a checksum) |  |
+| `CACHE_FP_BYTES` | `1 << 20` | cache key reads the first and last MiB of each input (all of a file up to 2 MiB; a fast fingerprint, not a checksum) |  |
 
 ## `meth/plot.py`
 

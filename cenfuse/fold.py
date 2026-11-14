@@ -25,7 +25,8 @@ Rules:
   engine's half-maximum core rule).
 - Validation: a chromosome agrees when its de novo Hi-C peak overlaps the fold core; chance = (core + peak length)
   / scanned length. The fold passes at Poisson-binomial P <= GATE_P with a majority of the tested chromosomes
-  agreeing and >= GATE_MIN_REF tested (the Hi-C gate's rules).
+  agreeing and >= GATE_MIN_REF tested (the Hi-C gate's rules). It acts on a chromosome only where the test passes without
+  that chromosome too (0.16.1, cenfuse.loo): its own agreement is the pair a move would rest on.
 
 Trans arm alignment (0.10.1), the same Rabl axis read from inter-chromosomal contacts: a locus d bins from its
 centromere sits about d from the centromere pole on every chromosome, so trans contacts are enriched between loci at
@@ -46,6 +47,7 @@ from __future__ import annotations
 import numpy as np
 import scipy.sparse as sp
 
+from . import loo
 from .hic.params import HALF_WIN
 from .params import GATE_MIN_REF, GATE_P
 from .util import gap, log, poisson_binomial_sf
@@ -193,8 +195,9 @@ def align_scan(W, bins, good, mean, members, centers: dict, cores: dict | None =
 
 def validate(folds: dict, table, label: str = "arm fold") -> dict:
     """Agreement of the fold (or alignment) cores with the de novo Hi-C peaks (module doc). table: the hicfuse
-    table. Passes at P <= GATE_P / 2 (Bonferroni over the fold and the alignment)."""
-    rows, chance = {}, []
+    table. Passes at P <= GATE_P / 2 (Bonferroni over the fold and the alignment). status_by_chrom and p_by_chrom: the status
+    and the P at which the line may act on each chromosome, the test without it (loo; P: the larger of the two)."""
+    rows, chance = {}, {}
     for r in table.itertuples(index=False):
         f = folds.get(r.chrom)
         if f is None or not r.callable or r.denovo_confidence == "none" or r.denovo_peak_start < 0:
@@ -203,10 +206,17 @@ def validate(folds: dict, table, label: str = "arm fold") -> dict:
         rows[r.chrom] = agree
         core, peak = f["core_end"] - f["core_start"], r.denovo_peak_end - r.denovo_peak_start
         # agreement = overlap or touching (gap 0): a peak bin agrees from one bin before the core to one after it
-        chance.append(min(1.0, (core + 2 * peak) / max(1, f["scanned"])))
-    n, k = len(rows), int(sum(rows.values()))
-    p = poisson_binomial_sf(k, chance) if n else 1.0
-    status = "untested" if n < GATE_MIN_REF else "pass" if p <= GATE_P / 2 and 2 * k > n else "fail"
+        chance[r.chrom] = min(1.0, (core + 2 * peak) / max(1, f["scanned"]))
+
+    def test(names) -> tuple:
+        k = int(sum(rows[c] for c in names))
+        p = poisson_binomial_sf(k, [chance[c] for c in names]) if names else 1.0
+        return k, len(names), p, "untested" if len(names) < GATE_MIN_REF else "pass" if p <= GATE_P / 2 and 2 * k > len(names) \
+            else "fail"
+    k, n, p, status = test(list(rows))
+    by_chrom = loo.by_chromosome(status, rows, lambda names: test(names)[3])
+    p_by_chrom = {c: max(p, test([x for x in rows if x != c])[2]) for c in rows}
     log.info(f"Hi-C {label}: {len(folds)} chromosomes scanned; its core holds the de novo peak on {k}/{n} "
-             f"(P {p:.2g}): {status}")
-    return dict(agrees=rows, k=k, n=n, p=p, status=status)
+             f"(P {p:.2g}): {status}" + (f"; acts on {sum(s == 'pass' for s in by_chrom.values())} of {n}, each judged on the "
+                                         f"others" if status == "pass" else ""))
+    return dict(agrees=rows, k=k, n=n, p=p, status=status, status_by_chrom=by_chrom, p_by_chrom=p_by_chrom)

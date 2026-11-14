@@ -1,9 +1,6 @@
 """Helpers shared by the meth tests."""
-import sys
-from pathlib import Path
-import pytest
-sys.path.insert(0, str(Path(__file__).parent))
-import meth_synth as synth  # noqa: E402
+
+
 def run_scan(prep, anchor_file, direction):
     """Anchors (or none) -> (anchors, scan, calibration table or None)."""
     from cenfuse.meth import calibrate, io

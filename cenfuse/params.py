@@ -24,7 +24,6 @@ NOT_STRONG_FLAGS = ("hub", "rDNA", "telomeric")   # peaks on contact hubs or NOR
 HIC_MAX_THREADS = 8       # Hi-C bootstrap threads: each holds ~3 copies of the contact matrix (memory, not speed)
 METH_SCORE = 0.5          # centromere_like = signature score >= 0.5 (methylation engine SIG_FRACTION: nearer the anchors than
                           # the background)
-CONF_LEVELS = ("low", "medium", "high")   # the satellite engine's confidence levels, in order
 MAX_RAISE = 2             # supporting lines raise a kept sequence call at most two levels (low -> high)
 SAT_SUPPORT_BP = 5_000    # the satellite line supports a call holding >= 5 kb of centromeric-role arrays: the satellite engine's
                           # weak_satellite floor (fallback_min_bp = S_MIN / 4)

@@ -1,6 +1,5 @@
 """Bins for small chromosomes (0.10): candidate sizes from the chromosome lengths, and a yeast-like Rabl genome
 (0.2-0.6-Mb chromosomes) called at fine bins. Genomes whose chromosomes all have 20 bins at 250 kb keep 0.9's ladder."""
-import numpy as np
 import pandas as pd
 import pytest
 

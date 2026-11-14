@@ -96,7 +96,11 @@ RULE_TEXT = {"sequence": "the sequence call as it is", "hic_agrees": "the sequen
              "hic_moved": "moved by a strong validated Hi-C peak", "hic_strong_peak": "placed by a strong validated Hi-C peak",
              "hic_medium_peak": "placed by a medium validated Hi-C peak", "hic_offset": "the sequence call, contested by Hi-C",
              "cpg_elsewhere": "the sequence call, contested by CpG", "meth_support": "the sequence call, methylation agreeing",
-             "rep_only": "a repeat-density peak alone"}
+             "fold_offset": "the sequence call, contested by the arm fold",
+             "align_offset": "the sequence call, contested by the trans arm alignment",
+             "hic_denovo_offset": "the sequence call, contested by Hi-C's prior-free peak",
+             "rep_only": "a repeat-density peak alone", "rep_pair": "a Hi-C call refined by a repeat-density peak",
+             "fam_only": "a repeat-family peak alone"}
 
 
 def rule_of(rel, g, arm) -> dict:

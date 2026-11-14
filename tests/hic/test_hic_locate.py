@@ -75,7 +75,7 @@ def test_few_chromosomes_report_p_floor(tmp_path):
 
 @pytest.fixture(scope="module")
 def seed1(tmp_path_factory):
-    """Seed 1 falls into a 4-state cycle: planted centromeres alternate between neighbouring bins, while the
+    """Seed 1 falls into a 4-state cycle: planted centromeres alternate between neighboring bins, while the
     unattached chr11 (no cluster) jumps between distant bins (13 and 97)."""
     truth = make_genome(tmp_path_factory.mktemp("seed1"), seed=1)
     b, M, W, good, members, mean = prepare(truth)

@@ -312,6 +312,17 @@ def test_mafft_alignment_does_not_depend_on_threads(tmp_path):
     assert all(mafft(seqs, tmp_path / f"t16_{i}", 16) == a for i in range(2))
 
 
+def test_mafft_without_an_alignment_stops_clearly(tmp_path, monkeypatch):
+    """MAFFT exiting 0 with fewer aligned rows than sequences (none here) stops with an error naming it, not a later
+    division by zero or HMM-builder error."""
+    from types import SimpleNamespace
+    from cenfuse.sat import families
+    from cenfuse.sat.util import SatelliteError
+    monkeypatch.setattr(families, "run", lambda cmd: SimpleNamespace(stdout=""))
+    with pytest.raises(SatelliteError, match="mafft returned 0 aligned sequences for 2"):
+        families.mafft(["ACGTACGT", "ACGTTCGT"], tmp_path, 1)
+
+
 def test_build_families_founds_families_on_arrayed_clusters_only(synth_complex, synth_seeds, test_params, tmp_path,
                                                                  monkeypatch):
     """build_families carries forward only the clusters arrayed() returns: with none, no family."""

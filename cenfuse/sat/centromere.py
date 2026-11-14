@@ -153,7 +153,7 @@ def finalize(chrom: str, L: int, call, fa, genes_c, chrom_density, p, borrowed: 
     if runs:
         flags.append(f"gaps:{len(runs)}")
     if call["evidence"] == "satellite":
-        conf = ["high", "medium", "low", "low", "low"][core]
+        conf = ("high", "medium")[core] if core < 2 else "low"
     elif call["evidence"] == "retrotransposon":
         conf = "medium" if te_decisive else "low"
     else:

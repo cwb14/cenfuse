@@ -2,7 +2,7 @@
 # Versions as in the benchmark (major.minor pinned); the exact linux-64 environment: environment.lock.txt.
 # Each run records what it actually used in OUT/run_info.json.
 name: cenfuse
-channels: [conda-forge, bioconda]
+channels: [conda-forge, bioconda, nodefaults]   # nodefaults: never Anaconda's 'defaults' from a user's .condarc
 dependencies:
   - python=3.10
   - numpy=2.2

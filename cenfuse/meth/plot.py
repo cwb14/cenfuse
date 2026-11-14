@@ -1,5 +1,5 @@
 """Overview PDF: every analyzed chromosome to scale, one adjusted CHG track per sample, candidates as boxes
-(blue = centromere_like, grey outline = dip), anchors as a light band with a triangle. Several pages when needed."""
+(blue = centromere_like, gray outline = dip), anchors as a light band with a triangle. Several pages when needed."""
 from __future__ import annotations
 
 import logging
@@ -17,7 +17,7 @@ from matplotlib.patches import Patch, Rectangle  # noqa: E402
 from ..runtime import atomic_path  # noqa: E402
 from . import params  # noqa: E402
 
-BLUE, GREY, INK, BAND = "#0072B2", "#8C8C8C", "#1A1A1A", "#E3EEF7"
+BLUE, GRAY, INK, BAND = "#0072B2", "#8C8C8C", "#1A1A1A", "#E3EEF7"
 PER_PAGE = 8            # layout: chromosome panels per page
 log = logging.getLogger("cenfuse-meth")
 
@@ -58,7 +58,7 @@ def overview(adj: dict, lengths: dict, cand, anchors: dict, footer: str, path) -
                     for r in cand[(cand["sample"] == s) & (cand.chrom == c)].itertuples():
                         like = r.label == "centromere_like"
                         ax.add_patch(Rectangle((r.dip_start / 1e6, base - 0.45), (r.dip_end - r.dip_start) / 1e6, 0.9,
-                                               facecolor=BLUE if like else "none", edgecolor=BLUE if like else GREY,
+                                               facecolor=BLUE if like else "none", edgecolor=BLUE if like else GRAY,
                                                lw=0.5, alpha=0.6 if like else 1.0, zorder=3))
                 ax.set_xlim(0, Lmax)
                 ax.set_ylim(-ns + 0.4, 0.7)
@@ -68,7 +68,7 @@ def overview(adj: dict, lengths: dict, cand, anchors: dict, footer: str, path) -
                 for sp in ("top", "right", "left"):
                     ax.spines[sp].set_visible(False)
             handles = [Patch(facecolor=BLUE, edgecolor=BLUE, alpha=0.6, label="centromere_like"),
-                       Patch(facecolor="none", edgecolor=GREY, label="dip"),
+                       Patch(facecolor="none", edgecolor=GRAY, label="dip"),
                        Patch(facecolor=BAND, edgecolor="none", label="anchor"),
                        Line2D([], [], color=INK, lw=0.6, label="adjusted CHG (one row per sample)")]
             axs[0, 0].legend(handles=handles, loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=4, frameon=False,

@@ -200,3 +200,39 @@ def test_pairs_are_preferred_over_a_juicer_file_beside_them(tmp_path, caplog):
     g = inputs.discover(tmp_path)[0]
     assert [x.path.name for x in g.hic] == ["g.pairs.gz"]
     assert "g.merged_nodups.txt.gz not used" in caplog.text
+
+
+@pytest.mark.parametrize("reader", ["cenfuse", "satellite engine"])
+def test_a_plain_gzip_fasta_gets_a_recipe_samtools_accepts(tmp_path, reader):
+    """A plain-gzip genome stops at once with a recipe that works: `samtools faidx` refuses plain gzip ('Cannot index files
+    compressed with gzip, please use bgzip'), so the recipe recompresses with bgzip first. It is run here as given."""
+    import gzip
+    import re
+    import shutil
+    import subprocess
+    from cenfuse.sat import genomes
+    from cenfuse.sat.util import SatelliteError
+    f = tmp_path / "g.fa.gz"
+    with gzip.open(f, "wt") as h:
+        h.write(">c1\nACGTACGTAC\nGGCC\n>c2\nTTTTAAAA\n")
+    read = (lambda: inputs.discover(tmp_path)) if reader == "cenfuse" else (lambda: genomes.discover_genomes(tmp_path))
+    with pytest.raises(CenfuseError if reader == "cenfuse" else SatelliteError) as e:
+        read()
+    recipe = re.search(r"recompress and index: (.+?)\)", str(e.value)).group(1)
+    assert recipe == f"gzip -dc {f} | bgzip > {f}.tmp && mv {f}.tmp {f} && samtools faidx {f}"
+    if not (shutil.which("bgzip") and shutil.which("samtools")):
+        pytest.skip("bgzip or samtools not on PATH")
+    subprocess.run(recipe, shell=True, check=True, cwd=tmp_path, capture_output=True)
+    g = read()[0]
+    assert dict(g.chroms) == {"c1": 14, "c2": 8}
+
+
+@pytest.mark.parametrize("sample", ["NA", "None", "nan", "null", "NULL"])
+def test_a_hic_sample_named_like_a_missing_value_keeps_its_name(tmp_path, sample):
+    """pandas reads NA, None, nan, null and NULL as missing by default: the samples table turned such a plant's name into '' and
+    stopped with "bad sample name ''"."""
+    d = tmp_path / "hic"
+    d.mkdir()
+    (d / "lib.pairs.gz").write_text("")
+    (d / "g.tsv").write_text(f"sample\tfile\n{sample}\tlib.pairs.gz\n")
+    assert [(x.name, x.path.name) for x in inputs.hic_libraries(d, "g")] == [(sample, "lib.pairs.gz")]

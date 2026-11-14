@@ -38,6 +38,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from . import loo
 from .hic import cli as hic_cli
 from .hic import params as hp
 from .hic.confidence import DEGENERATE, bootstrap, leave_one_out, level
@@ -415,8 +416,9 @@ def anchored_on_cores(state: dict, cores: dict, label: str = "the LTR cores") ->
     (clean_peak, as for the gate's low references): chromosome ends, hubs and NORs attract trans contacts whatever the centromere,
     so cores at the chromosome ends agree with any nucleus that clusters its telomeres (held-out R. breviuscula, holocentric: Athila
     cores at the ends of 4 of 5 chromosomes, 3 agreed, P 5e-4). Returns dict(k, n, p, status, peaks {chrom: (start, end)} of the
-    agreeing chromosomes, chance {chrom: the zone's share}): pass (on most chromosomes, Poisson-binomial P <= GATE_P); support
-    (beyond chance, on fewer: the rule of the support tier); fail. cis_trans_line reads the same test on other anchors (label)."""
+    agreeing chromosomes, chance {chrom: the zone's share}, status_by_chrom {chrom: the status at which the line may act there,
+    the same test without it (loo)}): pass (on most chromosomes, Poisson-binomial P <= GATE_P); support (beyond chance, on fewer:
+    the rule of the support tier); fail. cis_trans_line reads the same test on other anchors (label)."""
     W, bins, good, mean, members = (state[k] for k in ("W", "bins", "good", "mean", "members"))
     hub = state.get("hub")
     hub = np.zeros(bins.N, dtype=bool) if hub is None else hub
@@ -439,12 +441,17 @@ def anchored_on_cores(state: dict, cores: dict, label: str = "the LTR cores") ->
         if lo <= j <= hi and clean_peak(",".join(fl)):
             g = int(bins.off[k]) + j
             peaks[c] = (int(bins.start[g]), int(bins.end[g]))
-    n, m = len(chance), len(peaks)
-    p = poisson_binomial_sf(m, list(chance.values())) if n else 1.0
-    status = "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
+
+    def test(names) -> tuple:
+        m = sum(c in peaks for c in names)
+        p = poisson_binomial_sf(m, [chance[c] for c in names]) if names else 1.0
+        return m, len(names), p, "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > len(names) else "support"
+    m, n, p, status = test(list(chance))
+    by_chrom = loo.by_chromosome(status, chance, lambda names: test(names)[3])
     (log.info if label == "the LTR cores" else log.debug)(        # the cis signs' raw tests: cis_trans_line logs the verdict
-        f"Hi-C anchored on {label}: the peak lies at its anchor on {m}/{n} chromosomes (P {p:.2g}): {status}")
-    return dict(k=m, n=n, p=p, status=status, peaks=peaks, chance=chance)
+        f"Hi-C anchored on {label}: the peak lies at its anchor on {m}/{n} chromosomes (P {p:.2g}): {status}" +
+        (f"; acts on {sum(by_chrom[c] in loo.RANK for c in peaks)} of the {m}, each judged on the others" if m else ""))
+    return dict(k=m, n=n, p=p, status=status, peaks=peaks, chance=chance, status_by_chrom=by_chrom)
 
 
 def _crossing(diagonals: dict, n: int, half: int) -> np.ndarray:
@@ -523,7 +530,8 @@ def cis_line(state: dict, cores: dict, threads: int = 1) -> dict:
     potato. So the LTR line chooses the sign: for chromosome x, the sign whose extreme lies at the cores of the OTHER chromosomes most
     significantly. Genome-wide, the better sign's agreement with the cores (the zone of _core_zone) must beat chance, Bonferroni
     over the two signs; the chance per chromosome is the larger of the zone's share and cis_chance. Returns dict(k, n, p, sign,
-    status, peaks {chrom: (start, end)}, at_core {chrom: bool}): pass (on most chromosomes), support (beyond chance, on fewer),
+    status, peaks {chrom: (start, end)}, at_core {chrom: bool}, status_by_chrom {chrom: the status at which the line may act
+    there: x's sign tested on the other chromosomes alone, loo}): pass (on most chromosomes), support (beyond chance, on fewer),
     fail."""
     W, bins, good, members, bias = (state[k] for k in ("W", "bins", "good", "members", "bias"))
     W = W.tocsr()
@@ -551,21 +559,27 @@ def cis_line(state: dict, cores: dict, threads: int = 1) -> dict:
         names = [c for c in best if c != leave]
         m = sum(best[c][sign][1] for c in names)
         return m, len(names), poisson_binomial_sf(m, [chance[c][sign] for c in names]) if names else 1.0
+
+    def verdict(m, n, p):                                             # Bonferroni over the two signs
+        p = min(1.0, 2 * p)
+        return "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
     if not best:
-        return dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={})
+        return dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={}, status_by_chrom={})
     sign = min((+1, -1), key=lambda g: (test(g)[2], -g))
     m, n, p = test(sign)
+    status = verdict(m, n, p)
     p = min(1.0, 2 * p)
-    status = "fail" if p > GATE_P or m < GATE_MIN_REF else "pass" if 2 * m > n else "support"
-    peaks, at_core = {}, {}
+    peaks, at_core, by_chrom = {}, {}, {}
     for c in best:
         g = min((+1, -1), key=lambda x: (test(x, c)[2], -x))          # the sign the other chromosomes choose
         j, on = best[c][g]
         off = int(bins.off[idx[c]]) + j
         peaks[c], at_core[c] = (int(bins.start[off]), int(bins.end[off])), bool(on)
+        by_chrom[c] = loo.stricter(status, verdict(*test(g, c)))      # ... and how that sign fares on them
     log.info(f"Hi-C cis signal against the LTR cores: its {'peak' if sign > 0 else 'dip'} lies at the core on {m}/{n} chromosomes "
-             f"(P {p:.2g}): {status}")
-    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=at_core, tested_by="ltr", interior=False)
+             f"(P {p:.2g}): {status}; acts on {sum(x in loo.RANK for x in by_chrom.values())}, each judged on the others")
+    return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=at_core, tested_by="ltr", interior=False,
+                status_by_chrom=by_chrom)
 
 
 def interior(v: np.ndarray) -> np.ndarray:
@@ -590,10 +604,10 @@ def cis_trans_line(state: dict) -> dict:
     agreement of an unrestricted profile lay in a terminal eighth, none on CENH3).
     The two readouts share the library's coverage, so agreement on a minority of chromosomes can come from coverage alone
     (randomized soybean Hi-C: 6 of 20 dips, P 3e-5; no randomized library reached a majority): the line acts only at pass, on a
-    majority beyond chance, and only on a chromosome whose OTHER chromosomes pass that test too (leave one out, as the gate). Both
-    signs passing leaves the sign unknown: no action. Returns cis_line's fields (peaks: the chromosomes where it acts) with
-    tested_by 'trans', interior True, pairs {chrom: its own trans peak lies at its anchor} and status pass / support / fail /
-    ambiguous."""
+    majority beyond chance, and only on a chromosome whose OTHER chromosomes pass that test too, with the sign they choose (leave
+    one out, as the gate; loo). Both signs passing leaves the sign unknown: no action. Returns cis_line's fields (peaks: the
+    chromosomes where it acts; status_by_chrom) with tested_by 'trans', interior True, pairs {chrom: its own trans peak lies at
+    its anchor} and status pass / support / fail / ambiguous."""
     W, bins, good, members = (state[k] for k in ("W", "bins", "good", "members"))
     W = W.tocsr()
     ext = {+1: {}, -1: {}}
@@ -607,7 +621,8 @@ def cis_trans_line(state: dict) -> dict:
         for g in (+1, -1):
             j = int(np.nanargmax(g * v))
             ext[g][c] = (int(bins.start[off + j]), int(bins.end[off + j]))
-    empty = dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={}, pairs={}, tested_by="trans", interior=True)
+    empty = dict(k=0, n=0, p=1.0, sign=0, status="fail", peaks={}, at_core={}, pairs={}, tested_by="trans", interior=True,
+                 status_by_chrom={})
     if len(ext[+1]) < GATE_MIN_REF:
         return empty
     st = dict(state, W=W)
@@ -622,20 +637,26 @@ def cis_trans_line(state: dict) -> dict:
 
     def verdict(m, n, p):
         return "fail" if p > GATE_P or m < GATE_MIN_REF or n < GATE_MIN_REF else "pass" if 2 * m > n else "support"
-    sign = min((+1, -1), key=lambda g: (test(g)[2], -g))
+
+    def judge(leave=None) -> tuple:
+        """(sign, status) on the chromosomes other than leave: the more significant sign, ambiguous where the other passes too
+        (both signs pass: which extreme is the centromere is unknown)."""
+        g = min((+1, -1), key=lambda x: (test(x, leave)[2], -x))
+        s = verdict(*test(g, leave))
+        return g, "ambiguous" if s != "fail" and verdict(*test(-g, leave)) == "pass" else s
+    sign, status = judge()
     m, n, p = test(sign)
-    status = verdict(m, n, p)
-    if status != "fail" and verdict(*test(-sign)) == "pass":
-        status = "ambiguous"                      # both signs pass: which extreme is the centromere is unknown
-    peaks, pairs = {}, {}
+    peaks, pairs, by_chrom = {}, {}, {}
     for c in res[sign]["chance"]:
-        pairs[c] = c in res[sign]["peaks"]
-        if status == "pass" and verdict(*test(sign, c)) == "pass":
-            peaks[c] = ext[sign][c]
+        g, s = judge(c)                           # the sign and the status of the other chromosomes alone
+        by_chrom[c] = loo.stricter(status, s)
+        pairs[c] = c in res[g]["peaks"]
+        if by_chrom[c] == "pass":
+            peaks[c] = ext[g][c]
     log.info(f"Hi-C cis signal tested by trans contacts: trans peaks lie at the cis {'peak' if sign > 0 else 'dip'} on {m}/{n} "
-             f"chromosomes (P {p:.2g}): {status}; acts on {len(peaks)}")
+             f"chromosomes (P {p:.2g}): {status}; acts on {len(peaks)}, each judged on the others")
     return dict(k=m, n=n, p=p, sign=sign, status=status, peaks=peaks, at_core=dict(pairs), pairs=pairs, tested_by="trans",
-                interior=True)
+                interior=True, status_by_chrom=by_chrom)
 
 
 def cis_acts(cis: dict | None) -> bool:

@@ -80,6 +80,10 @@ The integrated call is the sequence call unless a validated functional line move
   own agrees with it (at_denovo_pair). A trough never moves or opposes a confident satellite or LTR call; a passing genome's
   trough at the competing cluster of a low satellite call (its deepest window there, not at the call) chooses that cluster, still
   low (0.15, at_chose_alt; mouse: the minor satellite, not the pericentromeric major satellite).
+- Leave one chromosome out (0.16.1, cenfuse.loo): every status above with which a tested line acts on a chromosome (Hi-C on the
+  LTR cores, the cis signal, the arm fold and alignment and the fold's lean, the troughs and repeat peaks tested against Hi-C) is
+  the stricter of the genome's and the one the same test reaches on the other chromosomes alone, as the gate's: a chromosome's
+  own agreement never counts toward changing its own call.
 
 Every distance that involves a Hi-C interval is counted in mappable bins (hicfuse.visible_gap): Hi-C cannot see into
 unmappable arrays, so a peak at an array's edge is adjacent to a call inside it. Agreement discounts at most
@@ -344,7 +348,6 @@ class _Call:
     second: list = field(default_factory=list)
     at_pair: bool = False      # the AT trough refined a Hi-C call
     rep_pair: bool = False     # a tested repeat-density peak agrees with a Hi-C call (0.16)
-    fam_pair: bool = False     # a tested repeat-family peak agrees with a Hi-C call (0.16)
     f_opp: bool = False        # the axis line, the prior-free peak, oppose the kept call
     d_opp: bool = False
     c_opp: bool = False        # the CpG line opposes the kept call (its CDR lies on another array) ...
@@ -616,8 +619,8 @@ def _at_places(c: _Ctx, s: _Call) -> None:
         s.call, s.relation, s.source, s.rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         s.flags.append("rep_only")
     elif s.call is None and ev.fam and ev.fam.get("status") == "pass":
-        # 0.16: the repeat-family line (famline.py), tested one per chromosome, likewise: low (its pass says families
-        # concentrated at one locus per chromosome exist, which in a monocentric genome mark the centromeres)
+        # the repeat-family line (famline.py), likewise low: its pass says only that a family clustering once per chromosome
+        # exists (the test is not calibrated), so its peak is the chromosome's untested best candidate
         s.call, s.relation, s.source, s.rule = (ev.fam["start"], ev.fam["end"]), "sequence_only", "composition", "fam_only"
         s.flags.append("fam_only")
     elif c.at_ok and c.sconf == "low" and c.alt_iv and s.rule == "sequence" and (c.amb or not (c.valid and c.peak)):
@@ -655,14 +658,16 @@ def _refine(c: _Ctx, s: _Call) -> None:
         s.flags.append("at_pair")
     elif trough and not at_near and ev.at.get("validated"):
         s.flags.append("at_elsewhere")    # said in the caveat; a Hi-C call stands against a trough of the same standing
-    for name, x in (("rep_pair", ev.rep), ("fam_pair", ev.fam)):
-        # 0.16: the repeat-density peak (then the repeat-family peak) as the second line, where its line passed its own test and
+    for name, x in (("rep_pair", ev.rep),):
+        # 0.16: the repeat-density peak as the second line, where its line passed its own test and
         # its peaks were tested genome-wide against the Hi-C readout that placed the call (the prior-free peaks; the cis
         # extremes for a cis call): two lines from two inputs at one locus (C. tropicalis: its 6 chromosomes cannot test the
         # line, and its 200-kb peaks agreed with Hi-C beyond chance yet missed a 10-kb centromere the prior-free peak held). The
         # call is the peak's half-height run, as an agreeing trough gives its interval: Hi-C places within a few bins only (C.
         # neoformans in G1: 2 of 14 cis bins 19 kb off CENP-A, every repeat peak on it)
-        if s.at_pair or s.rep_pair or s.fam_pair or c.seq_iv is not None or s.source != "hic" or not x or x.get("status") != "pass":
+        # The repeat-family line never pairs (0.16.1): its one-per-chromosome test is not calibrated (one family that clusters once
+        # per chromosome passes wherever its clusters lie: design.md, Repeat families), so it cannot be one of two tested lines.
+        if s.at_pair or s.rep_pair or c.seq_iv is not None or s.source != "hic" or not x or x.get("status") != "pass":
             continue
         iv = (x["start"], x["end"])
         tested = (x.get("agrees") and (x.get("validated") or x.get("support"))) or \
@@ -692,7 +697,7 @@ def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
     support = ["at"] if s.at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if "rep_only" in flags or s.rep_pair:
         support.append("repeats")
-    if "fam_only" in flags or s.fam_pair:
+    if "fam_only" in flags:
         support.append("families")
     if ev.sat_bp and ev.sat_bp(*s.call) >= SAT_SUPPORT_BP:
         support.append("satellite")
@@ -736,7 +741,7 @@ def _against(c: _Ctx, s: _Call) -> list:
     against = []
     if c.valid and c.strong and _peak_far(ev, s.call):
         against.append("hic")
-    if _te_decides(ev) and not (_te_agrees(ev, s.call) if s.source == "sequence" else "te" in s.second or "te_hic_pair" in flags):
+    if _te_decides(ev) and not (_te_agrees(ev, s.call) or "te" in s.second or "te_hic_pair" in flags):
         against.append("te")
     if "at_elsewhere" in flags:
         against.append("at")
@@ -770,8 +775,8 @@ def _confidence(c: _Ctx, s: _Call, support: list) -> str:
     if {"cis_trans_pair", "cis_end_pair"} & set(s.flags):
         return "low"                                 # 0.16: rules shaped on one genome make no confident call (future.md, rule 3)
     if "cis_only" in s.flags or "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
-        return "medium" if s.at_pair or s.rep_pair or s.fam_pair else "low"   # one Hi-C readout alone is unsure; with the
-    return "high" if s.second or s.at_pair or s.rep_pair or s.fam_pair else "medium"   # trough or a tested repeat peak, two lines
+        return "medium" if s.at_pair or s.rep_pair else "low"   # one Hi-C readout alone is unsure; with the
+    return "high" if s.second or s.at_pair or s.rep_pair else "medium"   # trough or a tested repeat-density peak, two lines
 
 
 def _decide(ev: Evidence) -> dict:

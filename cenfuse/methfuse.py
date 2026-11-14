@@ -78,6 +78,11 @@ def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
                                        minlength=mbins.n_bins(L)).astype(float) for c, L in chroms.items()}
                for s in samples}
         excl = io.read_exclusions(g.exclude) if g.exclude else None
+        if excl is not None:
+            nosample = sorted(set(excl["sample"]) - {""} - {s.name for s in samples})
+            if nosample:
+                raise io.InputError(f"exclusions {g.exclude}: column 4 names no sample ({', '.join(nosample[:5])}); "
+                                    f"leave column 4 blank (or '.') to exclude a region in every sample")
         filt, dstats = mbins.depth_filter(raw, samples, chroms, excl)
     except io.InputError as e:
         raise CenfuseError(f"methylation {g.name}: {e}") from None

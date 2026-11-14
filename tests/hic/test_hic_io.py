@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bz2
 import gzip
 import warnings
 
@@ -53,6 +54,56 @@ def test_4dn_without_columns_line_fails(tmp_path):
     p = write(tmp_path / "bad.pairs", "## pairs format v1.0\nr1\tc1\t1\tc2\t2\t+\t-\n")
     with pytest.raises(InputError, match="#columns"):
         pairs_format(p)
+
+
+def test_4dn_specification_column_names(tmp_path):
+    """The 4DN specification names the columns chr1 and chr2 (pairtools writes chrom1 and chrom2)."""
+    p = write(tmp_path / "spec.pairs", "## pairs format v1.0\n#columns: readID chr1 pos1 chr2 pos2 strand1 strand2\n"
+                                       "r1\tc1\t11\tc2\t21\t+\t-\n")
+    assert pairs_format(p).kind == "4dn"
+    (ci1, p1, ci2, p2), st = collect(p, {"c1": 100, "c2": 100})
+    assert list(ci1) == [0] and list(p1) == [10] and list(ci2) == [1] and list(p2) == [20] and st.kept == 1
+
+
+@pytest.mark.parametrize("text", ["", "## pairs format v1.0\n#columns: readID chrom1 pos1 chrom2 pos2\n"])
+def test_empty_or_header_only_pairs_fail(tmp_path, text):
+    with pytest.raises(InputError, match="no pairs"):
+        pairs_format(write(tmp_path / "e.pairs", text))
+
+
+@pytest.mark.parametrize("pack, what", [(gzip.compress, "gzip"), (bz2.compress, "bzip2"),
+                                        (lambda b: b"\xff\xfe" + b, "not a text")])
+def test_compressed_or_binary_data_in_a_plain_name_fails(tmp_path, pack, what):
+    p = tmp_path / "p.pairs"
+    p.write_bytes(pack(b"c1\t10\t+\tc2\t20\t-\n"))
+    with pytest.raises(InputError, match=what):
+        pairs_format(p)
+
+
+@pytest.mark.parametrize("where", ["first_block", "middle"])
+def test_corrupt_gzip_stream_is_an_input_error(tmp_path, where):
+    b = bytearray(gzip.compress("".join(f"c1\t{i}\t+\tc2\t{i + 5}\t-\n" for i in range(50_000)).encode()))
+    at = 12 if where == "first_block" else len(b) // 2
+    for i in range(at, at + 32):
+        b[i] ^= 0xFF
+    p = tmp_path / "bad.pairs.gz"
+    p.write_bytes(bytes(b))
+    with pytest.raises(InputError, match="bad.pairs.gz: unreadable"):
+        collect(p, {"c1": 10**6, "c2": 10**6})
+
+
+def test_binary_data_after_text_lines_is_an_input_error(tmp_path):
+    p = tmp_path / "late.pairs"
+    p.write_bytes(b"c1\t10\t+\tc2\t20\t-\n" * 2000 + b"\xff\xfe\x00\x81" * 1000 + b"\n")       # past the first 8 KB
+    with pytest.raises(InputError, match="late.pairs: unreadable after"):
+        collect(p, {"c1": 100, "c2": 100})
+
+
+def test_cut_last_line_next_to_an_unknown_sequence(tmp_path):
+    """A cut last line (empty chromosome field) in the chunk that names a sequence missing from the .fai."""
+    p = write(tmp_path / "cut.txt", "c1\t10\t+\tc2\t20\t-\nc1\t5\t+\tcX\t7\t+\nc1\t12\n")
+    _, st = collect(p, {"c1": 100, "c2": 100})
+    assert (st.read, st.kept, st.malformed, st.dropped_chrom) == (3, 1, 1, 1) and st.unknown_chroms == ["cX"]
 
 
 def test_malformed_positions_counted(tmp_path):

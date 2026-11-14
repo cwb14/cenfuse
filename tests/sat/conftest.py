@@ -1,5 +1,3 @@
-import shutil
-
 import pytest
 
 from cenfuse.sat.params import Params

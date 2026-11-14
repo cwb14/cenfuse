@@ -204,15 +204,6 @@ def decide_014(ev: Evidence) -> dict:
             rep_pair = True
             call, rule = (rp["start"], rp["end"]), "rep_pair"
             flags.append("rep_pair")
-    fam_pair = False                      # 0.16: a tested repeat-family peak agrees with a Hi-C call (after the density peak)
-    fp = getattr(ev, "fam", None)
-    if not at_pair and not rep_pair and seq_iv is None and source == "hic" and fp and fp.get("status") == "pass":
-        tested = (fp.get("agrees") and (fp.get("validated") or fp.get("support"))) or \
-            ("cis_only" in flags and fp.get("cis_agrees") and (fp.get("cis_validated") or fp.get("cis_support")))
-        if tested and _vgap(ev, (fp["start"], fp["end"]), call, True) <= _bins(ev, HIC_TOL_BINS):
-            fam_pair = True
-            call, rule = (fp["start"], fp["end"]), "fam_pair"
-            flags.append("fam_pair")
     if untested and not fo and source == "sequence":
         dpk, dco = _iv(h, "denovo_peak_start", "denovo_peak_end"), _iv(h, "denovo_core_start", "denovo_core_end")
         if dpk and dco and _denovo_far(ev, dpk, dco, call):
@@ -231,7 +222,7 @@ def decide_014(ev: Evidence) -> dict:
     support = ["at"] if at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if "rep_only" in flags or rep_pair:
         support.append("repeats")
-    if "fam_only" in flags or fam_pair:
+    if "fam_only" in flags:
         support.append("families")
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
@@ -254,7 +245,7 @@ def decide_014(ev: Evidence) -> dict:
     against = []
     if valid and strong and _peak_far(ev, call):
         against.append("hic")
-    if _te_decides(ev) and not (_te_agrees(ev, call) if source == "sequence" else "te" in second or "te_hic_pair" in flags):
+    if _te_decides(ev) and not (_te_agrees(ev, call) or "te" in second or "te_hic_pair" in flags):   # 0.16.1: every source alike
         against.append("te")
     if "at_elsewhere" in flags:
         against.append("at")
@@ -276,9 +267,9 @@ def decide_014(ev: Evidence) -> dict:
     elif {"cis_trans_pair", "cis_end_pair"} & set(flags):
         conf = "low"                                # 0.16: shaped on one genome, no confident call
     elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
-        conf = "medium" if at_pair or rep_pair or fam_pair else "low"       # 0.16: a cis call with the trough is two lines too
+        conf = "medium" if at_pair or rep_pair else "low"       # 0.16: a cis call with the trough is two lines too
     else:
-        conf = "high" if second or at_pair or rep_pair or fam_pair else "medium"
+        conf = "high" if second or at_pair or rep_pair else "medium"
     if rule == "sequence" and source == "sequence" and "meth" in support and relation == "concordant":
         rule = "meth_support"                # methylation alone raised or confirmed a kept call
     return dict(call=call, relation=relation, confidence=conf, source=source, support=support, against=against,

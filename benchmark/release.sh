@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# release.sh: score a release's stored runs, write every table the docs use, and fill the doc templates
-# (the chain of v12 bench/finish_rel13f.sh; see benchmark/README.md).
+# release.sh: score a release's stored runs, write every table docs/benchmark.md uses, and fill its template
+# (benchmark/README.md).
 #
 #   bash benchmark/release.sh OUT [TAG]
 #
-# OUT (created) receives, TAG (default 13) in the names:
+# OUT (created) receives, TAG (default 16) in the names:
 #   release$TAG.{chrom,runs}.tsv .txt .err   the scores (score.py)    cmp$TAG.{diffs,summary}.tsv .txt  vs reference runs
 #   rows_release$TAG.txt   rows beside PREV's   md$TAG/ md$TAG.log   the doc tables (+ one_per_chromosome.tsv, cis_trans.tsv)
 #   lines_alone$TAG.*  k2_release$TAG.*  randomized_release$TAG.*  headroom$TAG.*  precision$TAG.tsv (+ md$TAG/TABLE_PRECISION.md)
 #   dev$TAG.vs_prev.*  dev$TAG.vs_extra.*    calls changed vs PREV_RUNS and vs EXTRA_REF (score_dev.py)
-#   docs/README.md  docs/docs/benchmark.md   the filled templates (DOCS=<repo root> rewrites the repo's own)
-# Inputs default to the 0.13.0 release (python -m benchmark.paths); set any to override, even to empty: RUNS (release
+#   docs/docs/benchmark.md   the filled template (DOCS=<repo root> rewrites the repo's own)
+# Inputs default to the 0.16.0 release (python -m benchmark.paths); set any to override, even to empty: RUNS (release
 # root, RUNS/<arm>/<id>), JOBS, JOBS_CMP, JOBS_RABL, PREV (previous release's scores, a prefix), PREV_RUNS, PREV_REDO
 # (empty: none), EXTRA_REF (empty: skipped), CIS_SURVEY, DOCS,
 # CENFUSE_BENCH_DATA (data root), PY (a python with numpy and pandas; default python). Stops if that python imports
@@ -18,7 +18,7 @@
 set -uo pipefail
 [ $# -ge 1 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1' "$0" >&2; exit 2; }     # usage: the comment above
 OUT=$(mkdir -p "$1" && cd "$1" && pwd -P) || exit 2
-TAG=${2:-13}
+TAG=${2:-16}
 REPO=$(cd "$(dirname "$0")/.." && pwd -P)
 PY=${PY:-python}
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" OMP_NUM_THREADS=1 NUMPY_MADVISE_HUGEPAGE=0
@@ -39,7 +39,6 @@ step compare_rel "$JOBS_CMP" "$RUNS" "$OUT/cmp$TAG" > "$OUT/cmp$TAG.txt" 2>&1
 step rows "$S" "$PREV" > "$OUT/rows_release$TAG.txt" 2>&1
 step md_tables "$S" "$M" --runs "$RUNS" > "$M.log" 2>&1
 step md_013 "$M" --scores "$S" --runs "$RUNS" --jobs "$JOBS" --cis-survey "$CIS_SURVEY" >> "$M.log" 2>&1
-step readme_table "$M/README_TABLE.md" "$S" >> "$M.log" 2>&1
 step rabl_table "$M/TABLE_RABL.md" --runs "$RUNS" --jobs "$JOBS_RABL" >> "$M.log" 2>&1
 step precision "$S.chrom.tsv" "$M/TABLE_PRECISION.md" --tsv "$OUT/precision$TAG.tsv" >> "$M.log" 2>&1
 step lines_alone "$OUT/lines_alone$TAG.tsv" --runs "$RUNS" > "$OUT/lines_alone$TAG.txt" 2>&1

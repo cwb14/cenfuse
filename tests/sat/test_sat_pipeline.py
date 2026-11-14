@@ -87,6 +87,26 @@ def test_many_sequences_warn_unless_borrowed(tmp_path, caplog, monkeypatch):
     assert not [r for r in caplog.records if r.message.startswith("Ctg:")]
 
 
+def test_standalone_run_names_sequences_too_short_to_be_chromosomes(tmp_path, monkeypatch, capsys):
+    """The one-per-chromosome test and family prevalence count every sequence as a chromosome, so `python -m cenfuse.sat
+    run` names the sequences cenfuse's chromosome rule leaves out (here a 20-kb organelle beside three yeast-sized
+    chromosomes, which turns the satellite test from untested to fail); a contig assembly (--classify-from) is exempt."""
+    from cenfuse.sat import cli
+    from cenfuse.sat.pipeline import Pipeline
+    lengths = {"I": 5_600_000, "II": 4_500_000, "III": 2_500_000, "mt": 20_000}
+    for g in ("Y", "Ctg"):
+        (tmp_path / f"{g}.fa").write_text("".join(f">{c}\nACGT\n" for c in lengths))
+        (tmp_path / f"{g}.fa.fai").write_text("".join(f"{c}\t{L}\t0\t4\t5\n" for c, L in lengths.items()))
+    from cenfuse.sat.util import log
+    monkeypatch.setattr(Pipeline, "run", lambda self: None)
+    monkeypatch.setattr(log, "handlers", list(log.handlers))  # main() sets up the engine's logger: restored after
+    monkeypatch.setattr(log, "propagate", log.propagate)
+    monkeypatch.setattr(log, "level", log.level)
+    assert cli.main(["run", str(tmp_path), "-t", "1", "--classify-from", "Ctg=Y"]) == 0
+    err = capsys.readouterr().err
+    assert "Y: 1 of 4 sequences" in err and "'mt'" in err and "Ctg:" not in err
+
+
 def test_output_stage_names_the_costliest_searches_with_their_final_role(tmp_path, caplog, monkeypatch):
     """The three searches that cost most CPU, by the name and role the family ends with: a dispersed family that cost
     much decides nothing, and one without arrays in this genome is 'absent' (as in satellite_families.tsv). A folder
@@ -175,3 +195,57 @@ def test_the_output_stage_completes_with_a_malformed_cost_table(tmp_path, caplog
     assert (pl.work / "output.done").exists() and (pl.work / "plot.done").exists() and plotted
     warned = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warned) == 1 and "a.search_cost.tsv" in warned[0]
+
+
+def test_tables_read_back_keep_sequence_names_verbatim(tmp_path):
+    """Sequence names pandas reads as missing (NA, None, nan, null) or as numbers (01) come back verbatim from the tables
+    the engine writes and reads again, and so do the chromosomes a family defines."""
+    import pandas as pd
+    from cenfuse.sat.pipeline import Pipeline
+    pl = Pipeline(_complex(tmp_path, ["a"]), 1, tmp_path / "cache", Params())
+    g = pl.genomes[0]
+    names = ["NA", "None", "nan", "null", "N/A", "01"]
+    t = pd.DataFrame(dict(chrom=names, start=range(6), consensus="ACGT"))
+    for stage, f in (("annotate", "a.monomers.tsv.gz"), ("annotate", "a.arrays.tsv"), ("seeds", "a.seeds.tsv.gz")):
+        (pl.work / stage).mkdir(exist_ok=True)
+        t.to_csv(pl._p(stage, f), sep="\t", index=False)
+    (pl.work / "centromeres").mkdir()
+    pd.DataFrame(dict(family=["fam001", "fam002"], defines=["01", "NA"], bp=[1, 2])).to_csv(
+        pl._p("centromeres", "a.families.tsv"), sep="\t", index=False)
+    for read in (pl.monomers, pl.arrays, pl.seed_table):
+        assert list(read(g).chrom) == names
+    assert list(pl.fams(g).defines) == ["01", "NA"]
+
+
+def test_a_moved_output_folder_finds_its_seed_tables(tmp_path):
+    """The seed table is a link into the seed cache. With the cache inside the output folder (the default) the link is
+    relative, so a moved folder keeps it; an absolute link that a move broke is re-linked to the cache entry of the same
+    key; with that entry gone too, the error names the way out."""
+    import gzip
+    import os
+    import shutil
+    from cenfuse.sat import seeds
+    from cenfuse.sat.pipeline import Pipeline
+    cdir = _complex(tmp_path, ["a"])
+    pl = Pipeline(cdir, 1, None, Params(), out_dir=tmp_path / "out1")
+    g = pl.genomes[0]
+    key = seeds.cache_path(pl.cache, seeds.genome_key(g), pl.p)
+    key.parent.mkdir(parents=True)
+    with gzip.open(key, "wt") as f:
+        f.write("chrom\tstart\tend\tconsensus\na_0\t0\t4\tAC\n")
+    (pl.work / "seeds").mkdir()
+    pl.stage_seeds()                                                    # cached: no seed engine runs
+    link = pl._p("seeds", "a.seeds.tsv.gz")
+    assert not os.path.isabs(os.readlink(link))
+    shutil.move(tmp_path / "out1", tmp_path / "out2")
+    pl = Pipeline(cdir, 1, None, Params(), out_dir=tmp_path / "out2")
+    assert list(pl.seed_table(g).chrom) == ["a_0"]
+    link = pl._p("seeds", "a.seeds.tsv.gz")
+    link.unlink()
+    link.symlink_to(tmp_path / "out1" / "work" / "seed_cache" / key.name)  # an absolute link into the old place
+    assert list(pl.seed_table(g).chrom) == ["a_0"] and link.exists()
+    (pl.cache / key.name).unlink()
+    link.unlink()
+    link.symlink_to(tmp_path / "out1" / "work" / "seed_cache" / key.name)
+    with pytest.raises(SatelliteError, match="seed table of a not found.*--seed-cache DIR or --force seeds"):
+        pl.seed_table(g)

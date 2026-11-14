@@ -4,7 +4,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from cenfuse.hic import params
-from cenfuse.hic.bins import (Bins, add_pairs, choose_bin_size, coarsen, expected_cen_contacts, matrix_from_pairs,
+from cenfuse.hic.bins import (Bins, _chunk_matrix, choose_bin_size, coarsen, expected_cen_contacts, matrix_from_pairs,
                          symmetrize)
 from cenfuse.hic.io import PairStats
 
@@ -16,10 +16,10 @@ def test_bins_layout():
     assert list(b.glob(np.array([1]), np.array([399]))) == [6]
 
 
-def test_add_pairs_upper_triangle_and_bounds():
+def test_chunk_matrix_upper_triangle_and_bounds():
     b = Bins({"a": 1_000, "b": 450}, 200)
-    acc, n_out = add_pairs(None, b, np.array([1, 0, 0]), np.array([10, 10, 999]),
-                           np.array([0, 0, 1]), np.array([210, 10, 451]))
+    acc, n_out = _chunk_matrix(b, np.array([1, 0, 0]), np.array([10, 10, 999]),
+                               np.array([0, 0, 1]), np.array([210, 10, 451]))
     M = symmetrize(acc).toarray()
     assert n_out == 1                     # b:451 is beyond chrom b (450 bp): dropped, not binned into another chrom
     assert M[1, 5] == 1 and M[5, 1] == 1  # b:10 (global bin 5) x a:210 (bin 1)
@@ -44,8 +44,8 @@ def test_coarsen_equals_direct_binning():
     p1 = (rng.random(n) * L[ci1]).astype(np.int64)
     p2 = (rng.random(n) * L[ci2]).astype(np.int64)
     fine, coarse = Bins(chroms, 200), Bins(chroms, 400)
-    via_fine = coarsen(symmetrize(add_pairs(None, fine, ci1, p1, ci2, p2)[0]), fine, coarse)
-    direct = symmetrize(add_pairs(None, coarse, ci1, p1, ci2, p2)[0])
+    via_fine = coarsen(symmetrize(_chunk_matrix(fine, ci1, p1, ci2, p2)[0]), fine, coarse)
+    direct = symmetrize(_chunk_matrix(coarse, ci1, p1, ci2, p2)[0])
     assert np.array_equal(via_fine.toarray(), direct.toarray())
     assert via_fine.diagonal().sum() > 0  # pairs within one coarse bin are present on the diagonal
 
@@ -92,7 +92,7 @@ def test_expected_contacts_formula():
 
 
 def test_expected_contacts_excludes_non_members():
-    # chromosome d is not a member: its 60 contacts with the members must not count, and it is not a centre
+    # chromosome d is not a member: its 60 contacts with the members must not count, and it is not a center
     b = Bins({"a": 2000, "b": 2000, "c": 2000, "d": 2000}, 100)
     M = sp.lil_matrix((b.N, b.N))
     for i in range(b.N):

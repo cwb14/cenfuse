@@ -46,11 +46,6 @@ def _chunk_matrix(bins: Bins, ci1, p1, ci2, p2):
     return m, int((~ok).sum())
 
 
-def add_pairs(acc, bins: Bins, ci1, p1, ci2, p2):
-    m, n_out = _chunk_matrix(bins, ci1, p1, ci2, p2)
-    return (m if acc is None else acc + m), n_out
-
-
 def _tree_sum(mats):
     """Pairwise (tree) sum of a non-empty list of equal-shape sparse matrices."""
     mats = list(mats)

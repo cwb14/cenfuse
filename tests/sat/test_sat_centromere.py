@@ -1,3 +1,5 @@
+import itertools
+
 import pandas as pd
 import pysam
 
@@ -35,6 +37,28 @@ def test_finalize_flags_gaps_and_near_end(tmp_path):
         row = finalize("c", len(seq), call, h, None, None, p)
     assert row["n_gaps"] == 1 and row["gap_bp"] == 20
     assert row["flags"] == "low_satellite,near_end,gaps:1" and row["confidence"] == "low"
+
+
+class _NoGaps:                                     # pysam.FastaFile stand-in: a sequence without N runs
+    def fetch(self, chrom, s, e):
+        return "A" * (e - s)
+
+
+def test_confidence_of_every_flag_combination():
+    """The four confidence flags, competing_cluster counted twice: none -> high, one level -> medium, two or more
+    (all four: five levels) -> low."""
+    names, p, L = ("low_satellite", "competing_cluster", "near_end", "diffuse"), Params(), 100_000_000
+    for on in itertools.product((False, True), repeat=4):
+        low, comp, near, diffuse = on
+        s = 1_000_000 if near else 40_000_000                      # end zone: the terminal 5 Mb
+        e = s + (6_000_000 if diffuse else 1_000_000)
+        sat = 40_000 if low else 200_000
+        call = dict(cen_start=s, cen_end=e, evidence="satellite", main_family="A", main_family_bp=sat, sat_bp=sat,
+                    second_cluster_bp=sat if comp else 0, cen_families="A")
+        row = finalize("c", L, call, _NoGaps(), None, None, p)
+        assert row["flags"] == (",".join(f for f, x in zip(names, on) if x) or ".")
+        core = low + 2 * comp + near + diffuse
+        assert row["confidence"] == ("high", "medium", "low")[min(core, 2)]
 
 
 def test_none_row_when_no_call():
@@ -311,9 +335,8 @@ def test_a_confident_call_beside_a_decisive_core_moves_only_if_the_clade_marks_t
 
 
 def test_a_long_unit_call_replaced_by_a_core_is_overruled(tmp_path, monkeypatch):
-    """A long-unit tandem call that a decisive (CRM) core replaces is recorded as overruled like a satellite call (the
-    earlier audit recorded satellite arrays only): one beside the core (weak_satellite_beside_core), and one far from
-    it, which the core replaces without a flag. A long-unit call that overlaps the core is kept (te_concordant)."""
+    """A long-unit tandem call that a decisive (CRM) core replaces is recorded as overruled like a satellite call: one
+    beside the core (weak_satellite_beside_core), and one far from it, which the core replaces without a flag. A long-unit call that overlaps the core is kept (te_concordant)."""
     from cenfuse.sat import centromere, longunit
     from cenfuse.sat.seeds import COLS
     g, _ = _contigs(tmp_path)

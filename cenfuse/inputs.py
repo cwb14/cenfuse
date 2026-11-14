@@ -101,7 +101,7 @@ def hic_libraries(folder: Path, name: str) -> list:
                     raise CenfuseError(f"{f}: cenfuse reads Hi-C as {READS}; {how.format(f=f, stem=name)}")
         return [HicLibrary("hic", lone)] if lone else []
     try:
-        d = pd.read_csv(table, sep="\t", dtype=str).fillna("")
+        d = pd.read_csv(table, sep="\t", dtype=str, keep_default_na=False).fillna("")     # names as written (NA, None)
     except Exception as e:
         raise CenfuseError(f"{table}: cannot read ({e})") from None
     if not {"sample", "file"} <= set(d.columns):
@@ -218,7 +218,8 @@ def discover(genome_dir, legacy: frozenset = frozenset()) -> list[GenomeInputs]:
             raise CenfuseError(f"{gdir}: genome {name} is given twice")
         seen.add(name)
         if f.name.endswith(".gz") and not Path(f"{f}.gzi").exists():
-            raise CenfuseError(f"{f}: a compressed genome must be bgzip with .fai + .gzi (run: samtools faidx {f})")
+            raise CenfuseError(f"{f}: a compressed genome must be bgzip with .fai + .gzi (recompress and index: "
+                               f"gzip -dc {f} | bgzip > {f}.tmp && mv {f}.tmp {f} && samtools faidx {f})")
         try:
             fai = load_fai(f)
         except SatelliteError as e:

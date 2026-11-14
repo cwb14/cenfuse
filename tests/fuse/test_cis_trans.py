@@ -335,3 +335,23 @@ def test_a_degenerate_null_is_flagged_apart_and_never_counts_as_tested():
     assert not {"null_untestable", "null_degenerate"} & set(call_flags(0, pc, b, hub, {}, True, 0.01, True))
     assert fuse._clean_denovo(dict(denovo_confidence="medium", denovo_flags="null_untestable"))
     assert not fuse._clean_denovo(dict(denovo_confidence="medium", denovo_flags="null_degenerate"))
+
+
+def test_a_hic_call_inside_a_decisive_core_does_not_count_the_core_against_it():
+    """A Hi-C-placed call (cis_only, cis_trans_pair) that lies inside a decisive LTR core: the core is not a line against it,
+    and the caveat does not say the core lies elsewhere (the same agreement rule as for sequence calls)."""
+    from cenfuse import fuse, interpret
+    core, ext, far = (25_400_000, 25_600_000), (25_500_000, 25_600_000), (18_000_000, 19_000_000)
+    te = dict(clade="CRM", start=core[0], end=core[1], decisive=True, strong=True)
+    for conf, extra in (("low", {}), ("medium", {"trans_pair": True})):
+        cis = dict(peak=ext, status="pass", tested_by="ltr", interior=False, **extra)
+        h = dict(callable=True, bin_size=100_000, gate_pass=False, gate_support=False, anch_strong=False, anch_level="none",
+                 anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1, masked=(), cis=cis)
+        s = dict(start=far[0], end=far[1], evidence="satellite", confidence=conf, flags=".", main_family="A")
+        ev = fuse.Evidence("c", 50_000_000, s, te, h, None, lambda a, b: 0)
+        d = fuse.decide(ev)
+        assert d["call"] == ext and d["rule"] in ("cis_only", "cis_trans_pair")
+        assert "te" not in d["against"]
+        t = interpret.columns(fuse.table([ev], [d]), dict(unit={}, sat_bp=lambda c, a, b: 0, marker="CRM", decisive=True,
+                                                         hic=True, tes=True, its=[], te_why=""))
+        assert "lies elsewhere" not in t.iloc[0].caveat

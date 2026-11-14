@@ -1,9 +1,7 @@
-import math
-
 import numpy as np
 import pytest
 
-from cenfuse.sat.te import Mids, agrees, binom_sf, centromeric_clade, contradicts, core, load_te_gff, marker
+from cenfuse.sat.te import Mids, agrees, binom_sf, candidate_clades, contradicts, core, load_te_gff, marker
 
 L = 10_000_000
 
@@ -106,6 +104,11 @@ def test_a_core_contradicts_a_call_only_if_the_clade_marks_it_significantly_more
                 mids=Mids(sorted(inside + list(np.linspace(60_100_000, 65_900_000, 62).astype(int))), 81))
     assert contradicts(*call, pa1a)
     assert contradicts(*call, {k: v for k, v in a09.items() if k != "mids"})
+
+
+def centromeric_clade(tes, chroms):
+    """(clade, {chrom: significant core}) of the most concentrated candidate clade, or (None, {})."""
+    return (candidate_clades(tes, chroms) or [(None, {})])[0]
 
 
 def test_centromeric_clade_is_the_concentrated_one_on_most_chromosomes():

@@ -1,7 +1,6 @@
 """The LTR signature (cenfuse.sat.signature): families and lineages as seeds, leave-one-chromosome-out recruitment, what a
 signature may decide. Synthetic GFF3 only."""
 import numpy as np
-import pytest
 
 from types import SimpleNamespace
 

@@ -116,16 +116,17 @@ def _hic_alone(peak):
                 denovo_confidence="high", denovo_flags="")
 
 
-def test_a_tested_family_peak_raises_the_hic_call_it_agrees_with():
+def test_a_family_peak_never_pairs_with_a_hic_call():
+    """The repeat-family test is not calibrated (a family that clusters once per chromosome passes wherever its clusters lie),
+    so even a passing, Hi-C-tested family peak at a Hi-C call is not a second tested line: the call keeps its place, its
+    interval and its `low` confidence (0.16.0 raised it to medium as fam_pair; it never fired in the release)."""
     tested = dict(FAM, validated=True, agrees=True)
-    d = _ev(hic=_hic_alone(500_000), fam=tested)
-    assert d["call"] == (400_000, 600_000) and d["confidence"] == "medium" and "fam_pair" in d["flags"]
-    assert {"hic", "families"} <= set(d["support"]) and d["rule"] == "fam_pair"
-    for fam in (dict(FAM, agrees=True), dict(FAM, validated=True, agrees=False), dict(tested, status="untested")):
-        d = _ev(hic=_hic_alone(500_000), fam=fam)                                # untested; not by this call; no pass
-        assert d["confidence"] == "low" and "fam_pair" not in d["flags"]
+    for fam in (tested, dict(FAM, agrees=True), dict(tested, status="untested")):
+        d = _ev(hic=_hic_alone(500_000), fam=fam)
+        assert d["call"] == (500_000, 510_000) and d["confidence"] == "low" and d["rule"] == "hic_denovo_only"
+        assert "families" not in d["support"] and not {"fam_pair", "fam_only"} & set(d["flags"])
     d = _ev(hic=_hic_alone(800_000), fam=tested)                                 # the peak lies elsewhere
-    assert d["call"] == (800_000, 810_000) and d["confidence"] == "low" and "fam_pair" not in d["flags"]
+    assert d["call"] == (800_000, 810_000) and d["confidence"] == "low"
     rep = dict(start=480_000, end=520_000, density=6.0, status="pass", window=20_000, validated=True, agrees=True)
     d = _ev(hic=_hic_alone(500_000), fam=tested, rep=rep)                       # the repeat-density peak pairs first
     assert d["call"] == (480_000, 520_000) and "rep_pair" in d["flags"] and "fam_pair" not in d["flags"]

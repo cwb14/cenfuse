@@ -78,3 +78,14 @@ def test_scan_gaps(tmp_path):
     assert mo.scan_gaps(fa, {"c1": len(seq)}) == {"c1": want}
     assert mo.scan_gaps(fa, {"c1": len(seq)}, chunk=100) == {"c1": want}     # a run across a chunk edge is one gap
     assert mo.scan_gaps(fa, {"c1": len(seq)}, chunk=7) == {"c1": want}
+
+
+def test_the_centromere_point_is_the_middle_base_1_based_like_its_table():
+    """cen_point is a position in a table of 1-based coordinates: the middle base of the call (or its kinetochore), the left one
+    of two for an even length. 0.16.0 wrote the 0-based middle: 500 for the call 451-551 (101 bases, middle 501), and 20 for
+    a call of base 21 alone, a position outside it."""
+    t = _t([["odd", 1000, 451, 551, "high", ".", "."], ["one", 1000, 21, 21, "low", ".", "."],
+            ["even", 1000, 451, 550, "high", ".", "."], ["kt", 1000, 701, 800, "low", 741, 761]])
+    out = mo.columns(t, {c: 1000 for c in ("odd", "one", "even", "kt")}, None, {}).set_index("chrom")
+    assert out.cen_point.to_dict() == {"odd": 501, "one": 21, "even": 500, "kt": 751}
+    assert out.ci.to_dict() == {"odd": 0.5, "one": 0.02, "even": 0.5, "kt": 0.25}     # the arms as before

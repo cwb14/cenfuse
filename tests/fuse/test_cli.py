@@ -54,3 +54,21 @@ def test_sigterm_ends_the_main_process_as_an_exception(monkeypatch):
     with pytest.raises(SystemExit) as e:
         cli._terminate(signal.SIGTERM, None)
     assert e.value.code == 128 + signal.SIGTERM
+
+
+def test_a_bare_cenfuse_names_its_commands(capsys):
+    """`cenfuse` alone said 'the following arguments are required: cmd' (the parser's internal name)."""
+    with pytest.raises(SystemExit) as e:
+        cli.main([])
+    assert e.value.code == 2 and "the following arguments are required: {run,control}" in capsys.readouterr().err
+
+
+def test_run_help_says_annotations_may_be_gzipped(capsys):
+    """genes/ and tes/ take .gz as well (sat.genomes.GENE_EXT, sat.te.TE_EXT); the help said so for Hi-C only."""
+    from cenfuse.sat.genomes import GENE_EXT
+    from cenfuse.sat.te import TE_EXT
+    with pytest.raises(SystemExit):
+        cli.main(["run", "-h"])
+    out = capsys.readouterr().out
+    assert "genes/<g>.gff3|.gff|.gtf[.gz]" in out and "tes/<g>.gff3|.gff[.gz]" in out
+    assert {".gtf.gz", ".gff3.gz", ".gff.gz"} <= set(GENE_EXT) and {".gff3.gz", ".gff.gz"} <= set(TE_EXT)

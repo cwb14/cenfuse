@@ -1,6 +1,6 @@
 """Mis-mapping null: cis-only read pairs simulated from the assembly, mapped and paired like the real library.
 
-Every inter-chromosomal pair that survives is a mapping artefact. Counts are scaled to the real library by its
+Every inter-chromosomal pair that survives is a mapping artifact. Counts are scaled to the real library by its
 cis-pair count and compared with the real centromere contacts of each `python -m cenfuse.hic call` core."""
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pysam
 
+from ..runtime import atomic_path
 from . import params
 from .io import InputError, PairStats, check_readable, is_cool, iter_pairs, read_fai
 
@@ -33,6 +34,8 @@ def read_lengths(fastq, n=params.SIM_FASTQ_READS):
                 if len(out) >= n:
                     break
     L = np.array(out)
+    if not len(L):
+        raise InputError(f"{fastq}: no reads")
     return np.column_stack([L, np.roll(L, 1)])
 
 
@@ -119,6 +122,8 @@ def pair_mates(m1, m2, q=params.MAPQ):
     p = m1.merge(m2, on="k", suffixes=("1", "2"))
     p = p[(p.mq1 >= q) & (p.mq2 >= q)]
     p = p[~((p.chrom1 == p.chrom2) & ((p.pos1 - p.pos2).abs() < params.MIN_CIS_DIST))]
+    if p.empty:
+        return p.reset_index(drop=True)
     a = p[["chrom1", "pos1", "st1"]].astype(str).agg(":".join, axis=1)
     b = p[["chrom2", "pos2", "st2"]].astype(str).agg(":".join, axis=1)
     key = np.where(a <= b, a + "|" + b, b + "|" + a)
@@ -171,7 +176,7 @@ def run_simulate(args):
     fai_path = Path(str(args.fasta) + ".fai")
     if not fai_path.exists():
         raise InputError(f"{fai_path} not found: index the FASTA (samtools faidx)")
-    calls = pd.read_csv(cen, sep="\t")
+    calls = pd.read_csv(cen, sep="\t", dtype={"chrom": str})
     need = {"chrom", "bin_size", "peak_start", "core_start", "core_end"}
     if need - set(calls.columns):
         raise InputError(f"{cen}: missing columns {sorted(need - set(calls.columns))}")
@@ -186,13 +191,21 @@ def run_simulate(args):
     work = Path(f"{args.o}.simulate")
     work.mkdir(parents=True, exist_ok=True)
     log.info(f"simulate: {args.n} cis-only pairs")
-    fq1, fq2, truth = simulate_pairs(args.fasta, seqs, args.n, lengths, work / "sim")
-    total = sum(fai.values())
-    log.info(f"simulate: minimap2 -x sr index of the whole FASTA ({total / 1e9:.2f} Gb, one part)")
-    idx = _build_index(args.fasta, total, args.t, work / "genome.mmi")
-    m1 = best_segments(_map(idx, fq1, args.t, work / "m1.tsv"))
-    m2 = best_segments(_map(idx, fq2, args.t, work / "m2.tsv"))
-    p = pair_mates(m1, m2).merge(pd.read_csv(truth, sep="\t").rename(columns={"pos1": "t1", "pos2": "t2"}), on="k")
+    try:
+        fq1, fq2, truth = simulate_pairs(args.fasta, seqs, args.n, lengths, work / "sim")
+        total = sum(fai.values())
+        log.info(f"simulate: minimap2 -x sr index of the whole FASTA ({total / 1e9:.2f} Gb, one part)")
+        idx = _build_index(args.fasta, total, args.t, work / "genome.mmi")
+        m1 = best_segments(_map(idx, fq1, args.t, work / "m1.tsv"))
+        m2 = best_segments(_map(idx, fq2, args.t, work / "m2.tsv"))
+        tr = pd.read_csv(truth, sep="\t", dtype={"chrom": str})
+        p = pair_mates(m1, m2).merge(tr.rename(columns={"pos1": "t1", "pos2": "t2"}), on="k")
+    finally:          # large intermediates, also when minimap2 fails; the logs stay
+        for f in ("sim_1.fq", "sim_2.fq", "sim.truth.tsv", "m1.tsv", "m2.tsv", "genome.mmi"):
+            (work / f).unlink(missing_ok=True)
+    if p.empty:
+        raise InputError(f"no simulated pair has both mates mapped with MAPQ >= {params.MAPQ}; see the minimap2 logs "
+                         f"in {work}")
     tol = params.SIM_TRUTH_TOL
     sim_cis_ok = int(((p.chrom1 == p.chrom2) & (p.chrom1 == p.chrom) & ((p.pos1 - p.t1).abs() <= tol)
                       & ((p.pos2 - p.t2).abs() <= tol)).sum())
@@ -218,22 +231,22 @@ def run_simulate(args):
         return out
 
     names = np.array(list(seqs))
+    real_cis = 0                        # cis pairs >= MIN_CIS_DIST apart, as the simulated ones are
     for ci1, q1, ci2, q2 in iter_pairs(args.pairs, seqs, st):
+        real_cis += int(((ci1 == ci2) & (np.abs(q1 - q2) >= params.MIN_CIS_DIST)).sum())
         real.append(cen_counts(names[ci1], q1, names[ci2], q2))
     real_tot = {c: sum(d.get(c, 0) for d in real) for c in core}
-    scale = st.cis / max(sim_cis_ok, 1)
+    scale = real_cis / max(sim_cis_ok, 1)
     a = cen_counts(art.chrom1.to_numpy(), art.pos1.to_numpy(), art.chrom2.to_numpy(), art.pos2.to_numpy())
     rows = [dict(chrom=c, real_cen_contacts=real_tot[c], expected_artefact_cen_contacts=a.get(c, 0) * scale,
                  artefact_share=a.get(c, 0) * scale / max(real_tot[c], 1)) for c in core]
     t = pd.DataFrame(rows)
-    with open(f"{args.o}.simulate.tsv", "w") as f:
-        f.write(f"# simulated {args.n} pairs; kept {len(p)}; artefact trans {len(art)} "
+    with atomic_path(f"{args.o}.simulate.tsv") as tmp, open(tmp, "w") as f:
+        f.write(f"# simulated {len(tr)} pairs ({args.n} requested); kept {len(p)}; artifact trans {len(art)} "
                 f"({len(art) / max(len(p), 1):.4%}); scale to real {scale:.3g}; read lengths "
                 f"{'from ' + str(args.fastq) if args.fastq else f'{params.SIM_DEFAULT_LEN} bp (assumed)'}, "
                 f"capped at {params.SIM_MAXLEN} bp\n"
                 "# valid only if the real library was mapped with a similar short-read mapper "
                 "(minimap2 -x sr or bwa mem) and filtered to both-ends MAPQ >= 30\n")
         t.to_csv(f, sep="\t", index=False, float_format="%.4g")
-    for f in (fq1, fq2, truth, work / "m1.tsv", work / "m2.tsv", idx):      # large intermediates; the logs stay
-        Path(f).unlink(missing_ok=True)
-    log.info(f"simulate done: artefacts {len(art)} of {len(p)} kept pairs; per-core shares in {args.o}.simulate.tsv")
+    log.info(f"simulate done: artifacts {len(art)} of {len(p)} kept pairs; per-core shares in {args.o}.simulate.tsv")

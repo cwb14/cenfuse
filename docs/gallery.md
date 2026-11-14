@@ -1,15 +1,20 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited, from the release rerun of cenfuse 0.15.0
-with the genome's richest benchmarked inputs. Counts: right / chromosomes with truth (for mammals without
-CENP-A data: agreement with an independent satellite caller). Every number: [benchmark.md](benchmark.md).
+Each image is the first page of `cenfuse_overview.pdf`, unedited (stored with a 256-color palette), from the
+genome's run with its richest benchmarked inputs: from cenfuse 0.16.1 for the 14 genomes whose run 0.16.1 reran
+(CHM13, siamang, HG002, *Arabidopsis*, *Ae. tauschii*, potato, tomato, *S. cerevisiae*, *S. pombe*, *N. crassa*, *V.
+dahliae*, *C. tropicalis*, *C. neoformans* G1 and *P. falciparum*, among them every genome here whose calls changed),
+else from 0.16.0's release run; the 0.16.0 pages of
+*C. neoformans* (anaphase library) and *Chlamydomonas* were redrawn with 0.16.1's figure code, which shows the repeat
+lines. Counts: right / chromosomes with truth (for mammals without CENP-A data: agreement with an independent
+satellite caller). Every number: [benchmark.md](benchmark.md).
 
 **How to read one** (panel letters as in the images):
 
 | panel | shows |
 |---|---|
-| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line), with `tes/` the density of the marker retrotransposon lineage (orange), the sequence call (black box) and the final call (band; blue band = placed by Hi-C, arrow = moved); telomere arrays at the ends (▶ ◀) and inside (▼); 45S (◆) and 5S (◇) rDNA arrays |
-| **B** | which lines support (●) or oppose (×) each final call, then its relation and confidence (`fold` and `align` columns appear only where those Hi-C tests acted) |
+| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line; gray: the prior-free score), with `tes/` the density of the LTR signature's elements (orange), the sequence call (black box) and the final call (band; blue = placed by Hi-C, green = placed by an AT trough, wine = placed by a repeat peak; arrow = moved); AT troughs (green ▲) and the cis Hi-C extreme (purple ▲) where they acted; telomere arrays at the ends (▶ ◀) and inside (▼); 45S (◆) and 5S (◇) rDNA arrays |
+| **B** | which lines support (●) or oppose (×) each final call, then its relation and confidence (`fold`, `align`, `AT`, `rep`, `fam`, `age` and `CpG` columns appear only where those lines acted) |
 | **C** | where each line puts the centromere, relative to the sequence call |
 | **D** | the Hi-C score around every final call (prior-free score where no sequence call anchors it): a peak at 0 means the calls sit where centromeres meet in the nucleus |
 
@@ -41,8 +46,8 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 
 | genome | inputs | right | note |
 |---|---|---|---|
-| [HG002 (diploid human)](#hg002-diploid-human) | FASTA, ONT CpG methylation | 46/46 | both haplotypes; CpG kinetochores on 40, all inside the active array |
-| [horse (EquCab3)](#horse-equcab3) | FASTA, Hi-C | 3/5 | older assembly; right calls are `low`; chr11 has no call |
+| [HG002 (diploid human)](#hg002-diploid-human) | FASTA, ONT CpG methylation | 46/46 | both haplotypes; CpG kinetochores on 46, 45 of them inside the active array |
+| [horse (EquCab3)](#horse-equcab3) | FASTA, Hi-C | 3/5 | older assembly; right calls are `low`; chr11 and chr31 have no call |
 | [mouse (T2T)](#mouse-t2t) | FASTA, Hi-C | 18/20 | all acrocentric: on 17 chromosomes the AT trough moves the call from the major satellite to the CENP-A minor satellite beside it; every call `low` |
 | [chicken](#chicken) | FASTA, Hi-C | 27/33 | CENP-A windows on 33 of 40 chromosomes; every call `low` (no satellite family dominates) |
 
@@ -52,7 +57,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [rice](#rice) | FASTA, `tes/`, genes, Hi-C | 12/12 |  |
 | [*Brassica rapa* CC1](#brassica-rapa-cc1) | FASTA, `tes/`, Hi-C | 10/10 | one of 11 accessions (FASTA alone: 110/110 in all 11) |
-| [soybean](#soybean) | FASTA, `tes/`, Hi-C | 19/20 (1 confidently wrong) | chr13: a CRM core replaced a `low` satellite call, 1.9 Mb from CENH3 (FASTA alone 20/20) |
+| [soybean](#soybean) | FASTA, `tes/`, Hi-C | 19/20 (1 confidently wrong) | chr13: a CRM core replaced a `low` satellite call, 1.8 Mb from CENH3 (FASTA alone 20/20) |
 | [sorghum](#sorghum) | FASTA, `tes/`, Hi-C | 10/10 | CENH3 ChIP of line V9 |
 | [*Brachypodium distachyon*](#brachypodium-distachyon) | FASTA, `tes/`, Hi-C | 3/3 | CENH3 truth on 3 of 5 chromosomes |
 | [*Arabidopsis thaliana* (Col-CC)](#arabidopsis-thaliana-col-cc) | FASTA, `tes/`, ONT methylation | 5/5 |  |
@@ -64,25 +69,25 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 | genome | inputs | right | note |
 |---|---|---|---|
 | [barley](#barley) | FASTA, `tes/`, Hi-C | 7/7 | satellites fail the one-per-chromosome test; the CRM signature places all 7, and Hi-C's test then passes on 7 |
-| [potato](#potato) | FASTA, `tes/`, genes, Hi-C | 9/11 (1 confidently wrong) | half the centromeres are satellite-free; the CRM signature places them; Hi-C's cis signal, tested against its cores, moves 3 `low` calls |
+| [potato](#potato) | FASTA, `tes/`, genes, Hi-C | 9/11 (1 confidently wrong) | half the centromeres are satellite-free; the CRM signature places them; Hi-C's cis signal, tested against its cores, moves 2 `low` calls |
 | [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/`, Hi-C | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 1/7) |
 | [moss (*Physcomitrium patens*)](#moss-physcomitrium-patens) | FASTA, `tes/`, Hi-C | 26/26 | Copia (Bryco) cluster centromeres without satellite; the Bryco signature decides |
 | [*Chlorella sorokiniana*](#chlorella-sorokiniana) | FASTA, `tes/` | 9/10 | centromeres of 2-7 Osser (Copia) insertions; the Osser signature decides |
 | [*Chlamydomonas reinhardtii*](#chlamydomonas-reinhardtii) | FASTA, `tes/` | 6/17 | LINE-cluster centromeres; every call `low` |
-| [tomato](#tomato) | FASTA, `tes/`, Hi-C | 10/12 | satellite-free centromeres beside a dominant satellite: a Tekay family and Hi-C's cis signal place 10 of 12, none confidently wrong |
+| [tomato](#tomato) | FASTA, `tes/`, Hi-C | 12/12 | satellite-free centromeres beside a dominant satellite: a Tekay family and Hi-C's cis signal place all 12, none confidently wrong (2 `low` calls by a 0.16 rule shaped on this genome) |
 
 ## Point, regional and AT-rich centromeres (Hi-C)
 
 | genome | inputs | right | note |
 |---|---|---|---|
-| [*Saccharomyces cerevisiae*](#saccharomyces-cerevisiae) | FASTA, Hi-C | 16/16 | Hi-C alone at 10-kb bins; the trans arm alignment makes 13 calls `medium` |
-| [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | FASTA, Hi-C | 3/3 | chr2's Hi-C peak is too weak for a call; its AT trough, which Hi-C's peaks validate, places it |
+| [*Saccharomyces cerevisiae*](#saccharomyces-cerevisiae) | FASTA, Hi-C | 16/16 | Hi-C alone at 10-kb bins; the trans arm alignment makes 12 calls `medium` |
+| [*Schizosaccharomyces pombe*](#schizosaccharomyces-pombe) | FASTA, Hi-C | 2/3 | with three chromosomes no cross-line test can be judged on the other two, so the AT troughs no longer place chr2, whose Hi-C peak is too weak for a call; the other two are `low` Hi-C calls |
 | [*Neurospora crassa*](#neurospora-crassa) | FASTA, Hi-C | 7/7 | the arm fold validates Hi-C; AT troughs alone place all 7 |
 | [*Plasmodium falciparum*](#plasmodium-falciparum) | FASTA, Hi-C | 14/14 | AT troughs from the FASTA alone (13/14); Hi-C at 10-kb bins agrees with them |
 | [*Verticillium dahliae*](#verticillium-dahliae) | FASTA, Hi-C | 8/8 |  |
 | [*Zymoseptoria tritici*](#zymoseptoria-tritici) | FASTA, Hi-C | 19/21 | 8 accessory chromosomes |
-| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 13/14 | Hi-C in anaphase (centromeres clustered); an AT trough with a weak prior-free peak places 3 more |
-| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 12/14 | Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14, `low` |
+| [*Cryptococcus neoformans* (anaphase Hi-C)](#cryptococcus-neoformans-anaphase-hi-c) | FASTA, Hi-C | 14/14 | Hi-C in anaphase (centromeres clustered) places 10, AT troughs with a weak prior-free peak 3 more and the repeat-density line the 14th; an agreeing trough or repeat peak makes 10 `medium` (FASTA alone 14/14, `low`) |
+| [*Cryptococcus neoformans* (G1 Hi-C)](#cryptococcus-neoformans-g1-hi-c) | FASTA, Hi-C | 13/14 | Hi-C in G1 (centromeres unclustered): the cis signal, tested by trans contacts, places all 14 and an agreeing AT trough (5) or repeat-density peak (8) makes 13 `medium`; one lies 19 kb off CENP-A (FASTA alone 14/14, `low`) |
 | [*Malassezia sympodialis*](#malassezia-sympodialis) | FASTA, Hi-C | 8/8 | truth is a kinetochore protein (Mtw1) |
 | [*Candida tropicalis*](#candida-tropicalis) | FASTA, Hi-C | 6/7 | 3C-seq: no test passes; Hi-C's own peaks place 6 `low` calls |
 
@@ -92,7 +97,7 @@ CENP-A data: agreement with an independent satellite caller). Every number: [ben
 |---|---|---|---|
 | [*Caenorhabditis elegans*](#caenorhabditis-elegans) | FASTA, Hi-C | 0 confident / 6 | every call `low` |
 | [*Caenorhabditis nigoni*](#caenorhabditis-nigoni) | FASTA, Hi-C | 0 confident / 6 | every call `low` |
-| [*Bombyx mori*](#bombyx-mori) | FASTA, Hi-C | 0 confident / 29 | no CenH3; 13 `low`, 16 without a call |
+| [*Bombyx mori*](#bombyx-mori) | FASTA, Hi-C | 0 confident / 29 | no CenH3; 7 `low`, 22 without a call |
 | [*Rhynchospora breviuscula*](#rhynchospora-breviuscula) | FASTA, Hi-C | 0 confident / 5 | Tyba arrays along every chromosome; every call `low` |
 
 ---

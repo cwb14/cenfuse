@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import io as _io
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -21,6 +22,9 @@ MODKIT_COLS = 18          # modkit pileup bedMethyl: N_valid (column 10), N_mod 
 ENCODE_COLS = 11          # ENCODE bedMethyl (WGBS pipelines, Megalodon): coverage (10), percent methylated (11); modkit's
                           # first 11 columns are the same layout
 FORMATS = "modkit bedMethyl (18 columns) or ENCODE bedMethyl (11: coverage, percent methylated)"
+HMC = {"h", "76792"}      # 5hmC rows (modkit code, ChEBI): their calls are in the 5mC row's N_other_mod
+BGZF_MAGIC = b"\x1f\x8b\x08\x04"                    # gzip with the extra field that holds BGZF's block size
+BGZF_EOF = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")   # bgzip's empty last block
 
 
 class InputError(Exception):
@@ -46,10 +50,12 @@ class Sample:
 
 def read_samples(path, require_chg: bool = True) -> list[Sample]:
     """TSV with columns sample, CHG and optional CG, CHH (paths relative to the table's folder allowed). With
-    require_chg False (cenfuse: its CpG line needs only CG), every sample needs CHG or CG."""
+    require_chg False (cenfuse: its CpG line needs only CG), every sample needs CHG or CG. With require_chg (the engine,
+    which reads every file as bedMethyl), a CG or CHH file in another layout (e.g. pb-CpG-tools) is dropped with a
+    warning. A bgzip file without its end-of-file block (truncated) stops the run."""
     path = Path(path)
     try:
-        d = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+        d = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, na_values=[""]).fillna("")
     except Exception as e:
         raise InputError(f"cannot read samples table {path}: {e}") from e
     need = ("CHG",) if require_chg else ("CHG", "CG")
@@ -76,18 +82,47 @@ def read_samples(path, require_chg: bool = True) -> list[Sample]:
             p = Path(v) if Path(v).is_absolute() else path.parent / v
             if not p.exists():
                 raise InputError(f"sample {r['sample']}: {ctx} file not found: {p}")
+            bgzf = bgzf_state(p)
+            if bgzf == "truncated":
+                raise InputError(f"sample {r['sample']}: {ctx} file is truncated (it lacks the end-of-file block every "
+                                 f"complete bgzip file ends with; an interrupted write or copy?): {p}")
             idx = [x for x in (Path(f"{p}.tbi"), Path(f"{p}.csi")) if x.exists()]
             if not idx:
+                make = (f"tabix -p bed {p}" if bgzf == "bgzf" else
+                        f"tabix needs bgzip: zcat -f {p} | bgzip > new.bed.gz; tabix -p bed new.bed.gz")
                 raise InputError(f"sample {r['sample']}: {ctx} file has no tabix index (.tbi/.csi): {p} "
-                                 f"(make one with: tabix -p bed {p}; tabix -C -p bed for sequences over 512 Mb)")
+                                 f"(make one with: {make}; tabix -C -p bed for sequences over 512 Mb)")
             if idx[0].stat().st_mtime < p.stat().st_mtime:
                 log.warning("sample %s: %s index is older than the file (re-index if the file changed): %s",
                             r["sample"], ctx, idx[0])
             files[ctx] = p
+        if require_chg:                 # the engine reads every file as bedMethyl
+            for ctx in [x for x in files if x != "CHG"]:
+                try:
+                    layout, ncol = table_layout(files[ctx])
+                except (OSError, ValueError) as e:
+                    raise InputError(f"sample {r['sample']}: {ctx} file unreadable ({e}): {files[ctx]}") from None
+                if layout == "other":
+                    log.warning("sample %s: %s file is not bedMethyl (%d columns; the engine reads %s): not used: %s",
+                                r["sample"], ctx, ncol, FORMATS, files[ctx])
+                    del files[ctx]
         if not files:
             raise InputError(f"sample {r['sample']}: no methylation file (give CHG or CG)")
         out.append(Sample(r["sample"], files))
     return out
+
+
+def bgzf_state(path) -> str:
+    """'bgzf' (ends with bgzip's end-of-file block), 'truncated' (bgzip without it: htslib reads such a file up to the
+    cut without an error), else 'other' (plain text, plain gzip, or not readable here: the index checks report it)."""
+    try:
+        with open(path, "rb") as f:
+            if f.read(len(BGZF_MAGIC)) != BGZF_MAGIC:
+                return "other"
+            f.seek(max(0, Path(path).stat().st_size - len(BGZF_EOF)))
+            return "bgzf" if f.read() == BGZF_EOF else "truncated"
+    except OSError:
+        return "other"
 
 
 def open_tabix(path) -> pysam.TabixFile:
@@ -100,8 +135,12 @@ def open_tabix(path) -> pysam.TabixFile:
 
 
 def tabix_contigs(path) -> list[str]:
-    with open_tabix(path) as tb:
-        return list(tb.contigs)
+    """Sequence names of a tabix index; a file or index htslib cannot open is an InputError."""
+    try:
+        with open_tabix(path) as tb:
+            return list(tb.contigs)
+    except (OSError, ValueError) as e:
+        raise InputError(f"{path}: cannot open as a tabix-indexed table ({e}); re-index it (tabix -p bed)") from None
 
 
 def bedmethyl_layout(ncol: int) -> str:
@@ -127,41 +166,47 @@ def table_layout(path) -> tuple[str, int]:
 
 def read_bedmethyl(tb: pysam.TabixFile, chrom: str, start: int, end: int, min_calls: int):
     """Cytosines of chrom in [start, end) with N_valid >= min_calls from an open tabix file ->
-    (pos, n_valid, n_methylated, n_malformed). modkit: methylated = N_mod + N_other_mod (5mC + 5hmC); rows with
-    modification code 'h' are skipped (their counts are already in the 'm' row's N_other_mod); tab- and space-separated
-    columns both parse. ENCODE: valid = coverage, methylated = coverage x percent / 100 (rounded). Other tables stop
-    with the formats read (InputError)."""
+    (pos, n_valid, n_methylated, n_malformed). modkit: methylated = N_mod + N_other_mod (5mC + 5hmC); 5hmC rows
+    (modification code 'h' or ChEBI 76792) are skipped (their counts are already in the 5mC row's N_other_mod); tab-
+    and space-separated columns both parse. ENCODE: valid = coverage, methylated = coverage x percent / 100 (rounded);
+    5hmC rows of a cut modkit file are skipped too. Other tables, and read errors (a damaged file), stop with an
+    InputError naming the file."""
     empty = (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, np.int64), 0)
     if chrom not in tb.contigs:
         return empty
-    lines = list(tb.fetch(chrom, start, end))
+    name = tb.filename.decode() if isinstance(tb.filename, bytes) else str(tb.filename)
+    try:
+        lines = list(tb.fetch(chrom, start, end))
+    except (OSError, ValueError) as e:
+        raise InputError(f"{name}: unreadable in {chrom}:{start + 1}-{end} ({e}); a damaged or truncated file?") \
+            from None
     if not lines:
         return empty
     ncol = usual_ncol(lines)
     layout = bedmethyl_layout(ncol)
     if layout == "other":
-        name = tb.filename.decode() if isinstance(tb.filename, bytes) else str(tb.filename)
         raise InputError(f"{name}: rows of {ncol} columns; methylation is read from {FORMATS}")
     if layout == "encode":
         d = pd.read_csv(_io.StringIO("\n".join(lines)), sep=r"\s+", header=None, names=range(ncol),
-                        usecols=[1, 9, 10], dtype=float, on_bad_lines="skip")
+                        usecols=[1, 3, 9, 10], dtype={1: float, 3: str, 9: float, 10: float}, on_bad_lines="skip")
         ok = (d.notna().all(axis=1) & d[10].between(0, 100)).to_numpy()
         bad = int((~ok).sum()) + (len(lines) - len(d))
-        d = d[ok & (d[9] >= min_calls).to_numpy()]
+        d = d[ok & (d[9] >= min_calls).to_numpy() & ~d[3].isin(HMC).to_numpy()]
         n = d[9].to_numpy(np.int64)
         return d[1].to_numpy(np.int64), n, np.rint(n * d[10].to_numpy() / 100).astype(np.int64), bad
-    d = pd.read_csv(_io.StringIO("\n".join(lines)), sep=r"\s+", header=None, usecols=[1, 3, 9, 11, 13],
-                    dtype={1: float, 3: str, 9: float, 11: float, 13: float}, on_bad_lines="skip")
+    d = pd.read_csv(_io.StringIO("\n".join(lines)), sep=r"\s+", header=None, names=range(ncol),
+                    usecols=[1, 3, 9, 11, 13], dtype={1: float, 3: str, 9: float, 11: float, 13: float},
+                    on_bad_lines="skip")
     ok = d.notna().all(axis=1).to_numpy()
     bad = int((~ok).sum()) + (len(lines) - len(d))
-    d = d[ok & (d[3] != "h").to_numpy()]
+    d = d[ok & ~d[3].isin(HMC).to_numpy()]
     d = d[d[9] >= min_calls]
     return (d[1].to_numpy(np.int64), d[9].to_numpy(np.int64), (d[11] + d[13]).to_numpy(np.int64), bad)
 
 
 def _is_gff(path) -> bool:
     name = Path(path).name.lower().removesuffix(".gz")
-    return name.endswith((".gff", ".gff3"))
+    return name.endswith((".gff", ".gff3", ".gtf"))     # GTF: GFF's columns 1-8 (1-based closed)
 
 
 def attr(col: pd.Series, key: str) -> pd.Series:
@@ -172,13 +217,16 @@ def attr(col: pd.Series, key: str) -> pd.Series:
 
 def read_intervals(path) -> pd.DataFrame:
     """GFF3 or BED -> DataFrame[chrom, start, end, source, type, name, attrs, thick_start, thick_end] (0-based
-    half-open). GFF3 by extension (.gff/.gff3, optionally .gz); everything else is BED. BED name = column 4,
-    thick = columns 7-8 when numeric (else NaN: BED6+ files may hold text there)."""
+    half-open). GFF3 (or GTF) by extension (.gff/.gff3/.gtf, optionally .gz); everything else is BED. BED name =
+    column 4, thick = columns 7-8 when numeric (else NaN: BED6+ files may hold text there); columns past the 12th
+    (past the 9th of a GFF3) are ignored."""
     path = Path(path)
     gff = _is_gff(path)
     try:  # no comment='#': GFF3 attributes may contain '#' (LTRquest family_rep=chr:1-2#LTR/Gypsy/Reina)
-        raw = pd.read_csv(path, sep="\t", header=None, dtype=str, names=range(9 if gff else 12),
-                          skip_blank_lines=True)
+        with warnings.catch_warnings():      # index_col=False: extra columns are dropped, not taken as the index
+            warnings.simplefilter("ignore", pd.errors.ParserWarning)
+            raw = pd.read_csv(path, sep="\t", header=None, dtype=str, names=range(9 if gff else 12),
+                              index_col=False, skip_blank_lines=True)
     except Exception as e:
         raise InputError(f"cannot read {path}: {e}") from e
     if gff and (raw[0] == "##FASTA").any():
@@ -259,10 +307,12 @@ def read_satellites(path) -> pd.DataFrame:
 
 
 def read_genes(path) -> pd.DataFrame:
-    """GFF3 'gene' features (or every BED interval) -> DataFrame[chrom, start, end, cls='gene']."""
+    """GFF3/GTF 'gene' features, else (a file without gene lines) its mRNA or transcript features, or every BED
+    interval -> DataFrame[chrom, start, end, cls='gene']."""
     d = read_intervals(path)
     if _is_gff(path):
-        d = d[d.type == "gene"]
+        g = d[d.type == "gene"]
+        d = g if len(g) else d[d.type.isin(("mRNA", "transcript"))]
     _need(d, path, "gene features")
     return pd.DataFrame(dict(chrom=d.chrom, start=d.start, end=d.end, cls="gene", depth=0)).reset_index(drop=True)
 

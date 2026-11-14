@@ -392,8 +392,9 @@ def test_hic_support_does_not_switch_a_passing_fasta_test_to_another_window():
     v = atline.validate(res, peaks, {c: 100 for c in peaks}, lengths)
     assert v["status"] == "support" and v["window"] == 50_000 and set(v["by_window"]) == {1000, 50_000}
     out = dict(res, window=res["best"], hic=v)
-    r = atline.on_chromosome(out, "c0")
-    assert r["start"] == 100_000 and r["window"] == 1000 and r["support"] and not r["agrees"]     # read at the window that passed
+    r = atline.on_chromosome(out, "c3")
+    assert r["start"] == 103_000 and r["window"] == 1000 and r["support"] and not r["agrees"]     # read at the window that passed
+    assert not atline.on_chromosome(out, "c0")["support"]        # 0.16.1: without c0, 2 of 5 agree (cenfuse.loo)
 
 
 def test_with_hic_follows_a_window_only_where_that_says_something():

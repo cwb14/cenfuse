@@ -18,6 +18,12 @@ def test_attrs_escaping():
     assert attrs({"ID": "a", "flags": "gaps:1,x=y;z", "none": None}) == "ID=a;flags=gaps:1,x%3Dy%3Bz"
 
 
+def test_a_comma_in_a_sequence_name_is_escaped_in_ids():
+    """ID and Parent hold one value each: a comma from a sequence name is escaped there, where GFF3 parsers would split
+    it into two values; other attributes keep commas as value separators."""
+    assert attrs({"ID": "arr_c,1_1", "Parent": "cen_c,1", "flags": "a,b"}) == "ID=arr_c%2C1_1;Parent=cen_c%2C1;flags=a,b"
+
+
 def test_tandem_loci_merge_and_top_row():
     rows = pd.DataFrame([("c", 0, 100, 2, 50.0, 2, 90, 0, 50, 1.0, "AT"),
                          ("c", 50, 300, 4, 60.0, 4, 90, 0, 80, 1.5, "ATGC"),

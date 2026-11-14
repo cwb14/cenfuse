@@ -165,7 +165,8 @@ def basis(r, ctx: dict) -> str:
         elif "hic_denovo_only" in flags:
             axis_ok = getattr(r, "fold_gate", ".") == "pass" or getattr(r, "align_gate", ".") == "pass"
             how = ("Hi-C's prior-free peak alone (too few reference calls in this genome to test Hi-C against" +
-                   ("; the Rabl-axis test passed genome-wide but does not agree here)" if axis_ok else ")"))
+                   ("; the Rabl-axis test passed genome-wide but does not act here: its core misses the prior-free peak, or "
+                    "the test fails without this chromosome)" if axis_ok else ")"))
         else:
             how = "a strong validated Hi-C peak"
         if r.relation == "offset":
@@ -191,10 +192,6 @@ def basis(r, ctx: dict) -> str:
         if "rep_pair" in flags:
             out.append(f"the densest stretch of repeated sequence agrees (mean log2 copy number "
                        f"{float(getattr(r, 'rep_density', 'nan')):.1f}), tested against this Hi-C readout genome-wide, and gives the interval")
-        if "fam_pair" in flags:
-            out.append(f"the cluster of repeat families concentrated at one locus per chromosome agrees "
-                       f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), tested against this Hi-C readout "
-                       f"genome-wide, and gives the interval")
         if "satellite" in sup:
             out.append(f"{size(ctx['sat_bp'](r.chrom, s, e))} of centromeric satellite inside")
     for line in sup:
@@ -296,13 +293,16 @@ def caveat(r, ctx: dict) -> str:
         if "te_discordant" in sflags and _int(r.te_start) is not None and not te_in_alt:
             out.append(f"the {r.te_clade} core lies elsewhere ({interval(r.te_start, r.te_end)})")
     elif r.call_source == "composition":
-        out.append("a GC trough says where the sequence is AT-rich, not where the kinetochore sits")
-        hint = hint or ("CENP-A/CENH3 data would confirm" if ctx["hic"] else "Hi-C would test it")
+        if not {"rep_only", "fam_only"} & flags:                     # the repeat lines' calls say theirs below
+            out.append("a GC trough says where the sequence is AT-rich, not where the kinetochore sits")
+            hint = hint or ("CENP-A/CENH3 data would confirm" if ctx["hic"] else "Hi-C would test it")
     elif r.confidence != "high":
         sup = _toks(r.support)                                 # the evidence basis reports, so the two sentences agree
         here = [x for x, on in ((f"{size(ctx['sat_bp'](r.chrom, int(r.start) - 1, int(r.end)))} of centromeric satellite",
                                  "satellite" in sup), (f"the {r.te_clade} core", "te" in sup),
-                                ("CHG methylation", "meth" in sup), ("an AT trough", "at" in sup)) if on]
+                                ("CHG methylation", "meth" in sup), ("an AT trough", "at" in sup),
+                                ("the densest stretch of repeated sequence", "repeats" in sup),
+                                ("a repeat-family cluster", "families" in sup)) if on]
         out.append(f"rests on the 3D lines; the other evidence at this place is {' and '.join(here)}" if here else
                    "rests on the 3D lines alone: no sequence or LTR evidence at this place")
         if "hic_denovo_only" in flags:
@@ -354,7 +354,8 @@ def caveat(r, ctx: dict) -> str:
                    f"({interval(r.cis_peak_start, r.cis_peak_end)}), but it is read outside the chromosome ends and cannot judge "
                    f"a call this close to one")
     if "cis_only" in flags:
-        out.append("a cis Hi-C signal alone")
+        if not {"at_pair", "rep_pair"} & flags:          # a second line at the place: said above
+            out.append("a cis Hi-C signal alone")
         hint = hint or "CENP-A/CENH3 data would decide"
     if "rep_only" in flags:
         out.append("a repeat-density peak alone")
@@ -364,7 +365,7 @@ def caveat(r, ctx: dict) -> str:
                    f"({interval(r.fam_start, r.fam_end)})")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if "fam_only" in flags:
-        out.append("a repeat-family cluster alone")
+        out.append("a repeat-family cluster alone, from a test that is not calibrated")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if {"cis_trans_pair", "cis_end_pair"} & flags:
         out.append("one library's two readouts (cis and trans), by a rule shaped on one genome (tomato), so the call stays low")
@@ -409,8 +410,9 @@ def _n(x) -> int:
 
 def passed_lines(summ: dict) -> list:
     """The lines that passed a genome-level test in this run, read from its summary row: what makes any call more than one
-    line's untested best candidate. The satellites' one-per-chromosome test, a decisive LTR signature, the AT troughs, Hi-C's
-    test (or its support tier), Hi-C on the LTR cores, the cis signal, a Rabl axis, the CpG test."""
+    line's untested best candidate. The satellites' one-per-chromosome test, a decisive LTR signature, the AT troughs, the
+    repeat-density peaks, Hi-C's test (or its support tier), Hi-C on the LTR cores, the cis signal, a Rabl axis, the CpG test.
+    Not the repeat families: their test is not calibrated (it passes where families cluster at random places)."""
     out = []
     if str(summ.get("sat_one_per_chromosome", ".")).endswith(": pass"):
         out.append("the satellites' one-per-chromosome test")
@@ -420,8 +422,6 @@ def passed_lines(summ: dict) -> list:
         out.append("the AT troughs")
     if str(summ.get("rep_gate", ".")) == "pass":
         out.append("the repeat-density peaks")
-    if str(summ.get("fam_gate", ".")) == "pass":
-        out.append("the repeat families")
     if _n(summ.get("hic_gate_pass")) or _n(summ.get("hic_gate_support")):
         out.append("Hi-C's test")
     for key, what in (("te_hic", "Hi-C on the LTR cores"), ("cis_line", "the cis Hi-C signal")):
@@ -687,7 +687,8 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
     if summ.get("fam_gate", ".") not in (".", None):
         L.append(f"- **Repeat families** (most chromosomes have no confident sequence call): repeat families (sampled K-mers) "
                  f"concentrated at one locus on most chromosomes, satellite arrays left out, "
-                 + ("exist, and their clusters fall one per chromosome" if summ.get("fam_gate") == "pass" else
+                 + ("exist, and their clusters fall one per chromosome, a test that is not calibrated (it also passes in "
+                    "genomes whose repeat families sit at random places), so their peaks are leads" if summ.get("fam_gate") == "pass" else
                     "do not show one cluster per chromosome" if summ.get("fam_gate") == "fail" else
                     "cannot be tested (too few chromosomes long enough)")
                  + f" (P {summ.get('fam_p')}, windows of {summ.get('fam_window')} bp)"

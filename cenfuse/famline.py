@@ -6,7 +6,7 @@ reads from an annotation: families concentrated at one locus on most chromosomes
 FracMinHash sample of canonical K-mers keeps every copy of each kept K-mer, so its copy number is exact. A K-mer is
 concentrated on a chromosome where at least MIN_COPIES of its copies lie there and at least half of them inside one window;
 a family K-mer is concentrated on at least half of the chromosomes taking part. Each family K-mer votes once per chromosome
-where it is concentrated, at the centre of its densest window, and the votes per window are read by the AT line's
+where it is concentrated, at the center of its densest window, and the votes per window are read by the AT line's
 one-per-chromosome test (atline.scan_profiles) at windows of 0.1-3 Mb.
 
 Left out: copies inside the satellite engine's arrays (the satellite line's; a K-mer with at least half of its copies
@@ -14,14 +14,18 @@ inside them is a satellite K-mer and is dropped), K-mers with a period of at mos
 repeats), K-mers with fewer than 1.5 N copies (N chromosomes: too few to be concentrated on half of them), and windows whose
 midpoint lies in a terminal eighth (as in the repeat-density line).
 
-What a pass means: every family K-mer votes at most once per chromosome, so a genome whose families each cluster at one
-locus per chromosome passes whatever those loci are. A pass says that such families exist; in monocentric genomes they
-mark centromeres, and holocentric genomes have none (C. elegans P 0.44, B. mori P 0.71). For the same reason
-block shuffles are no null for this test: moving 100-kb blocks spreads a family's clusters one per chromosome.
+What a pass means: every family K-mer votes at most once per chromosome, so one family that clusters once per chromosome
+puts its votes one per chromosome wherever its clusters sit. A pass says that such a family exists, not where the
+centromeres are: the test is not calibrated. With each genome's own copies and every repeat unit moved as a whole to a
+random place on its chromosome, it still passed at FAM_ALPHA in 13-52% of draws in each of 11 monocentric genomes (0.16.1);
+holocentric genomes do not pass it (C. elegans P 0.44, B. mori P 0.71). No family-level null could be built from
+K-mers: grouping them into families splits diverged families or merges neighbors (docs/future.md #76). Its peaks are
+leads.
 
-Calls: the strongest vote window at the chosen size, widened to its half-height run. Like the other composition lines it
-places only chromosomes nothing else places (`low`, fuse: fam_only) and pairs with Hi-C (fam_pair); it never moves,
-opposes or raises a sequence call."""
+Calls: the strongest vote window at the chosen size, widened to its half-height run. The line places only `low` calls, on
+chromosomes nothing else places (fuse: fam_only), and flags a `low` sequence call whose family window lies elsewhere
+(fam_elsewhere). It never pairs with Hi-C (an uncalibrated test cannot be one of two tested lines) and never moves, opposes
+or raises a sequence call."""
 from __future__ import annotations
 
 import math

@@ -1,11 +1,10 @@
 """Complex-directory inputs: genomes, chromosome lengths, gene positions."""
-import gzip
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from .util import SatelliteError, log
+from .util import SatelliteError, log, open_text
 
 
 @dataclass
@@ -45,8 +44,9 @@ def discover_genomes(complex_dir) -> list:
     """One genome per FASTA (*.fa, *.fasta, *.fna; plain with .fai, or bgzip .gz with .fai + .gzi; read through
     pysam); name = file name without the extension. Genomes are ordered by file name."""
     complex_dir = Path(complex_dir)
-    fas = sorted((f for f in complex_dir.iterdir() if f.is_file() and _fasta_name(f)), key=lambda f: f.name) \
-        if complex_dir.is_dir() else []
+    if not complex_dir.is_dir():
+        raise SatelliteError(f"{complex_dir}: no such folder")
+    fas = sorted((f for f in complex_dir.iterdir() if f.is_file() and _fasta_name(f)), key=lambda f: f.name)
     if not fas:
         raise SatelliteError(f"{complex_dir}: no *.fa genomes (*.fa/*.fasta/*.fna, plain or bgzip .gz)")
     seen = {}
@@ -56,7 +56,8 @@ def discover_genomes(complex_dir) -> list:
             raise SatelliteError(f"{complex_dir}: genome {name} is given twice ({seen[name].name}, {f.name})")
         if f.name.endswith(".gz") and not Path(str(f) + ".gzi").exists():
             raise SatelliteError(f"{f}: a compressed genome must be bgzip with .fai + .gzi indexes "
-                              f"(missing {f.name}.gzi; run: samtools faidx {f})")
+                              f"(missing {f.name}.gzi; recompress and index: gzip -dc {f} | bgzip > {f}.tmp && "
+                              f"mv {f}.tmp {f} && samtools faidx {f})")
         seen[name] = f
     return [Genome(n, f, load_fai(f)) for n, f in seen.items()]
 
@@ -99,7 +100,7 @@ def load_gene_gff(gff, chroms=None) -> tuple:
     the middle of its transcripts' span (a transcript without a Parent is its own locus). Returns ({chrom: sorted
     midpoints}, gene lines on sequences not in chroms)."""
     mids, foreign, spans = {}, 0, {}
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+    with open_text(gff) as f:
         for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue

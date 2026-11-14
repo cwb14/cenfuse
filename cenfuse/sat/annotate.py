@@ -116,6 +116,7 @@ def significant(rows: list, L: int, evalue: float, gap_factor: float) -> pd.Data
 
 
 def search_chrom(hmms, chrom: str, seq: str, threads: int, evalue: float, gap_factor: float = 2.0) -> list:
+    """One nhmmer search of a whole sequence: the reference the chunked search (search_genome) is tested against."""
     if not hmms:
         return []
     blk = DigitalSequenceBlock(ABC, [TextSequence(name=chrom, sequence=seq.upper()).digitize(ABC)])
@@ -256,7 +257,7 @@ def _search_work(job) -> int:
 
 def search_genome(hmms, genome, threads: int, evalue: float, chunk: int = ANNOT_CHUNK, overlap: int = 10_000,
                   ref_len: int = 0, gap_factor: float = 2.0, cost: dict = None) -> dict:
-    """{chrom: overlap-resolved monomer hits}. pyhmmer's nhmmer parallelises over query models only, so a few
+    """{chrom: overlap-resolved monomer hits}. pyhmmer's nhmmer parallelizes over query models only, so a few
     long models would leave most threads idle; instead every (chunk x model) job runs on a thread pool (pyhmmer
     releases the GIL). One job per model, not per chunk: a satellite-dense 2-Mb chunk searched with all ~40 models
     took > 40 min on one thread while the other 24 idled (Arachis); hits and E-values are the same, since each
@@ -369,7 +370,7 @@ def drop_multimer_hits(df: pd.DataFrame, ratio: float = MULTIMER_RATIO, min_cov:
     With evalue, only shorter hits significant on their own count: copies significant only as a run
     (run_significant) fill sequence nothing else explains but never erase a hit that is significant alone (Avena:
     run-only 38-41-bp copies erased 87/130-bp arrays and then lost the overlap contest, leaving sequence unannotated).
-    Vectorised: per distinct long-model length, the union of the shorter-model hits is built once and each hit's
+    Vectorized: per distinct long-model length, the union of the shorter-model hits is built once and each hit's
     coverage read from prefix sums (Avena C genomes: tens of millions of hits)."""
     if df.empty:
         return df

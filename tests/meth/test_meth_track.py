@@ -66,7 +66,7 @@ def test_tenfold_count_is_the_08_rule():
 
 def test_gradual_scaffold_tail_is_dropped():
     """24 chromosomes and a 7.7-Mb scaffold, then scaffolds falling gradually to 1 kb (Cissus-like): no tenfold gap
-    between neighbours, so 0.8 counted all 669 sequences. The tail starts at the first under a tenth of the median."""
+    between neighbors, so 0.8 counted all 669 sequences. The tail starts at the first under a tenth of the median."""
     L = np.concatenate([np.linspace(60e6, 15e6, 24), [7.68e6], np.geomspace(1.6e6, 1e3, 644)])
     assert track.tenfold_count(L) == 669
     assert track.chromosome_count(L) == 25
@@ -129,7 +129,7 @@ def _random_lengths(rng, i):
 
 
 def test_counts_equal_their_definitions_on_random_lengths():
-    """The vectorised median cut (median(L[:k]) read off two positions of the sorted lengths) equals the loop that
+    """The vectorized median cut (median(L[:k]) read off two positions of the sorted lengths) equals the loop that
     recomputes np.median for every k, and chromosome_count equals the rule written out in full: on karyotype-like
     vectors, on ties, and on 1-4 sequences. Every branch of the rule must occur, or the test says nothing."""
     rng = np.random.default_rng(11)
@@ -169,18 +169,18 @@ def test_ring_and_slide_match_brute_force():
     for i in range(40):
         js = [j for j in range(40) if lo <= abs(i - j) <= hi]
         assert np.allclose(ring[:, i], x[:, js].sum(axis=1))
-        a, b = track.window(i, w, 40)
+        a, b = max(0, i - (w - 1) // 2), min(40, i + w // 2 + 1)      # the w-bin window around bin i
         assert np.allclose(sl[:, i], x[:, a:b].sum(axis=1))
 
 
-def _two_classes(nb=400, centre=slice(199, 202)):
+def _two_classes(nb=400, center=slice(199, 202)):
     v = np.full((2, nb), 1000.0)
     m = np.vstack([np.full(nb, 700.0), np.full(nb, 450.0)])   # class 0 'satellite' 0.70, class 1 'CRM' 0.45
-    return v, m, centre
+    return v, m, center
 
 
 def test_adjusted_ignores_composition_but_sees_class_loss():
-    geo = track.geometry(2.5 * params.BIN)          # w = 1 bin, ring 4-10 bins (beyond the 3-bin centre)
+    geo = track.geometry(2.5 * params.BIN)          # w = 1 bin, ring 4-10 bins (beyond the 3-bin center)
     assert (geo.w, geo.lo, geo.hi) == (1, 4, 10)
     v, m, c = _two_classes()
     v[0, c] *= 5                                    # composition change only: more satellite, same levels
@@ -191,7 +191,7 @@ def test_adjusted_ignores_composition_but_sees_class_loss():
     assert plain[200] - plain[100] > 0.05          # plain methylation rises with the satellite share
     assert abs(y[200]) < 1e-9                      # the adjusted track does not move
     v, m, c = _two_classes()
-    m[1, c] = 200.0                                 # CRM loses 0.25 in the centre
+    m[1, c] = 200.0                                 # CRM loses 0.25 in the center
     num, vok = track.class_sums(v, m, geo)
     y = track.adjusted(num, vok)
     assert y[200] == pytest.approx(-0.125)          # half of the calls lose 0.25

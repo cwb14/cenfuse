@@ -23,19 +23,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"cenfuse-meth {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="scan samples for centromere-like methylation; calibrate on anchors if given")
-    r.add_argument("--samples", required=True, help="TSV: sample, CHG [, CG, CHH] = modkit bedMethyl (bgzip+tabix)")
+    r.add_argument("--samples", required=True,
+                   help="TSV: sample, CHG [, CG, CHH] = modkit or ENCODE (11-column) bedMethyl, bgzip + tabix; paths "
+                        "relative to the table's folder allowed")
     r.add_argument("--fai", required=True, help="genome .fai (same assembly as every other input)")
     te = r.add_mutually_exclusive_group(required=True)
     te.add_argument("--ltrquest", help="LTRquest *_LTRs_all_depth_LTR_cleaned.gff3 (preferred: clades, nesting)")
     te.add_argument("--edta", help="EDTA *.TEanno.gff3 (superfamily classes; coarser)")
     r.add_argument("--satellites", required=True,
                    help="cenfuse <genome>_satellite_arrays.gff, or any BED/GFF3 with the family as name")
-    r.add_argument("--genes", help="GFF3 with gene features (gene-body class)")
+    r.add_argument("--genes", help="genes (gene-body class): GFF3 or GTF gene lines (mRNA/transcript lines when there "
+                                   "are none), or BED")
     r.add_argument("--anchors", help="known centromeres: cenfuse Hi-C BED, GFF3 with centromere features, or BED (e.g. CENH3 ChIP)")
     r.add_argument("--exclude", help="BED of regions to drop; optional 4th column = sample (blank = all)")
-    r.add_argument("-o", "--out", required=True, help="output prefix, e.g. out/x")
+    r.add_argument("-o", "--out", required=True,
+                   help="output prefix, e.g. out/x; class bins are cached in out/meth_cache/ (shared by runs there)")
     r.add_argument("-t", "--threads", type=int, default=8, help="parallel processes [8]")
-    r.add_argument("-v", "--verbose", action="store_true", help="per-step progress and checks")
+    r.add_argument("-v", "--verbose", action="store_true", help="also log each sample's depth-filter counts")
     return p
 
 
@@ -97,9 +101,9 @@ def run(a) -> None:
         log.info("anchors: %d (%s)", len(anchors), src)
         if not anchors:
             log.warning("no anchor on an analyzed chromosome: uncalibrated run (direction down, every candidate "
-                        "labelled 'dip')")
+                        "labeled 'dip')")
     else:
-        log.warning("no anchors: uncalibrated run (direction down, every candidate labelled 'dip')")
+        log.warning("no anchors: uncalibrated run (direction down, every candidate labeled 'dip')")
     excl = io.read_exclusions(a.exclude) if a.exclude else None
     if excl is not None:
         nosample = sorted(set(excl["sample"]) - {""} - {s.name for s in samples})
@@ -133,10 +137,10 @@ def run(a) -> None:
     sig = calibrate.signature(cal)
     if anchors and sig.empty:
         if cal.p.isna().all():
-            log.warning("too few anchors with data to calibrate (need %d): every candidate labelled 'dip'",
+            log.warning("too few anchors with data to calibrate (need %d): every candidate labeled 'dip'",
                         params.MIN_ANCHORS)
         else:
-            log.warning("no consistent methylation signature at the anchors: every candidate labelled 'dip'")
+            log.warning("no consistent methylation signature at the anchors: every candidate labeled 'dip'")
     sc = scan(filt, samples, chroms, K, geo, abin, direction)
     for s in samples:
         if not any(np.isfinite(y).any() for y in sc.adj[s.name].values()):
@@ -176,7 +180,7 @@ def run(a) -> None:
                "classes": K, "signature": sig_txt, "candidates": len(cand), "centromere_like": n_like}
     output.write_tsv(output.qc_rows(runinfo, dstats, tiers), f"{out}.qc.tsv")
     footer = (f"Line = composition-adjusted CHG per sample (one row each; 0 = class reference); boxes = candidates "
-              f"(blue = centromere_like, grey = dip); band/triangle = anchor. D = {D / 1e6:.2f} Mb; "
+              f"(blue = centromere_like, gray = dip); band/triangle = anchor. D = {D / 1e6:.2f} Mb; "
               f"signature: {sig_txt}.")
     plot.overview(sc.adj, chroms, cand, anchors, footer, f"{out}.overview.pdf")
     log.info("done in %.0f s: %d candidates (%d centromere_like); outputs %s.*", time.time() - t0, len(cand),

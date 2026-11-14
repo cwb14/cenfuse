@@ -1,6 +1,6 @@
 import pytest
 
-from cenfuse.sat.genomes import count_in, discover_genomes, load_fai, load_genes
+from cenfuse.sat.genomes import discover_genomes, load_fai, load_genes
 from cenfuse.sat.util import SatelliteError
 
 
@@ -190,3 +190,21 @@ def test_gene_names_that_match_only_some_chromosomes_are_reported(tmp_path):
     assert "no gene" not in msg
     _, msg = _genes_log(tmp_path, "chr1\tx\tgene\t11\t20\t.\t+\t.\tID=a\n", {"chr1": 1000, "chrB": 1000})
     assert "no gene" not in msg
+
+
+def test_a_truncated_gzip_annotation_stops_with_its_name(tmp_path):
+    """A genes/ or tes/ .gff3.gz cut short (an interrupted download) stops with an error naming the file, not a
+    traceback, in every reader of these files."""
+    import gzip
+    from cenfuse.sat import signature, te
+    from cenfuse.sat.genomes import load_gene_gff
+    rows = "".join(f"c1\tx\t{t}\t{s}\t{s + 999}\t.\t+\t.\tID={t}{s};clade=CRM;family=f1\n"
+                   for s in range(1, 2_000_000, 1000) for t in ("gene", "LTR_retrotransposon"))
+    full = gzip.compress(rows.encode())
+    cut = tmp_path / "G.gff3.gz"
+    cut.write_bytes(full[: len(full) // 2])
+    chroms = {"c1": 3_000_000}
+    for read in (lambda: load_gene_gff(cut, chroms), lambda: te.load_te_gff(cut, chroms),
+                 lambda: te.te_census(cut, chroms), lambda: signature.load_table(cut, chroms)):
+        with pytest.raises(SatelliteError, match="G.gff3.gz: unreadable or truncated"):
+            read()

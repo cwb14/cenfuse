@@ -23,7 +23,6 @@ specific, unless a dominant satellite falls one per chromosome (cenfuse.sat.kary
 no signature: the lineage rules of te.py stand alone."""
 from __future__ import annotations
 
-import gzip
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,7 +33,7 @@ from .params import (TE_AGE_ALPHA, TE_AGE_MIN, TE_ALPHA, TE_BINS, TE_CENTROMERIC
                      TE_PEAK_MAX, TE_PEAK_SHARE, TE_POOLED_BREADTH, TE_POOLED_MIN_CORES, TE_RECRUIT_MIN, TE_RECRUIT_ROUNDS, TE_SEED_MIN_CORES,
                      TE_SMOOTH, TE_SPECIFIC_FOLD)
 from .te import IGNORED_CLADES, Coords, Mids, binom_sf, core
-from .util import log
+from .util import log, open_text
 
 NO_FAMILY = {"", ".", "na", "none", "unknown"}
 FAMILY_MIN_SHARE = 0.5     # a file holds families when most of its LTR retrotransposons name one (majority rule)
@@ -99,7 +98,7 @@ def load_table(gff, chroms: dict):
     idx = {c: i for i, c in enumerate(names)}
     rows, lin_code, fam_code = [], {}, {}
     xy = Coords(gff)
-    with (gzip.open(gff, "rt") if str(gff).endswith(".gz") else open(gff)) as f:
+    with open_text(gff) as f:
         for n, line in enumerate(f, 1):
             if line.startswith("#"):
                 continue

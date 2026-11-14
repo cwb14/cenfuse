@@ -51,3 +51,4 @@ def test_rule_calibration_splits_each_rule_by_confidence(tmp_path):
     assert t[0].startswith("| rule that set the call |") and len(t) == 4          # the chromosome without a call is left out
     assert "| the sequence call as it is (satellite) (`sequence`) | `low` | 2 | 1 | 50.0% |" in t
     assert "| Hi-C's prior-free peak alone (`hic_denovo_only`) | `low` | 1 | 1 | 100.0% |" in t
+    assert {"rep_only", "rep_pair", "fam_only", "cis_end_pair", "fold_offset"} <= set(md_tables.RULE_TEXT)

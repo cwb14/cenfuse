@@ -73,10 +73,6 @@ def near_end_sides(iv, L: int, p, mids=None) -> tuple:
     return clipped_bp(iv, 0, lo), clipped_bp(iv, max(lo, hi), L)
 
 
-def near_end_bp(iv, L: int, p, mids=None) -> int:
-    return min(union_bp(iv), sum(near_end_sides(iv, L, p, mids)))
-
-
 def interval_gap(a, b) -> int:
     return max(0, max(a.start, b.start) - min(a.end, b.end))
 
@@ -124,7 +120,7 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
     subtelomeres (terminal_bp) is subtelomeric. subtel_vote: {fam: (genomes where it is subtelomeric, genomes that
     carry it)} over the complex. Position evidence has three grades. Interior (most bp away from both ends: neither
     beyond the outermost genes nor in the terminal end zone) is direct evidence and is never overruled. Terminal
-    (beyond the outermost genes) and near-end (gene-bounded but in the end zone, near_end_bp) are ambiguous: a
+    (beyond the outermost genes) and near-end (gene-bounded but in the end zone, near_end_sides) are ambiguous: a
     truncated assembly end or gene models reaching into a subtelomere. Such a family is subtelomeric here only if it
     is terminal in at least half of the genomes. Cases: Populus clone 741 chr14A/14D (terminal in 1 genome: kept);
     the RRCC radish subgenome, whose centromeres all end their chromosomes, does not make CL1 subtelomeric in the
@@ -132,7 +128,7 @@ def family_metrics(arrays: pd.DataFrame, chroms: dict, genes, p, fam_info=None, 
     182-bp repeat (terminal in most genomes: rejected). A near-end or terminal family with blocks at an end of most
     of this genome's chromosomes is subtelomeric here whatever the vote: a truncated assembly end is one chromosome's
     (Populus: 1 end each), a subtelomeric family sits at the ends of most (M. sookensis G 687 bp on 10/14 while
-    Cent728 holds the centres; Brassica CL25-like ~350 bp, Triticeae pSc119.2-like 118-120 bp, Nicotiana HRS60-like
+    Cent728 holds the centers; Brassica CL25-like ~350 bp, Triticeae pSc119.2-like 118-120 bp, Nicotiana HRS60-like
     180 bp).
 
     Two tests added after the T2T mammal benchmark (docs/design.md):

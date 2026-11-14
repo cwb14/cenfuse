@@ -1,11 +1,11 @@
 """S8: centromere overview: one panel per genome (A, B, ...; two columns), one track per chromosome; a borrowed
 (contig) genome, or one with more than MAX_CHROMOSOMES sequences, shows the MAX_TRACKS called sequences with the most
 centromeric satellite. Every track has the same height (capped so the figure stays <= ~13 in tall).
-Track = satellite bp per 100-kb bin (primary families colored, cen-associated grey), scaled gene density line,
+Track = satellite bp per 100-kb bin (primary families colored, cen-associated gray), scaled gene density line,
 and a box for the centromere call (dashed unless it is a satellite array call: weak-satellite and long-unit
 fallbacks, CRM cores). No titles; panel letters upper-left.
 Palette: Okabe-Ito without yellow (fails the lightness band on white; dataviz validator), fixed order, never
-cycled: a 7th+ centromeric family folds into one labelled 'other centromeric' grey."""
+cycled: a 7th+ centromeric family folds into one labeled 'other centromeric' gray."""
 import math
 
 import matplotlib
@@ -23,7 +23,7 @@ from .util import union_bp  # noqa: E402
 OKABE_ITO = ["#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7"]
 OTHER_CEN = "#555555"
 ASSOC = "#AAAAAA"
-GENE = "#999999"        # context: grey, drawn under the satellite bars
+GENE = "#999999"        # context: gray, drawn under the satellite bars
 BIN = 100_000           # layout: satellite bp are drawn per 100-kb bin
 H = 0.8                 # layout: bar height (track units)
 MAX_TRACKS = 20         # layout: family tracks drawn per page at most

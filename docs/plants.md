@@ -13,18 +13,24 @@ Not goals: mapping calls between assemblies, genotyping Hi-C from BAMs, CENH3 Ch
 ## Inputs
 
 - `meth/asm.tsv`: one row per sample; `sample` names the plant.
-- `hic/asm.tsv` (optional, for several libraries): columns `sample`, `file` (pairs, cool or mcool). Rows with the
-  same `sample` are replicate libraries of one plant, summed into one library (one kind of file per sample).
-- The same `sample` name in both tables means the same plant. A lone `hic/asm.<ext>` is one library named `hic`.
+- `hic/asm.tsv` (optional, for several libraries): columns `sample`, `file` (`.pairs[.gz]`, `.cool`, `.mcool`, HiC-Pro
+  `.allValidPairs[.gz]` or Juicer `.merged_nodups.txt[.gz]`, relative to `hic/`). Rows with the same `sample` are replicate
+  libraries of one plant, summed into one library (cool or mcool files not mixed with pair files in one sample). A lone
+  `hic/asm.<ext>` beside the table is ignored, with a warning.
+- The same `sample` name in both tables means the same plant; names are non-empty, without `/` or whitespace (they name
+  output files). A lone `hic/asm.<ext>` is one library named `hic`.
+- The CHG line needs a CHG file (modkit bedMethyl) for every sample: one CG-only sample, or one whose CHG file is in another
+  layout, turns the CHG line off for every sample, and with it per-plant methylation scoring and the methylation karyotype
+  test.
 
 ## Provenance (per input)
 
 | step | rule |
 |---|---|
-| right assembly? (fail fast) | methylation CHG rows must sit on reference CHG motifs: < 50% stops the run, < 99% warns |
-| genotype (methylation) | at symmetric CHG sites read on both strands (≥ 3 reads each), a fixed genetic difference removes both strands' rows; read errors remove one. A difference sample j has and sample k lacks, beyond its noise (Poisson, P ≤ 0.01, Bonferroni), makes j **not** the reference plant. Sites: two 2-Mb windows per chromosome on the arms. CHG files must be modkit bedMethyl (the genotype reads its counts of differing and failed calls); one in another layout is left out with a warning, and the sample's CG file is kept |
+| right assembly? | every methylation file's rows must sit on reference cytosines of its context (CHG, CG, CHH; a CG bedGraph or pb-CpG-tools file on CpGs): < 50% stops the run, < 99% warns; checked after the satellite search |
+| genotype (methylation) | at symmetric CHG sites read on both strands (rows within 300 bp on both sides of each strand's C, averaging ≥ 3 reads), a fixed genetic difference removes both strands' rows; read errors remove one. A difference sample j has and sample k lacks, beyond its noise (Poisson, P ≤ 0.01, Bonferroni), makes j **not** the reference plant. Sites: two 2-Mb windows per chromosome on the arms. CHG files must be modkit bedMethyl (the genotype reads its counts of differing and failed calls); one in another layout is left out with a warning, and the sample's CG file is kept |
 | reference plant | no such excess against any sample, another sample shown different, and ≥ 95% power. With one sample: always `unknown` (assembly errors and another plant look alike) |
-| karyotype (any input with coverage) | a **missing segment** = ≥ 3 windows below 0.1× the input's median while a same-type input has ≥ 0.5× (windows over calls, gaps, mostly-satellite windows, ends and pile-ups are not judged). A missing segment means another plant |
+| karyotype (Hi-C libraries, and methylation samples when the CHG line runs; two or more inputs of a type) | a **missing segment** = ≥ 3 windows (1 Mb, or the Hi-C bin if larger) below 0.1× the input's median while a same-type input has ≥ 0.5× (windows over calls, gaps, mostly-satellite windows, ends and pile-ups are not judged). A missing segment means another plant |
 | verdict | `other` (genotype or karyotype evidence), `reference` (genotype), else `unknown`; an unknown input takes a same-named input's verdict |
 | CG-only samples (CpG line) | not genotyped (genotypes are read at CHG sites) and not in the karyotype test: `unknown`, so they decide; their rows must still sit on reference CpGs |
 
@@ -66,8 +72,8 @@ Nearby sites merge.
 peak); `shifted` when a strong far peak passes its own gate where the deciding library peaks elsewhere; `unclear`;
 `uninformative` (gate fails).
 
-A plant's verdict combines its lines: `shifted` when one line says so and none says `shared`; `conflict` when the
-two lines disagree.
+A plant's verdict combines its lines: `shifted` when one line says so and none says `shared`; `conflict` when one
+line says `shifted` and the other `shared`.
 
 **`shared` is consistent with the call, not proof.** In *P. annua* some non-centromeric places look centromeric in
 every plant. The between-plant test keeps them from producing false `shifted` verdicts.
@@ -89,7 +95,7 @@ every plant. The between-plant test keeps them from producing false `shifted` ve
 | `kind`, `input` | the input: a methylation sample (`meth`) or a Hi-C library (`hic`), by its `sample` name |
 | `plant` | the plant it comes from: the same name |
 | `verdict`, `reason` | `reference`, `other` or `unknown` (Provenance, above), and why, in words |
-| `decides` | whether it decides the reference calls: a methylation sample that is not `other`, when the CHG line runs; the deciding Hi-C library |
+| `decides` | whether it decides the reference calls: a methylation sample that is not `other`, when the CHG line runs; the deciding Hi-C library (the CG files of samples that are not `other` decide the CpG line whatever this column says) |
 | `on_motif` | methylation (CHG file): the share of its rows in the genotype windows that sit on reference CHG motifs |
 | `sites_tested` | how many symmetric CHG sites (CAG, CTG) in those windows are read on both strands: each strand's C has rows within 300 bp on both sides, with ≥ 3 reads on average |
 | `fixed_per_kb` | the fixed differences (both strands' rows missing) per kb of tested bases (3 per site) |
@@ -151,6 +157,7 @@ Every methylation sample is scored at every site of its chromosome (Per-plant ve
 | GENO_FLANK, GENO_MIN_READS | 300 bp, 3 reads | ONT reads span the site; three chance failures ~0.1³ |
 | GENO_WINDOW | 2 Mb × 2 per chromosome | ~150,000 sites at 2-3× |
 | GENO_ALPHA, GENO_POWER | 0.01, 0.95 | conventional |
+| KARYO_WINDOW | 1 Mb (at least the Hi-C bin) | the coverage window for missing segments |
 | KARYO_ABSENT, KARYO_PRESENT, KARYO_MIN_WINDOWS | 0.1, 0.5, 3 | heuristics, named as such |
 | PLANT_Q | 0.05 | Benjamini-Hochberg, conventional |
 
@@ -159,3 +166,6 @@ Every methylation sample is scored at every site of its chromosome (Per-plant ve
 - **Genotype noise model**: never tested on two samples of one plant. Chemistry-specific errors could make the
   reference plant look like another.
 - **Coverage at low depth**: below ~2.5×, a threefold drop can fall under the tenfold "absent" level.
+- **Verdicts that depend on other chromosomes**: a plant's null comes from the other chromosomes' call sites and its q from every
+  test of the genome, so a verdict can change when another chromosome's call moves (*P. annua* J10 Pa4B: `shifted` to
+  `possible_shift` when Pa1A's call moved; [future.md #57](future.md#57-per-plant-verdicts-that-depend-on-other-chromosomes)).

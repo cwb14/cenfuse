@@ -34,4 +34,5 @@ LOW_DEPTH = 8.0             # warn below 8x median depth: few repeat cytosines r
 CHUNK = 10_000_000          # bedMethyl region read at once (bp): bounds memory. Each worker holds one chunk of rows
                             # (~0.5 GB CHG, ~1 GB CHH at plant densities), so a run needs about threads x 1-2 GB
 SEED = 7                    # fixed seed: reruns give identical P values
-CACHE_FP_BYTES = 1 << 20    # cache key reads the first and last MiB of each input (a fast fingerprint, not a checksum)
+CACHE_FP_BYTES = 1 << 20    # cache key reads the first and last MiB of each input (all of a file up to 2 MiB;
+                            # a fast fingerprint, not a checksum)

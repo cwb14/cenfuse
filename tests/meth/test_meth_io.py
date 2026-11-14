@@ -1,10 +1,14 @@
 import gzip
+import logging
+import shutil
+import struct
 from pathlib import Path
 
 import numpy as np
 import pysam
 import pytest
 
+import meth_synth as synth
 from cenfuse.meth import io
 
 ROWS = [("c1", 10, "m", 5, 2, 1), ("c1", 10, "h", 5, 1, 2), ("c1", 20, "m", 2, 1, 0), ("c1", 30, "m", 4, 0, 0)]
@@ -204,3 +208,184 @@ def test_csi_only_track_opens_and_is_read(tmp_path):
     assert io.table_layout(f)[0] == "modkit"
     with io.open_tabix(f) as tb:
         assert io.read_bedmethyl(tb, "c1", 0, 100, 3)[0].tolist() == [10, 30]
+
+
+def test_genes_from_gtf_and_from_transcripts_without_gene_lines(tmp_path):
+    """GTF has GFF's columns (1-based closed); a file without `gene` lines (e.g. potato DM v6.1) gives its mRNA or
+    transcript lines."""
+    gtf = tmp_path / "g.gtf"
+    gtf.write_text('c1\tsrc\tgene\t101\t200\t.\t+\t.\tgene_id "g1";\n'
+                   'c1\tsrc\ttranscript\t101\t180\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n')
+    assert io.read_genes(gtf)[["start", "end"]].values.tolist() == [[100, 200]]
+    mrna = tmp_path / "m.gff3"
+    mrna.write_text("c1\tx\tmRNA\t1\t10\t.\t+\t.\tID=t1\nc1\tx\texon\t1\t5\t.\t+\t.\tParent=t1\n"
+                    "c1\tx\tmRNA\t21\t30\t.\t+\t.\tID=t2\n")
+    assert io.read_genes(mrna)[["start", "end"]].values.tolist() == [[0, 10], [20, 30]]
+    gz = tmp_path / "t.gtf.gz"
+    gz.write_bytes(gzip.compress(b'c1\tsrc\ttranscript\t101\t200\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'))
+    assert io.read_genes(gz)[["start", "end"]].values.tolist() == [[100, 200]]
+
+
+def _pbcpg(path, chrom="c1"):
+    """pb-CpG-tools BED (9 columns), bgzip + tabix: cenfuse's CpG line reads it, the methylation engine does not."""
+    path.write_text("".join(f"{chrom}\t{p}\t{p + 2}\t50.0\tTotal\t20\t10\t10\t50.0\n" for p in range(100, 1000, 100)))
+    pysam.tabix_index(str(path), preset="bed", force=True)
+    return f"{path}.gz"
+
+
+def test_engine_drops_cg_files_that_are_not_bedmethyl(tmp_path, caplog, monkeypatch):
+    """The engine reads every file as bedMethyl: a pb-CpG-tools CG next to a modkit CHG is dropped with a warning;
+    read for cenfuse's CpG line (require_chg False), it stays."""
+    chg, cg = _bedmethyl(tmp_path / "s1.CHG.bed", ROWS), _pbcpg(tmp_path / "pb.bed")
+    (tmp_path / "s.tsv").write_text(f"sample\tCHG\tCG\nS1\t{chg}\t{cg}\n")
+    monkeypatch.setattr(io.log, "propagate", True)
+    with caplog.at_level(logging.WARNING, logger="cenfuse-meth"):
+        s = io.read_samples(tmp_path / "s.tsv")
+    assert list(s[0].files) == ["CHG"] and "pb.bed.gz" in caplog.text and "9 columns" in caplog.text
+    assert list(io.read_samples(tmp_path / "s.tsv", require_chg=False)[0].files) == ["CHG", "CG"]
+
+
+def test_methylation_line_takes_gtf_genes_and_a_pbcpg_cg(syn, tmp_path):
+    """cenfuse's methylation line (methfuse.prepare) with two inputs cenfuse accepts elsewhere: genes as GTF and a
+    pb-CpG-tools CG file beside modkit CHG. Neither switches the line off."""
+    from types import SimpleNamespace
+
+    from cenfuse import methfuse
+    gtf = tmp_path / "genes.gtf"
+    with open(syn["genes"]) as f, open(gtf, "w") as o:
+        for ln in f:
+            p = ln.rstrip("\n").split("\t")
+            if len(p) == 9 and p[2] == "gene":
+                o.write("\t".join(p[:8] + [f'gene_id "{p[8][3:]}";']) + "\n")
+    d, pb = syn["dir"], _pbcpg(tmp_path / "pb.bed", "chr1")
+    (tmp_path / "s.tsv").write_text(f"sample\tCHG\tCG\nS1\t{d / 'S1.CHG.bedmethyl.gz'}\t{pb}\n"
+                                    f"S2\t{d / 'S2.CHG.bedmethyl.gz'}\t\nS3\t{d / 'S3.CHG.bedmethyl.gz'}\t\n")
+    g = SimpleNamespace(name="g", fasta=str(syn["fai"])[:-4], chroms=list(synth.CHROMS), meth=tmp_path / "s.tsv",
+                        tes=syn["ltrquest"], genes=gtf, exclude=None)
+    prep = methfuse.prepare(g, syn["satellites"], tmp_path / "cache", 1)
+    assert "gene" in prep.cmap.names and [list(s.files) for s in prep.samples] == [["CHG"]] * 3
+
+
+def _cut_blocks(src, dst, frac):
+    """The first frac of src's BGZF blocks: what a killed `modkit pileup | bgzip` leaves."""
+    data, offs, o = Path(src).read_bytes(), [], 0
+    while o < len(data):
+        offs.append(o)
+        o += struct.unpack("<H", data[o + 16:o + 18])[0] + 1          # BSIZE: block size - 1
+    Path(dst).write_bytes(data[:offs[int(len(offs) * frac)]])
+
+
+MANY = [("c1", p, "m", 10, 5, 0) for p in range(0, 200_000, 10)]     # 20,000 rows: about 20 BGZF blocks
+
+
+def test_samples_table_rejects_a_truncated_bgzip_file(tmp_path):
+    """Cut at a block boundary and indexed, a file reads in part without an error from htslib: the missing
+    end-of-file block gives it away."""
+    full = _bedmethyl(tmp_path / "full.bed", list(MANY))
+    _cut_blocks(full, tmp_path / "cut.bed.gz", 0.75)
+    pysam.tabix_index(str(tmp_path / "cut.bed.gz"), preset="bed", force=True)
+    (tmp_path / "ok.tsv").write_text("sample\tCHG\nA\tfull.bed.gz\n")
+    assert io.read_samples(tmp_path / "ok.tsv")[0].files["CHG"].name == "full.bed.gz"
+    (tmp_path / "s.tsv").write_text("sample\tCHG\nA\tfull.bed.gz\nB\tcut.bed.gz\n")
+    with pytest.raises(io.InputError, match="cut.bed.gz.*truncated|truncated.*cut.bed.gz"):
+        io.read_samples(tmp_path / "s.tsv")
+
+
+def test_read_error_is_an_input_error_naming_file_and_region(tmp_path):
+    """Cut inside a block, its old index beside it: htslib's read error names neither file nor region."""
+    from cenfuse.meth import bins
+    full = Path(_bedmethyl(tmp_path / "full.bed", list(MANY)))
+    cut = tmp_path / "cut.bed.gz"
+    cut.write_bytes(full.read_bytes()[:full.stat().st_size // 2])
+    shutil.copy(f"{full}.tbi", f"{cut}.tbi")
+    with pytest.raises(io.InputError, match=r"cut\.bed\.gz.*c1:1-200000"):
+        bins.bin_chromosome(cut, "c1", 200_000, None, 0, 1)
+
+
+def test_missing_index_message_says_to_bgzip_first(tmp_path):
+    (tmp_path / "plain.bed.gz").write_bytes(gzip.compress(b"c1\t1\t2\n"))
+    (tmp_path / "s.tsv").write_text("sample\tCHG\nS1\tplain.bed.gz\n")
+    with pytest.raises(io.InputError, match="bgzip"):
+        io.read_samples(tmp_path / "s.tsv")
+
+
+def _lines(rows):
+    return [f"{c}\t{p}\t{p + 1}\t{code}\t{nv}\t+\t{p}\t{p + 1}\t255,0,0\t"
+            + "\t".join(map(str, [nv, f"{100 * nm / nv:.2f}", nm, nv - nm - nh, nh, 0, 0, 0, 0]))
+            for c, p, code, nv, nm, nh in rows]
+
+
+def _tabix(path, lines):
+    path.write_text("".join(x + "\n" for x in lines))
+    pysam.tabix_index(str(path), preset="bed", force=True)
+    return pysam.TabixFile(f"{path}.gz")
+
+
+def test_short_first_row_of_a_region_is_one_malformed_row(tmp_path):
+    rows = _lines([("c1", p, "m", 10, 5, 0) for p in range(100, 1100, 10)])
+    with _tabix(tmp_path / "x.bed", ["\t".join(rows[0].split("\t")[:6])] + rows[1:]) as tb:
+        pos, v, m, bad = io.read_bedmethyl(tb, "c1", 0, 10_000, 3)
+    assert (len(pos), int(v.sum()), int(m.sum()), bad) == (99, 990, 495, 1)
+
+
+@pytest.mark.parametrize("code", ["h", "76792"])
+def test_5hmc_rows_are_not_extra_cytosines(tmp_path, code):
+    """modkit m + 5hmC rows (code h or ChEBI 76792), whole or cut to ENCODE's 11 columns: one site per cytosine."""
+    rows = []
+    for p in range(100, 1100, 10):
+        rows += [("c1", p, "m", 10, 5, 1), ("c1", p, code, 10, 1, 5)]
+    with _tabix(tmp_path / "x18.bed", _lines(rows)) as tb:
+        pos, v, m, _ = io.read_bedmethyl(tb, "c1", 0, 10_000, 3)
+    assert (len(pos), int(v.sum()), int(m.sum())) == (100, 1000, 600)          # 5mC + 5hmC of the m row
+    with _tabix(tmp_path / "x11.bed", ["\t".join(x.split("\t")[:11]) for x in _lines(rows)]) as tb:
+        pos, v, m, _ = io.read_bedmethyl(tb, "c1", 0, 10_000, 3)
+    assert (len(pos), int(v.sum()), int(m.sum())) == (100, 1000, 500)          # the m row's percent: 5mC
+
+
+def test_bed_with_more_than_twelve_columns(tmp_path):
+    (tmp_path / "b13.bed").write_text("c1\t100\t200\tCEN\t0\t+\t100\t200\t0\t1\t100,\t0,\textra\n")
+    assert io.read_satellites(tmp_path / "b13.bed")[["start", "end", "cls"]].values.tolist() == [[100, 200, "sat:CEN"]]
+    (tmp_path / "b14.bed").write_text("c1\t100\t200\t5\t0\t1\t100\t200\t0\t1\t100\t0\t7\t8\n")
+    assert io.read_intervals(tmp_path / "b14.bed")[["start", "end"]].values.tolist() == [[100, 200]]
+
+
+@pytest.mark.parametrize("name", ["NA", "None", "nan", "null", "NaN"])
+def test_samples_named_like_missing_values_keep_their_name(tmp_path, name):
+    f = _bedmethyl(tmp_path / "s1.CHG.bed", ROWS)
+    (tmp_path / "s.tsv").write_text(f"sample\tCHG\tCG\n{name}\t{f}\t\n")
+    s = io.read_samples(tmp_path / "s.tsv")
+    assert s[0].name == name and list(s[0].files) == ["CHG"]
+
+
+def test_damaged_index_is_an_input_error(tmp_path):
+    """The engine's checks name the file (cenfuse's CpG line keeps open_tabix's OSError, which it catches)."""
+    f, cg = _bedmethyl(tmp_path / "x.bed", ROWS), _bedmethyl(tmp_path / "cg.bed", ROWS)
+    Path(f"{f}.tbi").write_bytes(b"garbage" * 10)
+    with pytest.raises(io.InputError, match=r"x\.bed\.gz"):
+        io.tabix_contigs(f)
+    with pytest.raises(OSError):
+        io.open_tabix(f)
+    (tmp_path / "s.tsv").write_text(f"sample\tCHG\tCG\nS1\t{cg}\t{f}\n")
+    with pytest.raises(io.InputError, match=r"S1: CG file unreadable.*x\.bed\.gz"):
+        io.read_samples(tmp_path / "s.tsv")
+
+
+def test_exclusions_naming_no_sample_stop_the_methylation_line(syn, tmp_path):
+    """An exclusion BED whose column 4 names no sample of the table excludes nothing; cenfuse's methylation line stops with
+    a message naming it (as the standalone engine does) instead of running without the exclusion. A blank or known name
+    is fine."""
+    from types import SimpleNamespace
+
+    from cenfuse import methfuse
+    from cenfuse.util import CenfuseError
+    d = syn["dir"]
+    (tmp_path / "s.tsv").write_text("".join(f"{s}\t{d / f'{s}.CHG.bedmethyl.gz'}\n" for s in ("S1", "S2", "S3"))
+                                    .join(["sample\tCHG\n", ""]))
+    bad = tmp_path / "bad.bed"
+    bad.write_text("chr5\t50000000\t52000000\tS9\n")
+    g = SimpleNamespace(name="g", fasta=str(syn["fai"])[:-4], chroms=list(synth.CHROMS), meth=tmp_path / "s.tsv",
+                        tes=syn["ltrquest"], genes=syn["genes"], exclude=bad)
+    with pytest.raises(CenfuseError, match="names no sample"):
+        methfuse.prepare(g, syn["satellites"], tmp_path / "cache", 1)
+    g.exclude = syn["exclude"]                                          # column 4 = S2, a sample of the table
+    assert methfuse.prepare(g, syn["satellites"], tmp_path / "cache2", 1) is not None

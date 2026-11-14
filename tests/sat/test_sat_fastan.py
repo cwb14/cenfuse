@@ -189,7 +189,7 @@ def test_crash_on_a_long_piece_is_split_and_recovered(monkeypatch, tmp_path, cap
         rows = fastan.chunk_rows("c1", seq, 7_000_000, tmp_path, False, events, 10_000)
     pieces = sorted((a, b) for _, a, b in done)
     assert pieces[0][0] == 0 and pieces[-1][1] == 4_000_000                          # no gap at either end
-    assert all(nxt[0] == cur[1] - 10_000 for cur, nxt in zip(pieces, pieces[1:]))    # neighbours overlap by `overlap`
+    assert all(nxt[0] == cur[1] - 10_000 for cur, nxt in zip(pieces, pieces[1:]))    # neighbors overlap by `overlap`
     assert sorted((r[1], r[2]) for r in rows) == [(7_000_000 + a + 100, 7_000_000 + a + 300) for a, _ in pieces]
     assert len(events) == len(pieces) - 1                                            # every crash made two pieces
     assert events[0] == ("c1", 7_000_000, 11_000_000, "SIGABRT", "split")

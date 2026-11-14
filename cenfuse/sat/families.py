@@ -406,7 +406,10 @@ def mafft(seqs: list, workdir: Path, threads: int) -> list:
     inp = workdir / "mafft_in.fa"
     write_fasta(inp, ((f"m{i}", s) for i, s in enumerate(seqs)))
     out = run(["mafft", "--auto", "--thread", threads, "--threadit", 0, "--quiet", inp]).stdout
-    return [s.upper() for _, s in parse_fasta_text(out)]
+    rows = [s.upper() for _, s in parse_fasta_text(out)]
+    if len(rows) != len(seqs):
+        raise SatelliteError(f"mafft returned {len(rows)} aligned sequences for {len(seqs)} ({inp})")
+    return rows
 
 
 def seed_intervals(members: pd.DataFrame, p) -> list:

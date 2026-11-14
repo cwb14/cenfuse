@@ -44,6 +44,12 @@ def _attrs(d: dict) -> str:
     return ";".join(f"{k}={quote(str(v), safe=' ,:+*[]._-')}" for k, v in d.items() if v not in (None, "", "."))
 
 
+def _seqid(chrom: str) -> str:
+    """A chromosome name as a GFF3 seqid (column 1, ##sequence-region): the GFF3 spec percent-encodes every character outside
+    [a-zA-Z0-9.:^*$@!+_?-|] (quote keeps '~' as it is, so it is encoded here). The TSV and BED files keep the name as given."""
+    return quote(chrom, safe=".:^*$@!+_?-|").replace("~", "%7E")
+
+
 def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
     write_tsv(t, out / f"{genome}.centromeres.tsv")
     c = t[t.start != "."]
@@ -57,19 +63,19 @@ def write_calls(t: pd.DataFrame, genome: str, chroms: dict, out: Path) -> None:
     with atomic_open(out / f"{genome}.centromeres.gff3") as f:
         f.write("##gff-version 3\n")
         for ch, L in chroms.items():
-            f.write(f"##sequence-region {ch} 1 {L}\n")
+            f.write(f"##sequence-region {_seqid(ch)} 1 {L}\n")
         f.write(f"# cenfuse {__version__} {date.today()} genome={genome}\n")
         for r in c.itertuples(index=False):
             a = dict(ID=f"cen_{r.chrom}", relation=r.relation, confidence=r.confidence, source=r.call_source,
                      support=r.support, against=r.against, flags=r.flags, rule=getattr(r, "rule", "."), sequence_call=(
                          f"{r.seq_start}-{r.seq_end}" if r.seq_start != "." else "."),
                      sequence_evidence=r.seq_evidence, main_family=r.main_family, offset_bp=r.offset_bp)
-            f.write(f"{r.chrom}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
+            f.write(f"{_seqid(r.chrom)}\tcenfuse\tcentromere\t{r.start}\t{r.end}\t.\t.\t.\t{_attrs(a)}\n")
             if getattr(r, "cpg_kt_start", ".") != ".":           # the CpG line's kinetochore inside the call
                 k = dict(ID=f"kt_{r.chrom}", Parent=f"cen_{r.chrom}", Name="kinetochore",
                          dip_depth=r.cpg_dip_depth, dip_z=r.cpg_dip_z, pos_p=r.cpg_pos_p, kt_meth=r.cpg_kt_meth,
                          array_meth=r.cpg_array_meth)
-                f.write(f"{r.chrom}\tcenfuse\tregional_centromere_central_core\t{r.cpg_kt_start}\t{r.cpg_kt_end}"
+                f.write(f"{_seqid(r.chrom)}\tcenfuse\tregional_centromere_central_core\t{r.cpg_kt_start}\t{r.cpg_kt_end}"
                         f"\t.\t.\t.\t{_attrs(k)}\n")
 
 
@@ -79,10 +85,10 @@ def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: 
     with atomic_open(out / f"{genome}.features.gff3") as f:
         f.write("##gff-version 3\n")
         for ch, L in chroms.items():
-            f.write(f"##sequence-region {ch} 1 {L}\n")
+            f.write(f"##sequence-region {_seqid(ch)} 1 {L}\n")
         f.write(f"# cenfuse {__version__} {date.today()} genome={genome}: loci (type = kind) and their members\n")
         for r in loci.itertuples(index=False):
-            f.write(f"{r.chrom}\tcenfuse\t{SO_KIND.get(r.kind, 'biological_region')}\t{r.start}\t{r.end}\t.\t.\t.\t"
+            f.write(f"{_seqid(r.chrom)}\tcenfuse\t{SO_KIND.get(r.kind, 'biological_region')}\t{r.start}\t{r.end}\t.\t.\t.\t"
                     f"{_attrs(dict(ID=r.locus, Name=r.kind, kind=r.kind, lines=r.lines, n_lines=r.n_lines))}\n")
         for k, (lid, (s, e, typ, line, label, extra)) in enumerate(feats, 1):
             ch = chrom_of[lid]                               # not parsed from the ID: names may hold ':'
@@ -91,7 +97,7 @@ def write_loci(loci: pd.DataFrame, feats: list, genome: str, chroms: dict, out: 
             a.update({(x if x not in a else f"{line}_{x}"): v for x, v in extra.items()
                       if not isinstance(v, float) or np.isfinite(v)})
             so = SO_MEMBER.get(typ, "biological_region")
-            f.write(f"{ch}\tcenfuse\t{so}\t{s + 1}\t{e}\t.\t.\t.\t{_attrs(a)}\n")
+            f.write(f"{_seqid(ch)}\tcenfuse\t{so}\t{s + 1}\t{e}\t.\t.\t.\t{_attrs(a)}\n")
 
 
 def write_bedgraph(S, bins, members, path, title: str) -> None:

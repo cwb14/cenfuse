@@ -1,12 +1,12 @@
-"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> genotype -> hic -> karyotype -> fold
--> provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> output -> loci -> report -> plot.
+"""Stage orchestration: satellite -> telomere -> rdna -> rdna5s -> gaps -> attrough -> repeats -> repfam -> genotype -> hic ->
+karyotype -> fold -> provisional -> meth -> fuse -> cpg -> plants -> morphology -> interpret -> output -> loci -> report -> plot.
 
 The satellite engine keeps its own checkpoints (OUT/satellite/work), and next to them the chromosome set they were
 made on (chromosome_set.json): a resume on another set stops (Run._check_chromosome_set). The telomere, rdna, rdna5s,
-gaps, attrough, genotype, hic, fold, karyotype, meth and cpg stages are checkpointed per genome (OUT/work/<stage>/<name>.pkl +
-.done), keyed by the code they run and fingerprints of every input they read (including the calls they are anchored on; most also
-by cenfuse's version), so a changed input recomputes them and an unchanged rerun resumes. The later stages are cheap and
-always rerun.
+gaps, attrough, repeats, repfam, genotype, hic, fold, karyotype, meth and cpg stages are checkpointed per genome
+(OUT/work/<stage>/<name>.pkl + .done), keyed by the code they run and fingerprints of every input they read (including the
+calls they are anchored on; most also by cenfuse's version), so a changed input recomputes them and an unchanged rerun resumes.
+The later stages are cheap and always rerun.
 
 Provenance (docs/plants.md): genotype and karyotype tell, per input, whether it comes from the reference plant,
 another plant, or cannot be told. Only reference and unknown inputs decide the reference calls; every plant is
@@ -16,10 +16,7 @@ from __future__ import annotations
 import ast
 import functools
 import json
-import os
 import pickle
-import socket
-import sys
 import time
 from pathlib import Path
 
@@ -27,8 +24,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from . import __version__, ageline, atline, cdr, famline, fold, fuse, hicfuse, inputs, interpret, linetests, loci, manifest, \
-    methfuse, morphology, output, plants, provenance, rdna, repline, seqcalls, telomere, teline
+from . import __version__, ageline, atline, cdr, famline, fold, fuse, hicfuse, inputs, interpret, linetests, loci, loo, \
+    manifest, methfuse, morphology, output, plants, provenance, rdna, repline, seqcalls, telomere, teline
 from .hic.balance import balanced, ice
 from .hic.bins import Bins, coarsen
 from .hic.io import is_cool, read_cool
@@ -38,7 +35,6 @@ from .meth import params as mp
 from .meth import track as mtrack
 from .params import ANCHOR_LEVELS, GATE_MIN_REF, HIC_FAR_BINS, HIC_MAX_THREADS, HIC_TOL_BINS, KARYO_WINDOW
 from .sat import signature
-from .sat.karyotype import MAX_SEQUENCES
 from .sat.genomes import load_gene_gff
 from .sat.params import Params, parse_borrow
 from .sat.util import SatelliteError
@@ -206,16 +202,43 @@ def denovo_nor_flag(h: dict, nors) -> dict:
 
 def cis_entry(cis: dict | None, chrom: str) -> dict | None:
     """The cis line's entry for one chromosome as fuse reads it (Evidence.hic['cis']), or None where it does not act: the extreme,
-    the genome status, what tested it ('ltr': hicfuse.cis_line; 'trans': hicfuse.cis_trans_line; a 0.12 result names none and is
-    the LTR one), whether it was read outside the terminal eighths (interior: fuse leaves a call there alone) and whether this
-    chromosome's own trans peak lies at its extreme (pair)."""
-    if not hicfuse.cis_acts(cis) or chrom not in cis.get("peaks", {}):
+    the status of the test without this chromosome (loo), what tested it ('ltr': hicfuse.cis_line; 'trans':
+    hicfuse.cis_trans_line; a 0.12 result names none and is the LTR one), whether it was read outside the terminal eighths
+    (interior: fuse leaves a call there alone), whether this chromosome's own trans peak lies at its extreme (pair) and (0.16)
+    whether an LTR-tested extreme passed the trans test too, with this chromosome's own trans peak at it (trans_pair: fuse's
+    cis_trans_pair)."""
+    status = loo.status_on(cis, chrom)
+    if not hicfuse.cis_acts(cis and dict(cis, status=status)) or chrom not in cis.get("peaks", {}):
         return None
     tr = cis.get("trans") or {}          # 0.16: the LTR-tested line's extremes tested by trans contacts too (hicfuse.run)
-    twice = bool(tr.get("status") == "pass" and (tr.get("peaks") or {}).get(chrom) == cis["peaks"][chrom]
+    twice = bool(loo.status_on(tr, chrom) == "pass" and (tr.get("peaks") or {}).get(chrom) == cis["peaks"][chrom]
                  and (tr.get("pairs") or {}).get(chrom))
-    return dict(peak=cis["peaks"][chrom], status=cis["status"], tested_by=cis.get("tested_by", "ltr"),
+    return dict(peak=cis["peaks"][chrom], status=status, tested_by=cis.get("tested_by", "ltr"),
                 interior=bool(cis.get("interior")), pair=bool((cis.get("pairs") or {}).get(chrom)), trans_pair=twice)
+
+
+def te_pair_entry(pairs: dict | None, chrom: str, cores: dict, clade: str) -> dict | None:
+    """Hi-C read on the LTR cores (hicfuse.anchored_on_cores) for one chromosome as fuse reads it (Evidence.hic['te_pair']): the
+    chromosome's core, where its own peak lies at it and the test without it passes or supports (loo); else None. cores: the
+    signature's {chrom: core}."""
+    status = loo.status_on(pairs, chrom)
+    if status not in loo.RANK or chrom not in pairs["peaks"]:
+        return None
+    x = cores[chrom]
+    return dict(core=(int(x["start"]), int(x["end"])), status=status, clade=clade)
+
+
+def axis_entries(fo: dict | None, chrom: str) -> tuple:
+    """(fold, alignment) entries of one chromosome as fuse reads them (Evidence.fold, Evidence.align), or None where a line has no
+    call there: the call, the status of its test without this chromosome (loo), whether its core holds the prior-free peak; the
+    alignment also carries the fold's status and P on the other chromosomes (fuse.axis_line: the fold's lean)."""
+    f = fo["calls"].get(chrom) if fo else None
+    f = dict(f, status=loo.status_on(fo, chrom), agrees=fo["agrees"].get(chrom)) if f else None
+    al = (fo or {}).get("align")
+    a = al["calls"].get(chrom) if al else None
+    a = dict(a, status=loo.status_on(al, chrom), agrees=al["agrees"].get(chrom), fold_status=loo.status_on(fo, chrom),
+             fold_p=(fo.get("p_by_chrom") or {}).get(chrom, fo["p"])) if a else None
+    return f, a
 
 
 def plant_sites(seq: seqcalls.SeqLine, hic, others: dict) -> dict:
@@ -312,7 +335,7 @@ class Run:
 
     def _meth_inputs_fp(self, g, sat_dir: Path) -> dict:
         arrays = sat_dir / f"{g.name}_satellite_arrays.gff"
-        samples = pd.read_csv(g.meth, sep="\t", dtype=str).fillna("")
+        samples = pd.read_csv(g.meth, sep="\t", dtype=str, keep_default_na=False, na_values=[""]).fillna("")  # as meth.io
         files = sorted(str(Path(v) if Path(v).is_absolute() else g.meth.parent / v)
                        for col in ("CHG", "CG", "CHH") if col in samples for v in samples[col] if v)
         return dict(samples=file_fingerprint(g.meth), files=[file_fingerprint(f) for f in files if Path(f).exists()],
@@ -465,13 +488,26 @@ class Run:
             log.info(f"gaps: {g.name}: {n} assembly gaps on {sum(1 for v in hit.values() if v)} chromosomes")
         return hit
 
+    def _too_many(self, g) -> bool:
+        """More sequences than the one-per-chromosome test of the AT-trough, repeat-density and repeat-family lines takes
+        (atline.MAX_CHROMS: contigs, not chromosomes): their stages, which read the whole genome, do not run, since the test
+        would refuse it, and the report's notes say so (once)."""
+        if len(g.chroms) <= atline.MAX_CHROMS:
+            return False
+        note = (f"the AT-trough, repeat-density and repeat-family lines are not run: {len(g.chroms)} sequences, more than "
+                f"their one-per-chromosome test takes ({atline.MAX_CHROMS})")
+        if note not in g.notes:
+            g.notes.append(note)
+            log.warning(f"{g.name}: {note}")
+        return True
+
     def stage_attrough(self, g, seq: seqcalls.SeqLine) -> dict | None:
         """The AT-trough line (atline.py), only in a genome where most chromosomes have no sequence call (a long-unit
         array alone is none: fuse.decide) or a low one with a competing cluster the line could choose (fuse._at_places): elsewhere
         the line would never act, and it reads the whole genome. Checkpointed by the assembly index and the code."""
         missing = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem") | \
             (seq.calls.confidence.eq("low") & seq.calls.alt_start.ge(0))
-        if 2 * int(missing.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
+        if 2 * int(missing.sum()) <= len(seq.calls) or self._too_many(g):
             return None
         fp = dict(version=__version__, code=code_key("atline.py", "sat/karyotype.py", stage="attrough"), fai=self._assembly(g),
                   chroms=obj_fingerprint(g.chroms))
@@ -488,7 +524,7 @@ class Run:
         a long-unit array alone, or low): elsewhere it would never act. Every sequence of the FASTA counts K-mers; the satellite
         engine's arrays are left out of the readout. Checkpointed by the assembly, the arrays and the code."""
         weak = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem") | seq.calls.confidence.eq("low")
-        if 2 * int(weak.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
+        if 2 * int(weak.sum()) <= len(seq.calls) or self._too_many(g):
             return None
         arrays = {c: list(zip(d.start.astype(int), d.end.astype(int))) for c, d in seq.arrays.groupby("chrom")} \
             if len(seq.arrays) else {}
@@ -507,7 +543,7 @@ class Run:
         confident sequence call. Every sequence of the FASTA counts K-mer copies; the satellite engine's arrays are left out of
         the readout. Checkpointed by the assembly, the arrays and the code."""
         weak = seq.calls.start.lt(0) | seq.calls.evidence.eq("long_unit_tandem") | seq.calls.confidence.eq("low")
-        if 2 * int(weak.sum()) <= len(seq.calls) or len(g.chroms) > MAX_SEQUENCES:
+        if 2 * int(weak.sum()) <= len(seq.calls) or self._too_many(g):
             return None
         arrays = {c: list(zip(d.start.astype(int), d.end.astype(int))) for c, d in seq.arrays.groupby("chrom")} \
             if len(seq.arrays) else {}
@@ -724,9 +760,10 @@ class Run:
             h = hrows.get(r.chrom)
             if h is not None and not h["callable"]:
                 h = None
-            if h is not None and pairs.get("status") in ("pass", "support") and r.chrom in pairs["peaks"]:
+            tp = te_pair_entry(pairs, r.chrom, sig.cores, marker[0]) if h is not None and pairs and sig is not None else None
+            if tp is not None:
+                h = dict(h, te_pair=tp)
                 x = sig.cores[r.chrom]
-                h = dict(h, te_pair=dict(core=(int(x["start"]), int(x["end"])), status=pairs["status"], clade=marker[0]))
                 if te is None:                                 # a core that acts only through Hi-C: the tables report it
                     te = dict(clade=x.get("clade", marker[0]), start=int(x["start"]), end=int(x["end"]), decisive=False, strong=False,
                               share=x.get("share"), n=x.get("n"), seed=sig.seed)
@@ -734,12 +771,7 @@ class Run:
             if h is not None and c_entry is not None:
                 h = dict(h, cis=c_entry)
             meth = None if meth_items is None else meth_items.get(r.chrom, {})
-            f = fo["calls"].get(r.chrom) if fo else None
-            f = dict(f, status=fo["status"], agrees=fo["agrees"].get(r.chrom)) if f else None
-            al = (fo or {}).get("align")
-            a = al["calls"].get(r.chrom) if al else None
-            a = dict(a, status=al["status"], agrees=al["agrees"].get(r.chrom), fold_status=fo["status"],
-                     fold_p=fo["p"]) if a else None
+            f, a = axis_entries(fo, r.chrom)
             out.append(fuse.Evidence(r.chrom, int(r.chrom_len), dict(start=int(r.start), end=int(r.end),
                                                                     evidence=r.evidence, confidence=r.confidence,
                                                                     flags=r.flags, main_family=r.main_family,
@@ -770,10 +802,12 @@ class Run:
                 g.notes.append(f"methylation skipped: {e}")
                 g.meth = None
         samples, dropped = provenance.drop_non_modkit_chg(samples)
-        for name, f, what in dropped:
-            log.warning(f"{g.name}: methylation {name} CHG ({f}) is {what}: the CHG line needs modkit bedMethyl (its "
-                        f"provenance test reads modkit's counts of failed and differing calls); CHG not used")
-            g.notes.append(f"methylation {name}: CHG not modkit bedMethyl, not used")
+        for name, f, what in dropped:       # left out of the provenance test only: methfuse.prepare reads every CHG file
+            log.warning(f"{g.name}: methylation {name} CHG ({f}) is {what}: the provenance test reads modkit's counts of "
+                        f"failed and differing calls, so this file cannot test the plant's origin and does not decide the "
+                        f"reference calls")
+            g.notes.append(f"methylation {name}: CHG not modkit bedMethyl, so it cannot test the plant's origin and does not "
+                           f"decide the reference calls")
         chg = [s for s in samples if "CHG" in s.files]
         self._chg_ok[g.name] = bool(g.tes and samples and len(chg) == len(samples))
         if samples and g.tes and not self._chg_ok[g.name]:       # without tes/ the input note says it already

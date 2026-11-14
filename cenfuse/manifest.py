@@ -109,7 +109,7 @@ def _meth_files(table) -> list:
     """The data files a methylation samples table names (CG, CHG, CHH columns), as the pipeline resolves them."""
     try:
         import pandas as pd
-        t = pd.read_csv(table, sep="\t", dtype=str).fillna("")
+        t = pd.read_csv(table, sep="\t", dtype=str, keep_default_na=False, na_values=[""]).fillna("")   # as meth.io
     except (OSError, ValueError):
         return []
     return [str(Path(v) if Path(v).is_absolute() else Path(table).parent / v)

@@ -48,10 +48,12 @@ ROLE_COLOR = {"centromeric": "#D55E00", "cen_associated": "#F4A582", "interstiti
 OTHER = "#B0B0B0"
 RDNA_MARK = "#8C8C8C"                            # rDNA arrays: context, so they do not outshine the centromere calls
 HIC, DENOVO, METH, TE = "#0072B2", "#A0A0A0", "#303030", "#E69F00"
-BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8", "composition": "#C7E9C0"}
+BAND = {"hic": "#C6DBEF", "sequence": "#E8E8E8", "composition": "#C7E9C0",    # composition: an AT trough's call
+        "repeats": "#E7D3DD"}                    # a repeat line's call: the repeat lines' wine (#882255, as in the workflow
+                                                 # figure), one part to four of white: as light as the Hi-C band
 LINES = ["satellite", "te", "hic", "meth"]
-LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "meth": "meth",
-              "age": "age", "cpg": "CpG"}
+LINE_LABEL = {"satellite": "sat", "te": "TE", "hic": "Hi-C", "fold": "fold", "align": "align", "at": "AT", "repeats": "rep",
+              "families": "fam", "meth": "meth", "age": "age", "cpg": "CpG"}
 AT_MARK = "#009E73"                              # an AT trough that acted
 CIS_MARK = "#6A3D9A"                             # the extreme of the cis Hi-C signal, where it passed its test
 REL_SHORT = {"concordant": "concordant", "offset": "moved", "contested": "contested",
@@ -72,12 +74,19 @@ def _iv(a, b):
     return (int(a) - 1, int(b)) if a != "." and b != "." else None
 
 
+def _band(r) -> str:
+    """The color of a call's band: its source, a call of the repeat lines (rep_only, fam_only) apart from an AT trough's,
+    though all three are `composition`."""
+    rep = {"rep_only", "fam_only"} & set(str(r.get("flags", ".")).split(","))
+    return "repeats" if r["call_source"] == "composition" and rep else r["call_source"]
+
+
 def _rows(calls):
     out = []
     for r in calls.to_dict("records"):
         out.append(dict(chrom=r["chrom"], L=int(r["chrom_len"]), call=_iv(r["start"], r["end"]),
                         seq=_iv(r["seq_start"], r["seq_end"]), relation=r["relation"], conf=r["confidence"],
-                        source=r["call_source"], support=set(str(r["support"]).split(",")) - {"."},
+                        source=r["call_source"], band=_band(r), support=set(str(r["support"]).split(",")) - {"."},
                         against=set(str(r["against"]).split(",")) - {"."},
                         te=_iv(r["te_start"], r["te_end"]), at=_iv(r.get("at_start", "."), r.get("at_end", ".")),
                         cis=_iv(r.get("cis_peak_start", "."), r.get("cis_peak_end", ".")),
@@ -152,7 +161,7 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax, b_xmax):
         c, L = r["chrom"], r["L"]
         if r["call"]:
             s, e = r["call"]
-            ax.add_patch(Rectangle((s, y0 + 0.02), max(e - s, min_w), 0.96, color=BAND[r["source"]], lw=0,
+            ax.add_patch(Rectangle((s, y0 + 0.02), max(e - s, min_w), 0.96, color=BAND[r["band"]], lw=0,
                                    zorder=0))
         if r["call"] and r["seq"] and r["call"] != r["seq"]:
             a = (r["seq"][0] + r["seq"][1]) / 2
@@ -247,7 +256,7 @@ def _gallery(ax, axb, rows, f, scale, has_hic, has_meth, Lmax, b_xmax):
     axb.set_yticks([])
     for sp in axb.spines.values():
         sp.set_visible(False)
-    for j in range(len(LINES)):
+    for j in range(len(f["lines"])):
         axb.axvline(j, color="#EBEBEB", lw=0.4, zorder=0)
     return lanes
 
@@ -341,7 +350,9 @@ def _key(fig, y, has_hic, has_meth, roles, rdna=(False, False), rows=()):
               Patch(fc=BAND["sequence"], ec="none", label="integrated call (sequence)"),
               Patch(fc=BAND["hic"], ec="none", label="integrated call (Hi-C placed)"),
               *([Patch(fc=BAND["composition"], ec="none", label="integrated call (AT trough)")]
-                if any(r.get("source") == "composition" for r in rows) else []),
+                if any(r.get("band") == "composition" for r in rows) else []),
+              *([Patch(fc=BAND["repeats"], ec="none", label="integrated call (repeat peak)")]
+                if any(r.get("band") == "repeats" for r in rows) else []),
               Patch(fc=TE, alpha=0.8, ec="none", label="LTR signature density")]
     if has_hic:
         items += [Line2D([], [], color=HIC, lw=0.9, label="anchored Hi-C score"),
@@ -387,8 +398,9 @@ def _page_iter(f: dict) -> Iterator[Figure]:
     rd = f.get("rdna") or {}
     rdna = (bool(rd.get("nors")), bool(rd.get("five_s")))
     f["scale"] = scale
-    axis = [x for x in ("fold", "align", "at", "age", "cpg") if any(x in (r["support"] | r["against"]) for r in rows)]  # where
-    f["lines"] = LINES[:3] + axis + LINES[3:]                                                             # the line acted
+    axis = [x for x in ("fold", "align", "at", "repeats", "families", "age", "cpg")                      # where the line acted
+            if any(x in (r["support"] | r["against"]) for r in rows)]
+    f["lines"] = LINES[:3] + axis + LINES[3:]
     label_mm = 3 + max(max(1.1 * len(r["chrom"]), _text_mm(r["chrom"], 5.5)) for r in rows)    # rotated chromosome names under panel C
     left = max(0.11, (max(_text_mm(r["chrom"], 6.5) for r in rows) + 1.5) / (WIDTH / MM))      # panel A's names sit left of its axis
     # panel B ends 1 mm inside the page with its longest relation label; panel A takes the width left of it
@@ -489,7 +501,7 @@ def _plant_rows(ax, f, chrom, plants_, prov):
     ytop = n + ref_h
     if r0["call"]:
         s, e = r0["call"]
-        ax.add_patch(Rectangle((s, 0), e - s, ytop, color=BAND[r0["source"]], lw=0, zorder=0))
+        ax.add_patch(Rectangle((s, 0), e - s, ytop, color=BAND[r0["band"]], lw=0, zorder=0))
     # reference evidence
     y0 = n + 0.15
     a = seq.arrays[(seq.arrays.chrom == chrom) & (seq.arrays.end > lo) & (seq.arrays.start < hi)]
@@ -666,7 +678,19 @@ def legends(f) -> tuple[str, str]:
             f"(the anti-diagonal of each chromosome's own contact map in a Rabl nucleus) can validate the prior-free "
             f"Hi-C peaks instead (majority, P <= 0.005), or the trans arm alignment (loci at equal distances from "
             f"their centromeres meet across chromosomes; P <= 0.005, where the fold leans the same way, P <= 0.05); "
-            f"the two 3D lines then move calls they both contradict. Lines used here: {lines_used}."]
+            f"the two 3D lines then move calls they both contradict. Where the gate fails on most chromosomes, Hi-C is also "
+            f"read against the LTR cores: a call where Hi-C's peak lies at its LTR core is supported, a low call elsewhere moves "
+            f"to the core (any call, where the two agree on most chromosomes), and a chromosome without a call takes it. Hi-C's "
+            f"cis signal (the extreme of the contact crossing each bin, tested against the LTR cores or by Hi-C's own trans "
+            f"contacts) supports a call it agrees with and places a low call where there is none; where it passed that test on "
+            f"most chromosomes, it moves a low call that lies elsewhere (any call, where this chromosome's own trans peak lies "
+            f"there too), leaving it low. The FASTA's AT troughs "
+            f"and two repeat lines act where their peaks fall one per chromosome: a chromosome nothing else places takes its "
+            f"deepest AT trough (medium where the troughs also agree with Hi-C's prior-free peaks on most chromosomes, else low), "
+            f"else its densest stretch of repeated sequence, else its repeat-family cluster (low); a trough at the competing "
+            f"cluster of a low satellite call chooses that cluster; and a trough or repeat peak at a Hi-C call on a chromosome "
+            f"without a sequence call, where the two readouts agree beyond chance, gives the call its interval and raises it one "
+            f"level. Lines used here: {lines_used}."]
     a = (f"A, {n} chromosomes in assembly order, to one base-pair scale. Each satellite array "
          f"is a box colored by its family's role in this genome ({len(f['seq'].arrays):,} arrays; arrays too small "
          f"to see are drawn at the minimum visible width). The orange area is the density of the "
@@ -696,15 +720,25 @@ def legends(f) -> tuple[str, str]:
     n45, n5 = len(rd.get("nors", ())), len(rd.get("five_s", ()))
     a += (f" Gray diamonds: rDNA arrays, {n45} of 45S (filled; the 18S motif in tandem) and {n5} of 5S (open; whole "
           f"5S genes in tandem)." if n45 or n5 else " No 45S or 5S rDNA array was found.")
-    a += " Hatching: no data (masked or uncovered bins). Bands: integrated calls; arrows: sequence call to moved call."
+    drawn = {r["band"] for r in _rows(t) if r["call"]}
+    bands = "; ".join(x for k, x in (("sequence", "gray: the sequence line's call"), ("hic", "blue: placed by Hi-C"),
+                                     ("composition", "green: an AT trough"),
+                                     ("repeats", "wine: a repeat peak, the densest stretch of repeated sequence or a "
+                                                 "repeat-family cluster")) if k in drawn)
+    a += (" Hatching: no data (masked or uncovered bins). Bands: integrated calls" + (f" ({bands})" if bands else "") +
+          "; arrows: sequence call to moved call.")
     long.append(a)
     long.append("B, One column per evidence line: filled circle, the line supports the integrated call (satellite: "
                 ">= 5 kb of centromeric-family arrays inside it; TE: the marker core agrees; Hi-C: gated (or, on the "
-                "support-only test, significant) and the anchored peak within one bin, or the prior-free peak that "
-                "placed the call; methylation: centromere-like under the leave-one-chromosome-out "
+                "support-only test, significant) and the anchored peak within one bin, the prior-free peak that "
+                "placed the call, or a Hi-C readout tested otherwise (at the LTR cores, the cis signal, the stronger "
+                "chromosome end) at the call; methylation: centromere-like under the leave-one-chromosome-out "
                 "signature; fold and align, shown only where they acted: the call lies in the arm-fold or the trans "
-                "arm-alignment core); cross, a gated strong Hi-C peak, a decisive LTR core, the arm fold or alignment, or a "
-                "validated prior-free Hi-C peak points elsewhere. "
+                "arm-alignment core; AT, rep and fam, shown only where they acted: the AT trough, the densest stretch of "
+                "repeated sequence or the repeat-family cluster placed the call or agrees with it; age, where it acted: "
+                "younger centromeric LTR copies at a moved call); cross, a gated strong Hi-C peak, a decisive LTR core, the "
+                "arm fold or alignment, a validated prior-free Hi-C peak, the cis Hi-C signal, the AT trough, the "
+                "repeat-family cluster or a CpG dip in another array points elsewhere. "
                 "Text: relation and confidence.")
     long.append("C, Black bar: the sequence call, centered at 0. Orange: the TE marker core; blue: the anchored Hi-C "
                 "core with its peak; open diamond: the integrated call when it differs from the sequence call.")

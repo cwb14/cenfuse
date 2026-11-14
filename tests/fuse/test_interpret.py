@@ -281,6 +281,16 @@ def test_hic_alone_says_untested_and_what_would_confirm():
     assert "rests on the 3D lines alone" in c and c.endswith("-> CENP-A/CENH3 data would confirm")
 
 
+def test_hic_alone_beside_a_passing_axis_line_says_why_the_axis_did_not_act():
+    """0.16.1: an axis line that passes its test may still not act on a chromosome: its core misses the prior-free peak there, or
+    its test (or the fold's lean) fails without that chromosome (cenfuse.loo)."""
+    r = row(call_source="hic", relation="functional_only", confidence="low", support="hic", flags="hic_denovo_only",
+            seq_start=".", seq_end=".", seq_evidence="none", seq_confidence="none", hic_gate="untested", fold_gate="fail",
+            align_gate="pass")
+    assert ("the Rabl-axis test passed genome-wide but does not act here: its core misses the prior-free peak, or the test "
+            "fails without this chromosome") in it.basis(r, ctx())
+
+
 def test_untested_prior_free_peak_elsewhere_is_named():
     r = row(confidence="low", flags="hic_denovo_elsewhere", hic_gate="untested", hic_denovo_peak_start=30_000_001,
             hic_denovo_peak_end=30_010_000)
@@ -348,9 +358,9 @@ def test_passed_lines_reads_every_test_of_the_summary():
     from cenfuse import interpret
     s = {"sat_one_per_chromosome": "22/24 chromosomes hold the 24 largest clusters (null 15, P 0.0001): pass", "te_decisive": "True",
          "at_gate": "pass", "hic_gate_pass": "3", "te_hic": "8/12 chromosomes (P 1e-4): support", "cis_line": "x: pass",
-         "hic_axis": "fold", "cpg_gate_pass": "20"}
-    assert len(interpret.passed_lines(s)) == 8
-    assert interpret.passed_lines({}) == []
+         "hic_axis": "fold", "cpg_gate_pass": "20", "rep_gate": "pass", "fam_gate": "pass"}
+    assert len(interpret.passed_lines(s)) == 9                      # the repeat-family test is not calibrated: not counted
+    assert interpret.passed_lines({}) == [] and interpret.passed_lines({"fam_gate": "pass"}) == []
 
 
 def test_the_caveat_names_the_family_window_a_low_call_disagrees_with():
@@ -361,3 +371,35 @@ def test_the_caveat_names_the_family_window_a_low_call_disagrees_with():
     assert "the repeat families that cluster at one locus per chromosome in this genome cluster elsewhere on this one" in cav
     assert "70.00-72.00 Mb" in cav and cav.endswith("-> Hi-C or CENP-A/CENH3 data would decide")
     assert it.caveat(r, ctx(hic=True)).endswith("-> CENP-A/CENH3 data would decide")
+
+
+@pytest.mark.parametrize("flag, line, said", [("rep_only", "repeats", "a repeat-density peak alone"),
+                                               ("fam_only", "families", "a repeat-family cluster alone, from a test that is not calibrated")])
+def test_a_repeat_line_call_says_its_own_line_not_a_gc_trough(flag, line, said):
+    """0.16's repeat-density and repeat-family calls (call_source composition, like an AT trough's) get their own line's caveat
+    and what would decide, not the AT trough's (116 rows of the 0.16.0 release runs read 'a GC trough says where the sequence
+    is AT-rich')."""
+    r = row(call_source="composition", relation="sequence_only", confidence="low", support=line, flags=flag, seq_start=".",
+            seq_end=".", seq_evidence="none", seq_confidence="none", main_family=".", rep_density=2.5, fam_votes=16)
+    assert it.caveat(r, ctx(hic=False)) == f"{said} -> Hi-C or CENP-A/CENH3 data would decide"
+    assert it.caveat(r, ctx(hic=True)) == f"{said} -> CENP-A/CENH3 data would decide"
+
+
+@pytest.mark.parametrize("placed", ["cis_only", "hic_denovo_only"])
+@pytest.mark.parametrize("pair, line, said", [("rep_pair", "repeats", "the densest stretch of repeated sequence"),
+                                               ("at_pair", "at", "an AT trough")])
+def test_a_hic_call_with_a_second_line_is_not_said_to_stand_alone(placed, pair, line, said):
+    """A Hi-C call that a tested AT trough or repeat peak raised to medium, giving its interval (0.16: rep_pair, and
+    at_pair on the cis extremes), names that line in its caveat as its basis does, and is not 'alone' (38 rows of the 0.16.0
+    release runs: C. neoformans with Hi-C). A cis call without a second line still is."""
+    kw = dict(call_source="hic", relation="functional_only", seq_start=".", seq_end=".", seq_evidence="none",
+              seq_confidence="none", main_family=".", at_gc=0.3, rep_density=2.5, fam_votes=16, cis_test="trans",
+              fold_gate=".", align_gate=".")
+    r = row(confidence="medium", flags=f"{placed},{pair}", support=f"hic,{line}", **kw)
+    c = it.caveat(r, ctx(tes=False))
+    assert c == f"rests on the 3D lines; the other evidence at this place is {said} -> CENP-A/CENH3 data would " \
+                f"{'decide' if placed == 'cis_only' else 'confirm'}"
+    if placed == "cis_only":
+        lone = it.caveat(row(confidence="low", flags="cis_only", support="hic", **kw), ctx(tes=False))
+        assert lone == ("rests on the 3D lines alone: no sequence or LTR evidence at this place; a cis Hi-C signal alone -> "
+                        "CENP-A/CENH3 data would decide")

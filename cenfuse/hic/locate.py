@@ -35,7 +35,7 @@ class Located:
     converged: bool
     cycle: int = 0          # length of the cycle the iteration fell into (0 = settled on a fixed point)
     spread: dict = field(default_factory=dict)   # per chromosome: max - min of its estimate over the cycle states
-    # (0 at a fixed point; empty when not converged). `est` = the partner-window centres used to compute S (and oe).
+    # (0 at a fixed point; empty when not converged). `est` = the partner-window centers used to compute S (and oe).
     # Call peaks are always read from S (peak_core), never from est: on a chromosome that oscillates in a cycle,
     # est can differ from argmax(S).
 

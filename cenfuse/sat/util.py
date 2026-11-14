@@ -1,11 +1,13 @@
 """Shared helpers: logging, subprocesses, sequences, FASTA text, intervals."""
+import gzip
 import hashlib
 import logging
 import shutil
 import subprocess
 import threading
 import time
-from pathlib import Path
+import zlib
+from contextlib import contextmanager
 
 from ..runtime import atomic_open
 
@@ -14,6 +16,17 @@ log = logging.getLogger("cenfuse-sat")
 
 class SatelliteError(RuntimeError):
     """Fatal, user-facing error (bad input, missing tool, failed command)."""
+
+
+@contextmanager
+def open_text(path):
+    """A plain or gzip (.gz) text input. A file that cannot be read to its end (a cut download, binary data) stops with
+    an error naming it."""
+    try:
+        with (gzip.open(path, "rt") if str(path).endswith(".gz") else open(path)) as f:
+            yield f
+    except (EOFError, OSError, UnicodeDecodeError, zlib.error) as e:
+        raise SatelliteError(f"{path}: unreadable or truncated ({e})") from None
 
 
 def setup_logging(verbose: bool) -> None:
@@ -157,7 +170,3 @@ def overlap(a0: int, a1: int, b0: int, b1: int) -> int:
     return max(0, min(a1, b1) - max(a0, b0))
 
 
-def touch(path) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("")

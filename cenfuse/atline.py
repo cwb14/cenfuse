@@ -26,6 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pysam
 
+from . import loo
 from .sat.karyotype import SEED
 from .util import gap, log, poisson_binomial_sf
 
@@ -235,9 +236,18 @@ def scan_profiles(profiles, chroms: dict, sizes=SCALES, alpha: float = AT_ALPHA)
 def validate(res: dict, peaks: dict, tol: dict, lengths: dict, alpha: float = 0.01) -> dict:
     """Do the troughs agree with an independent line's loci (Hi-C's prior-free peaks) beyond chance on most chromosomes, at
     any window size (Bonferroni over the sizes)? peaks: {chrom: (start, end)}; tol: {chrom: bp allowed between them}. Returns
-    dict(window, k, n, p, status, agrees {chrom: bool}, by_window {window: agrees}): pass; support (beyond chance but not on most
-    chromosomes: the two lines share information and may support each other where they agree, the rule of Hi-C's support tier);
-    fail; untested (fewer than 3 chromosomes to compare). A chromosome without a peak is absent from agrees: it says nothing."""
+    dict(window, k, n, p, status, agrees {chrom: bool}, by_window {window: agrees}, status_by_chrom): pass; support (beyond chance
+    but not on most chromosomes: the two lines share information and may support each other where they agree, the rule of Hi-C's
+    support tier); fail; untested (fewer than 3 chromosomes to compare). A chromosome without a peak is absent from agrees: it says
+    nothing. status_by_chrom: the status at which the troughs may act on each chromosome with a peak, the same test without it
+    (loo)."""
+    v = _validate(res, peaks, tol, lengths, alpha)
+    v["status_by_chrom"] = loo.by_chromosome(v["status"], peaks, lambda names: _validate(
+        res, {c: peaks[c] for c in names}, tol, lengths, alpha)["status"])
+    return v
+
+
+def _validate(res: dict, peaks: dict, tol: dict, lengths: dict, alpha: float) -> dict:
     best, by_window = None, {}
     for w, s in res["scales"].items():
         agree, ch = {}, []
@@ -308,9 +318,10 @@ def on_chromosome(res: dict | None, chrom: str) -> dict | None:
         return None
     v = res.get("hic") or {}
     vc = res.get("cis") or {}
+    sv, svc = loo.status_on(v, chrom), loo.status_on(vc, chrom)       # the tests without this chromosome (loo)
     return dict(start=int(x["start"]), end=int(x["end"]), gc=float(x["gc"]), status=res["status"], window=res["window"],
-                validated=v.get("status") == "pass", support=v.get("status") == "support",
+                validated=sv == "pass", support=sv == "support",
                 agrees=bool((v.get("by_window") or {}).get(res["window"], {}).get(chrom)),
-                cis_validated=vc.get("status") == "pass", cis_support=vc.get("status") == "support",
+                cis_validated=svc == "pass", cis_support=svc == "support",
                 cis_agrees=bool((vc.get("by_window") or {}).get(res["window"], {}).get(chrom)),
                 trough_start=int(x.get("trough_start", x["start"])), trough_end=int(x.get("trough_end", x["end"])))

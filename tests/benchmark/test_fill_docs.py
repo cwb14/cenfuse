@@ -11,15 +11,14 @@ def test_fill_order_nesting_and_unknown(tmp_path, capsys):
     (src / "NOTE.md").write_text("(see {{FIG}})\n")
     (src / "FIG.md").write_text("figure 1\n")
     (src / "benchmark.template.md").write_text("# B\n{{T}}\n{{MISSING}}\n")
-    (src / "README.template.md").write_text("# R\n")
     fill_docs.main([str(tables), str(out), "--src", str(src)])
     assert (out / "docs/benchmark.md").read_text() == "# B\ncomputed (see figure 1)\n{{MISSING}}\n"
-    assert (out / "README.md").read_text() == "# R\n"
+    assert [p.name for p in out.rglob("*") if p.is_file()] == ["benchmark.md"]     # the README is written by hand
     assert "benchmark.md:MISSING" in capsys.readouterr().out
     fill_docs.main([str(tables), str(tmp_path / "none"), "--src", str(src), "--check"])
     assert not (tmp_path / "none").exists()
 
 
-def test_repository_templates_present():
-    for t in ("README.template.md", "benchmark.template.md"):
-        assert "{{" in (paths.DOCS_SRC / t).read_text()
+def test_repository_template_present():
+    assert "{{" in (paths.DOCS_SRC / "benchmark.template.md").read_text()
+    assert [p.name for p in paths.DOCS_SRC.glob("*.template.md")] == ["benchmark.template.md"]

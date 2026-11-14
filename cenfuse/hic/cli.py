@@ -19,7 +19,7 @@ from . import CACHE_VERSION, __version__, params, plot, qc
 from .balance import balanced, ice
 from .bins import Bins, candidate_sizes, choose_bin_size, coarsen, fits_memory, matrix_from_pairs
 from .confidence import bootstrap, leave_one_out, level, null_test
-from .io import (InputError, PairStats, check_readable, cool_resolutions, is_cool, read_cool, read_fai,
+from .io import (InputError, PairStats, check_readable, cool_resolutions, is_cool, pairs_format, read_cool, read_fai,
                        read_intervals)
 from .locate import locate, peak_core, rabl_test, start_positions, telomere_score
 from .output import write_bed, write_bedgraph, write_qc, write_tsv
@@ -37,8 +37,8 @@ def _logging(verbose):
 
 
 def fast_checksum(*paths, sizes=params.BIN_LADDER) -> str:
-    """Cache key: a fast fingerprint (version, candidate bin sizes, name, size, mtime, first and last MiB of each
-    input), not a checksum of the whole file."""
+    """Cache key: a fast fingerprint (version, candidate bin sizes, MAPQ threshold, and per input its name, size, mtime
+    and first and last MiB, so a file of up to 2 MiB is read whole), not a checksum of the whole file."""
     n = params.CACHE_FP_BYTES
     h = hashlib.md5(f"{CACHE_VERSION}:{tuple(sizes)}:{params.MAPQ}".encode())
     for p in paths:
@@ -47,8 +47,8 @@ def fast_checksum(*paths, sizes=params.BIN_LADDER) -> str:
         h.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode())
         with open(p, "rb") as f:
             h.update(f.read(n))
-            if st.st_size > 2 * n:
-                f.seek(-n, 2)
+            if st.st_size > n:
+                f.seek(max(n, st.st_size - n))
                 h.update(f.read())
     return h.hexdigest()[:16]
 
@@ -60,7 +60,8 @@ def _pair_warnings(stats):
     if not stats.get("mapq_checked"):
         log.warning("pairs carry no mapq1/mapq2 columns: uniqueness (MAPQ >= 30) was not checked")
     if stats.get("out_of_range"):
-        log.warning(f"{stats['out_of_range']} pair ends lie beyond their sequence's .fai length (other assembly?); dropped")
+        log.warning(f"{stats['out_of_range']} pairs have an end outside their sequence (position < 1 or beyond its .fai "
+                    f"length: other assembly?); dropped")
     if stats.get("malformed"):
         log.warning(f"{stats['malformed']} malformed pair lines skipped")
 
@@ -80,9 +81,9 @@ def pair_files(pairs) -> list:
 
 
 def chromosome_lengths(fai: dict, chromosome_set: bool) -> list:
-    """Lengths the bin rule counts: the chromosomes of the .fai by cenfuse's length rule when the engine runs on its
-    own (a genome .fai holds organelles and unplaced scaffolds), every sequence when cenfuse passes its chromosome
-    set."""
+    """Lengths the bin rule counts: with chromosome_set True (the engine on its own), the chromosomes of the .fai by
+    cenfuse's length rule (a genome .fai holds organelles and unplaced scaffolds); with False (cenfuse passes its
+    chromosome set as the .fai), every sequence."""
     if not chromosome_set:
         return list(fai.values())
     from ..meth.track import chromosome_count
@@ -137,7 +138,14 @@ def _base_matrix(args, seqs, sizes):
         sts, M, n_out = [], None, 0
         for f in files:                 # replicate libraries: one matrix, summed (the same bins); each file is read
             st = PairStats()            # with its own stats (its own layout and MAPQ columns)
+            log.debug(f"reading {f}")
             m, k = matrix_from_pairs(f, seqs, base, st)
+            log.debug(f"{f}: {st.read} lines read, {st.kept} pairs kept")
+            if st.kept == 0:
+                raise InputError(f"{f}: no usable pairs: {st.read} lines read, {st.malformed} malformed, "
+                                 f"{st.dropped_mapq} with MAPQ < {params.MAPQ}, {st.dropped_chrom} on sequences not in "
+                                 f"the .fai or below the length floor (e.g. {st.unknown_chroms[:3]}); .fai has e.g. "
+                                 f"{list(seqs)[:3]}")
             M, n_out = (m if M is None else M + m), n_out + k
             sts.append(st)
         tot = lambda a: sum(getattr(x, a) for x in sts)
@@ -146,9 +154,6 @@ def _base_matrix(args, seqs, sizes):
                      mapq_checked=all(x.mapq_checked for x in sts), out_of_range=n_out,
                      unknown_chroms=sts[0].unknown_chroms if len(sts) == 1 else
                      sorted({c for x in sts for c in x.unknown_chroms})[:20])
-        if stats["kept"] == 0:
-            raise InputError(f"no pairs matched the .fai sequences; pairs use e.g. {stats['unknown_chroms'][:3]}, "
-                             f".fai has e.g. {list(seqs)[:3]}")
         _pair_warnings(stats)
     if len(files) > 1:
         stats["files"] = len(files)
@@ -202,6 +207,13 @@ def run_call(args) -> dict:
     cool = is_cool(files[0])
     if any(is_cool(f) != cool for f in files):
         raise InputError("replicate libraries mix .cool/.mcool and pairs files; give one kind")
+    real = [Path(f).resolve() for f in files]
+    if len(set(real)) < len(real):
+        twice = next(f for f, r in zip(files, real) if real.count(r) > 1)
+        raise InputError(f"{twice}: given twice to --pairs (its contacts would count twice)")
+    if not cool:
+        for f in files:                 # every library's layout, before the long steps
+            pairs_format(f)
     fai = read_fai(args.fai)
     sdf = _annotation(args.satellites, "--satellites") if args.satellites else None
     rep_iv = None
@@ -362,12 +374,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m cenfuse.hic", description="Functional centromeres from Hi-C centromere clustering.")
     ap.add_argument("--version", action="version", version=f"cenfuse-hic {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    c = sub.add_parser("call", help="call one centromere per chromosome from mapped Hi-C pairs")
+    c = sub.add_parser("call", help="call one centromere per chromosome from mapped Hi-C pairs",
+                       description="One centromere per chromosome from the clustering of centromeres in Hi-C "
+                                   "(Rabl configuration). Writes <o>.centromeres.tsv/.bed, <o>.score.bedgraph, "
+                                   "<o>.telomere.bedgraph, <o>.qc.tsv and <o>.overview.pdf.")
     c.add_argument("--pairs", required=True, nargs="+",
-                   help="4DN .pairs[.gz], simple 6-column pairs, HiC-Pro/Juicer pairs, or .cool/.mcool; several = "
-                        "replicate libraries of one plant, merged")
+                   help="4DN .pairs[.gz] (1-based), simple 6-column pairs (chrom1 pos1 strand1 chrom2 pos2 strand2, "
+                        "0-based), HiC-Pro/Juicer pairs, or .cool/.mcool; pairs with MAPQ < 30 are dropped when the "
+                        "file has MAPQ columns; several = replicate libraries of one plant, merged")
     c.add_argument("--fai", required=True, help="genome .fai (sequence names and lengths)")
-    c.add_argument("-o", required=True, help="output prefix")
+    c.add_argument("-o", required=True, help="output prefix; the contact-matrix cache <o>.cache/ is kept for reruns "
+                                             "(never pruned: delete it when done)")
     c.add_argument("--repeats", nargs="+", help="repeat annotation GFF3/BED (QC: read-class split; pairs input only)")
     c.add_argument("--satellites", nargs="+", help="cenfuse satellite GFF or BED of satellite centromeres (comparison, rDNA flag)")
     c.add_argument("-t", type=_at_least_one, default=4,
@@ -376,8 +393,10 @@ def main(argv=None):
     c.add_argument("-v", "--verbose", action="store_true", help="per-step progress")
     s = sub.add_parser("simulate", help="mis-mapping null: simulated cis-only pairs mapped like the library")
     s.add_argument("--fasta", required=True, help="genome FASTA (indexed); its minimap2 index needs ~4.3 GB RAM per Gb")
-    s.add_argument("--pairs", required=True, help="the real pairs, not .cool (cis count for scaling)")
-    s.add_argument("-o", required=True, help="prefix of a previous `call` (reads <o>.centromeres.tsv)")
+    s.add_argument("--pairs", required=True, help="the real pairs, one file, not .cool (cis count for scaling)")
+    s.add_argument("-o", required=True, help="prefix of a previous `call` (reads <o>.centromeres.tsv, writes "
+                                             "<o>.simulate.tsv; works in <o>.simulate/, which holds ~2 x n reads "
+                                             "until the run ends)")
     s.add_argument("--fastq", help="one real FASTQ for the read-length distribution [150 bp]")
     s.add_argument("-n", type=_at_least_one, default=30_000_000, help="simulated pairs, >= 1 [30000000]")
     s.add_argument("-t", type=_at_least_one, default=12, help="minimap2 threads (index and mapping) [12]")

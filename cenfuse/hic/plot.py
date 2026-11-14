@@ -12,7 +12,7 @@ import numpy as np  # noqa: E402
 from ..runtime import atomic_path  # noqa: E402
 from .output import as_finite  # noqa: E402
 
-BLUE, GREY, INK = "#0072B2", "#8C8C8C", "#1A1A1A"
+BLUE, INK = "#0072B2", "#1A1A1A"
 log = logging.getLogger("cenfuse-hic")
 
 

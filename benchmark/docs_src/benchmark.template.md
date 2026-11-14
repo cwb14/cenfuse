@@ -1,9 +1,13 @@
 # Benchmarks
 
-How well cenfuse 0.15.0 finds centromeres, scored against centromeres mapped on the same assembly. Every result table
-comes from one run of the release (290 runs, 2026-11-08). A few checks of parts the release did not change (the Hi-C
-depth series, CpG kinetochore details, telomeres and rDNA, T2T mammal runtimes) come from earlier runs, and one table
-from an early form of the LTR line; each says so.
+How well cenfuse 0.16.1 finds centromeres, scored against centromeres mapped on the same assembly. Every result table
+comes from one run of the release: the 318 runs of 0.16.0 (2026-11-13), of which the 51 that 0.16.1's changes can reach
+(and controls of every input type) were rerun with 0.16.1 (2026-11-14; 26 chromosome-runs changed, all right calls that
+lost confidence or, on *S. pombe*, their call). Per chromosome-run, every result is in
+[benchmark/results.tsv](../benchmark/results.tsv). A few checks of parts the release did not change come from
+earlier runs, and one table from an early form of the LTR line; each says so: the Hi-C depth series, the CpG line's
+kinetochore details, controls and survey of 83 vertebrates, the shuffled-LTR and shuffled-GC controls, telomeres and
+rDNA, and T2T mammal runtimes.
 
 - **72 assemblies.** 63 have a mapped centromere: 12 mammals, chicken, 39 plants (13 of them tomatoes), 2 green algae,
   8 fungi and *Plasmodium falciparum*. 5 more mammals are compared with another satellite caller, and 4 holocentric
@@ -13,8 +17,10 @@ from an early form of the LTR line; each says so.
   everything after it (fresh runs of two genomes from the FASTA give the same tables).
 - **Development data.** No genome is held out: the rules were made with these results in view
   ([how the benchmark was run](#how-the-benchmark-was-run)).
-- Scorer, truth manifest and table scripts: [benchmark/](../benchmark/README.md). Every genome's overview:
-  [gallery](gallery.md). How each rule works: [design.md](design.md).
+- Every scored chromosome of these runs (call, confidence, rule, outcome, truth):
+  [benchmark/results.tsv](../benchmark/results.tsv). Scorer, truth manifest and table scripts:
+  [benchmark/](../benchmark/README.md). Every genome's overview: [gallery](gallery.md). How each rule works:
+  [design.md](design.md).
 
 ## How calls are scored
 
@@ -55,22 +61,27 @@ The [CpG line](#kinetochores-from-cpg-methylation) says that where it passes.
 
 {{CALIBRATION}}
 
+Over every genome with truth instead (63 assemblies, the 13 tomatoes, *Ae. geniculata*, *S. verrucosum*, cucumber and
+grape included, each with its run with the most inputs; `python -m benchmark.summary`, as the README quotes it): `high`
+453 of 459 right, `medium` 137 of 155, `low` 149 of 197. The added genomes hold 15 confidently wrong calls, 14 of them in
+*Solanum* (12 in the tomato accessions, 2 in *S. verrucosum*).
+
 - **Satellite centromeres** (apes, macaques, rice, *B. rapa*, soybean, sorghum, *Arabidopsis*, grape): right on nearly
-  every chromosome from the FASTA alone, mostly `high`. 9 T2T mammals with CENP-A: 143 of 157 from the FASTA, 148 with
-  genes and Hi-C; 11 *B. rapa*: 110 of 110.
+  every chromosome from the FASTA alone, mostly `high` (11 *B. rapa*: 110 of 110; [T2T mammals](#t2t-mammals)).
 - **Satellites beside the centromere, or none at it** (barley, potato, tomatoes, *Aegilops*): the FASTA alone gives
   `low` calls, mostly wrong. `tes/` places most: barley 0 → 7 of 7, potato 2 → 10 of 11, *Ae. geniculata* 0 → 13 of
   14, 13 tomatoes 20 → 115 of 156. Confident calls from an LTR core are less reliable than the table above: in the 13
   tomatoes `medium` is right 54 of 67 times (81%) and `high` 4 of 5.
 - **Point and regional centromeres** (fungi, *Plasmodium*): AT troughs place them from the FASTA in AT-rich genomes
-  (*P. falciparum* 13 of 14, *N. crassa* 7 of 7, *V. dahliae* and *M. sympodialis* 8 of 8, all `low`). Hi-C finds most
-  others (yeast 16 of 16, *Z. tritici* 19 of 21, *C. neoformans* 13 of 14, *C. tropicalis* 6 of 7).
-- **Holocentric genomes:** no confident call in 196 chromosome-runs.
+  (*P. falciparum* 13 of 14, *N. crassa* 7 of 7, *V. dahliae* and *M. sympodialis* 8 of 8, all `low`), and the
+  repeat-density line places *C. neoformans* (14 of 14, `low`). Hi-C finds most others (yeast 16 of 16, *Z. tritici* 19
+  of 21, *C. tropicalis* 6 of 7).
+- **Holocentric genomes:** no confident call ([controls](#controls)).
 - **Failures:** [every confident miss](#every-confident-miss).
 
 **By the rule that set the call** (`rule` column of `<genome>.centromeres.tsv`; the same 47 genomes). `low` mixes two
-kinds of call: one tested line alone (an AT trough, Hi-C's own peak, the cis signal), nearly always right, and an untested
-satellite array, often wrong. Read a `low` call with its rule.
+kinds of call: one tested line alone (an AT trough, Hi-C's own peak, the cis signal, a repeat-density peak), nearly always
+right, and an untested satellite array, often wrong. Read a `low` call with its rule.
 
 {{RULE_CALIBRATION}}
 
@@ -130,9 +141,7 @@ deciding signature (CHM13, fungi, holocentric genomes), its calls equal those fr
 
 ### One locus per chromosome
 
-![A count tells centromeric features from others](img/benchmark_one_per_chromosome.png)
-*[One locus per chromosome](img/benchmark_one_per_chromosome.pdf): the N largest candidates cover nearly every
-chromosome when they are centromeres. Drawn from the 0.12 release; some panel counts predate the tables here.*
+The README's workflow figure (panel B) draws this test on rice and tomato.
 
 A chromosome has one centromere, while other features fall roughly in proportion to chromosome length. So the N largest
 clusters of the families called centromeric (N = number of chromosomes) should cover nearly every chromosome if they
@@ -155,9 +164,7 @@ Genomes where it fails:
 
 ## Retrotransposon centromeres (`tes/`)
 
-![Families learned from the other chromosomes](img/benchmark_ltr_signature.png)
-*[Which LTR families mark centromeres](img/benchmark_ltr_signature.pdf): families that pile up at one locus on the other
-chromosomes mark each chromosome's centromere, in any lineage. Drawn from the 0.12 release.*
+Every genome's LTR signature and cores are drawn on its overview page in the [gallery](gallery.md).
 
 `tes/` = LTRquest annotations made with `ltrquest --genome G --max-rounds 1 --threads T --detect-args
 ltr-timeout=300 --run-sdust --reboundary`. cenfuse learns the signature in each genome: the most specific
@@ -226,7 +233,7 @@ the frozen rule, with WGS of another accession, SRR5349572, as input). Scored wi
 The telomere-to-telomere assemblies of Shi et al. 2026 (PRJNA1201608; 12 chromosomes each, 0.8-1.2 Gb): wild species
 from every clade of the genus and three cultivated lines. Truth: their Supplementary Table 8 (11 accessions), or the
 frozen ChIP rule (LA2093, TS-9). Scored within 1 Mb. One genus, so 13 tests of one lineage's centromeres, not of 13
-lineages. The LTR rules of 0.15.0 were made with these genomes in view.
+lineages. The LTR rules were made with these genomes in view.
 
 | accession | truth | FASTA: right | `high` / `medium` / `low` | confidently wrong | P | with `tes/`: right | `high` / `medium` / `low` | confidently wrong | P |
 |---|---|---|---|---|---|---|---|---|---|
@@ -251,7 +258,7 @@ Pooled, {{TOM14_POOLED}}.
 - **Truth caveats.** {{TOM14_CROSS}}. *S. lycopersicoides*' ChIP is weak (at most 5.2-fold); without it the `tes/`
   arms are 107 of 144 right and 11 confidently wrong.
 
-### The tomatoes' own Hi-C (0.16)
+### The tomatoes' own Hi-C
 
 Each of the 13 tomatoes has Hi-C from the same project (CNCB CRA018974; the first 50 M read pairs of each run, 27-31 M pairs
 mapped with chromap's Hi-C preset), and *S. verrucosum* its own Omni-C (SRR18554188, 56 M pairs): Hi-C on 14 more genomes of
@@ -273,19 +280,15 @@ Pooled {{TOM16_HIC_POOLED}}
   own trans pair (`cis_end_pair`): 1 -> 11 of 12, the remaining wrong call raised to `medium` where an extreme agrees with
   it. With `tes/` the cis signal passes against the LTR cores too, and its 2 confidently wrong LTR calls move onto CENH3
   (`cis_trans_pair`): 8 -> 11 of 12, no confident error (one right `low` call moves to a wrong extreme). TS-60 is the second
-  genome for both 0.16 rules (2 of 2 each), still too few to make them confident. TS-9 with `tes/`: the cis extremes lower
+  genome for both rules (2 of 2 each), still too few to make them confident. TS-9 with `tes/`: the cis extremes lower
   its 2 confident errors and move 3 `low` calls onto CENH3, 7 -> 10 of 12.
 - ***S. verrucosum*'s Omni-C** passes the cis test against the LTR cores only at its support tier (6 of 12); there it raises
-  the calls it agrees with (2 of them wrong) and, since 0.16, moves none: the 3 `low` calls 0.15's rules moved were all
-  wrong ([future.md #53](future.md#53-where-the-cis-trans-line-passes-every-extreme-is-trusted)).
+  the calls it agrees with (2 of them wrong) and moves none: the 3 `low` calls it would have moved are all wrong
+  ([future.md #53](future.md#53-where-the-cis-trans-line-passes-every-extreme-is-trusted)).
 
 What the Hi-C rules did in these arms: {{TOM16_RULES}}
 
 ## Point, regional and AT-rich centromeres
-
-![Hi-C finds centromeres where nuclei cluster them](img/benchmark_hic.png)
-*[Hi-C in small genomes](img/benchmark_hic.pdf): where nuclei cluster their centromeres, contacts between chromosomes
-find them. Drawn from the 0.10.1 release; some panel counts predate the tables here.*
 
 With no centromeric repeat the satellite line gives no call; AT troughs and Hi-C remain. Right = within 1 Hi-C bin (250
 kb without Hi-C); [`high`/`medium`/`low`]:
@@ -297,37 +300,44 @@ evenly than a random deal. The test asks this of the deepest class of troughs, a
 
 {{TABLE_AT}}
 
-- **From the FASTA alone:** *P. falciparum* 13 of 14, *N. crassa* 7 of 7, *V. dahliae* and *M. sympodialis* 8 of 8,
-  all `low`. In mouse the trough picks between two satellite arrays ([mouse](#plants-chicken-mouse-and-other-satellite-genomes)).
-- **With Hi-C,** where a prior-free peak agrees with the trough, the call takes the trough's interval and rises a level
-  (40 calls, all right).
+- **From the FASTA alone** the troughs place the four AT-rich genomes, all `low` (tables above); in mouse the trough
+  picks between two satellite arrays ([mouse](#plants-chicken-mouse-and-other-satellite-genomes)).
+- **With Hi-C,** where a prior-free peak or a tested cis extreme agrees with the trough, the call takes the trough's
+  interval and rises a level (`at_pair`: 45 calls in the FASTA + Hi-C runs, all right).
 - **The test fails** in *Z. tritici*, *C. tropicalis*, *C. neoformans*, yeast, *Chlorella* and *Bombyx*, and cannot run
   on 3 chromosomes (*S. pombe*).
 
 **Hi-C.** The trans arm alignment passes in yeast and *Plasmodium*, the arm fold too in *N. crassa* and *V. dahliae*
-([Rabl axis](#the-rabl-axis)). Hi-C's clean prior-free peaks place what no other line places: `low` alone (*Z. tritici*
-19, *C. neoformans* in anaphase 6, *C. tropicalis* 6, yeast 3), `medium` where an AT trough agrees (*M. sympodialis* 7,
-*C. neoformans* in anaphase 4). *C. tropicalis* (3C-seq) passes no test; its peaks count although their null test
-cannot run there. *C. neoformans* in G1 is placed by the [cis signal](#hi-cs-two-readouts-test-each-other).
+([Rabl axis](#the-rabl-axis)). Hi-C's clean prior-free peaks place centromeres alone (`low`: *Z. tritici* 19,
+*C. tropicalis* 6, yeast 3) or with a second line (`medium`: an AT trough in *M. sympodialis* 7 and *C. neoformans* in
+anaphase 4, the repeat-density peak in *C. neoformans* in anaphase 6). *C. tropicalis* (3C-seq) passes no test; its
+peaks count although their null test cannot run there. *C. neoformans* in G1 is placed by the
+[cis signal](#hi-cs-two-readouts-test-each-other).
 
-### Repeat centromeres from the FASTA (0.16)
+### Repeat centromeres from the FASTA
 
 Two lines read repeats without an annotation, each tested one per chromosome as the AT troughs are ([design](design.md)), and
-each runs only where most chromosomes have no confident sequence call. The scans below ran them on every FASTA-only genome
-with truth, whether cenfuse would run them there or not.
+each runs only where most chromosomes have no confident sequence call. The repeat-family test is not calibrated: with each
+genome's repeat units moved to random places it still passes 13-52% of the time at its 1% level
+([design](design.md#repeat-families-famlinepy)), so its peaks below are leads. The counts below are the release's FASTA-only runs,
+where the repeat-density line ran in 41 genomes and the repeat-family line in 39 (*C. neoformans* counted twice).
 
-- **Repeat density** (each chromosome's densest stretch of repeated sequence): passes in *C. neoformans* (both assemblies,
-  14 of 14 peaks on CENP-A, P 0.0004), *Chlamydomonas* (17 of 17), *Chlorella* (10 of 10) and *V. dahliae* (8 of 8); no large
-  genome passes. It places what nothing else places (`rep_only`): *C. neoformans* from the FASTA, 0 -> 14 of 14 in each
-  assembly, and *Chlorella* 9 more.
-- **Repeat families** (sampled 31-mers that cluster at one locus on most chromosomes): passes in 32 of 71 genomes, its peaks
-  right on 323 of 363 chromosomes: every *Solanum* genome (7-12 of 12, where the FASTA-only calls get 0-5), *Ae. geniculata*
-  14 of 14 (the FASTA-only calls 0), the *B. rapa* lines, maize, sorghum, soybean, rice, *Chlamydomonas*, *Chlorella*, *N.
-  crassa* and *V. dahliae*. Mammals, chicken and the four holocentric genomes fail; T2T mouse, whose centromeres lie in the
-  terminal eighths the line skips, comes near (P 0.015) with every peak interstitial. Where most calls are `low` and the
-  line passes, it flags the `low` calls it contradicts (`fam_elsewhere`): its window was right on 89 of 110 such calls,
-  the calls on 8, but moving them brought the polyploid panel's homoeologous calls no closer, so the calls stay `low` where
-  they are and the caveat names the window ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)).
+- **Repeat density** (each chromosome's densest stretch of repeated sequence): passes in *C. neoformans* (one assembly
+  scored twice: 14 of 14 peaks on CENP-A, P 0.0004), *Chlamydomonas* (17 of 17), *Chlorella* (10 of 10) and *V. dahliae*
+  (8 of 8); no other genome passes. It places what nothing else places (`rep_only`): *C. neoformans* from the FASTA,
+  0 -> 14 of 14, and *Chlorella* 9 more.
+- **Repeat families** (sampled 31-mers that cluster at one locus on most chromosomes): passes in 18 of the 39 genomes,
+  its peaks right on 183 of their 211 chromosomes with truth: 13 of the 16 *Solanum* genomes (7-12 per genome, where the
+  FASTA-only calls get 1-5; LA1028, LA1777 and LA2134 fail), *Ae. geniculata* 14 of 14 (the FASTA-only calls 0),
+  *Chlamydomonas*, *Chlorella*, *N. crassa* and *V. dahliae*. It fails in the mammals, chicken, barley, *Ae. tauschii*,
+  moss, *C. neoformans*, *P. falciparum*, *Z. tritici* and *B. mori*. The other three holocentric genomes,
+  *C. tropicalis* and *S. pombe* (3-7 chromosomes) cannot be tested: even one peak per chromosome could not reach the
+  level.
+  T2T mouse, whose centromeres lie in the terminal eighths the line skips, comes near (P 0.015) with every peak
+  interstitial. Where the line passes, it flags the `low` calls it contradicts (`fam_elsewhere`): its window was right
+  on 89 of 110 such calls in 15 genomes, the calls on 8, but moving them brought the polyploid panel's homoeologous
+  calls no closer, so the calls stay `low` where they are and the caveat names the window
+  ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)).
 
 ## Hi-C
 
@@ -368,9 +378,7 @@ chance. Each readout alone, within 4 Hi-C bins of truth:
 ### The contact crossing the centromere
 
 ![The two flanks of a centromere touch](img/benchmark_cis.png)
-*[The contact crossing the centromere](img/benchmark_cis.pdf): the flanks of tomato centromeres touch; potato shows
-dips; every genome with Hi-C and truth against chance. Drawn from the 0.12 release; some panel counts predate the
-tables here.*
+*[The contact crossing the centromere](img/benchmark_cis.pdf): the two flanks of every tomato centromere contact each other about twice as often as expected, so with Hi-C all 12 tomato centromeres are placed, against 8 from the FASTA and `tes/` alone; potato shows a dip instead, and across 37 genomes with Hi-C the peak or dip falls on the centromere beyond chance in 11 (7 of 11 plants, 4 of 8 fungi, none of the 16 mammals,* Plasmodium *or chicken). Panels E and F use the stored 0.11 Hi-C runs (the Hi-C engine is unchanged since). Drawn from the 0.16.0 release.*
 
 The contact between the 4 bins left and the 4 bins right of each bin, as observed over expected, has its extreme at the
 centromere in many plants and fungi, and in no mammal. In tomato the two flanks of each centromere touch about twice as
@@ -381,20 +389,19 @@ maps simulated with the same coverage and distance decay, and the test cenfuse r
 
 {{CIS_FLAT}}
 
-- **Tomato:** the peak lies on CENH3 on all 12 chromosomes. Against the LTR cores it passes (8 of 12, P 2.4e-5), moves
-  the `low` calls and lowers the confident calls it contradicts; since 0.16 the 2 confident calls it contradicts move to
-  it where the trans contacts confirm the extreme too (`cis_trans_pair`, `low`): 12 of 12 right, none confidently wrong.
+- **Tomato:** the peak lies on CENH3 on all 12 chromosomes. Against the LTR cores it passes (8 of 12, P 2.4e-5) and
+  moves the `low` calls; the 2 confident calls it contradicts move to it too, since the trans contacts confirm the
+  extreme (`cis_trans_pair`, `low`): 12 of 12 right, none confidently wrong.
 - **Potato:** the dip, at a flank of the centromere, passes against the cores (7 of 12, P 1.4e-5): 9 of 11 right, 1
   confidently wrong.
 - **Effect on calls** (tomato, potato, *Ae. tauschii*): it raises 17 calls a level, all right; moves 6 `low` calls (4
-  right after); and lowers 9 confident calls it contradicts (4 right, 2 wrong, 3 still confidently wrong).
+  right after); lowers 7 confident calls it contradicts (4 right, 3 still confidently wrong); and moves the other 2,
+  tomato's, to the extreme the trans contacts confirm (`cis_trans_pair`), both right.
 
 ### Hi-C's two readouts test each other
 
 ![Cis extremes that trans contacts confirm](img/benchmark_cis_trans.png)
-*[Hi-C's two readouts test each other](img/benchmark_cis_trans.pdf): in tomato the cis and trans readouts meet on CENH3
-on 10 of 12 chromosomes, a randomized library shows neither, and* C. neoformans *in G1 gives 12 of 14. Drawn from the
-0.13 release.*
+*[Hi-C's two readouts test each other](img/benchmark_cis_trans.pdf): in tomato the cis and trans readouts meet on CENH3 on 10 of 12 chromosomes (0.39 expected by chance) and a randomized library shows neither; with Hi-C all 12 calls land on CENH3 (11 `low`, 2 of them by a rule fitted on this genome), against 1 of 12 from the FASTA alone. Across 92 Hi-C libraries the two readouts agree on most chromosomes in tomato (two accessions),* Brachypodium, C. neoformans, N. crassa *and* V. dahliae *but in none of the 46 randomized libraries. Drawn from the 0.16.0 release.*
 
 Without `tes/`, the library's contacts between chromosomes test the cis signal: each chromosome's trans peak, made from
 the other chromosomes' cis extremes, must lie at its own extreme on most chromosomes. Terminal eighths are not read,
@@ -405,12 +412,12 @@ since chromosome ends cluster whatever the centromere. Runs where it passes or s
 {{CIS_TRANS_FAIL}} {{CIS_TRANS_RANDOM}}
 
 - **Tomato** from the FASTA and Hi-C: it moves 9 `low` satellite calls onto CENH3 and raises the one it agrees with. The
-  other 2 lie in a terminal eighth, where it cannot see; since 0.16 they move to the interior extreme where the
+  other 2 lie in a terminal eighth, where it cannot see; they move to the interior extreme where the
   chromosome's own trans peak lies (`cis_end_pair`, `low`; [future.md #32](future.md#32-calls-in-a-terminal-eighth-that-an-interior-line-contradicts)):
-  12 of 12 right. TS-60 repeats both moves ([its own Hi-C](#the-tomatoes-own-hi-c-016)).
-- ***C. neoformans* in G1**, where the prior-free peaks sit at the chromosome ends: since 0.16 the AT trough or the
-  repeat-density peak that agrees with a cis call gives its interval and makes it `medium` (`at_pair` 5, `rep_pair` 8): 13
-  of 14 right, all 13 `medium`; the remaining call stays `low`, 19 kb from CENP-A.
+  12 of 12 right. TS-60 repeats both moves ([its own Hi-C](#the-tomatoes-own-hi-c)).
+- ***C. neoformans* in G1**, where the prior-free peaks sit at the chromosome ends: the AT trough or the repeat-density
+  peak that agrees with a cis call gives its interval and makes it `medium` (`at_pair` 5, `rep_pair` 8): 13 of 14 right,
+  all 13 `medium`; the remaining call stays `low`, 19 kb from CENP-A.
 - Where the anchored test passes on most chromosomes (rice, soybean, the apes) it does not run.
 
 ### Which end
@@ -424,11 +431,6 @@ Of the 56 calls raised (`medium` → `high`), 54 of 55 scored are right; the oth
 other satellite caller. In mouse each call has the other satellite array at the same end, so the test does not act.
 
 ### The Rabl axis
-
-![Chromosome arms align by distance from the centromere](img/benchmark_hic2.png)
-*[The Rabl axis in trans](img/benchmark_hic2.pdf): arms of different chromosomes align by distance from the centromere
-where a nucleus holds its centromeres at one pole. Drawn from the 0.10.1 release; some panel counts predate the tables
-here.*
 
 In a Rabl nucleus the arms run from the centromere pole to the telomere pole. Each chromosome's map folds at its
 centromere (the arm fold), and arms of different chromosomes align by distance from their centromeres (the trans arm
@@ -479,34 +481,31 @@ Inputs: public ONT CpG tracks of the assembled individuals (modkit on R9 Guppy c
 nanopolish for CHM13 and the crab-eating macaque, Dorado R10 with modkit for rhesus) and, for HG002, the Q100 project's
 ONT (R10, Dorado) and PacBio Revio tracks of the same assembly; with genes and Hi-C. Truth:
 DiMeLo-seq CENP-A (5 apes), the curated CDRs (from the same ONT data: an implementation check), CENP-A ChIP of another
-crab-eating macaque. The line was designed on these primate tracks, so this is not a blind test; its two measures of
-depth were chosen on pairs of tracks of the same assembly without truth, and 0.15.0's width joined them after a review
-against 0.15.0, read on each bin alone by a rule fixed beforehand on the same pairs ([design.md](design.md)). Numbers from
-this version's runs, 0.15.0 in brackets.
-
-![CpG kinetochores](img/benchmark_cpg.png)
-*[Kinetochores from CpG methylation](img/benchmark_cpg.pdf): the CpG dip inside each satellite call marks the
-kinetochore. Drawn from the 0.10.1 release.*
+crab-eating macaque. The line was designed on these primate tracks, so this is not a blind test: its two measures of
+depth were chosen on pairs of tracks of the same assembly without truth, and a third, the width of a dip read on each
+bin, joined them by a rule fixed beforehand on the same pairs ([design.md](design.md)). The comparisons below were made
+on runs of this release's CpG code before the release was numbered; the release's own 11 CpG runs place the same
+kinetochores and calls (311 chromosomes).
 
 | test | result |
 |---|---|
-| the CpG test passes on real tracks | 7 of 7 primates with truth, rhesus and siamang (6 of 7 and rhesus). Chimpanzee passes (positional dips at 8 of 25 calls: 1 of 25). The crab-eating macaque and rhesus (calls a median 9 and 12 Mb, up to 20) and gorilla (3.5-8 Mb) pass by the width of their CDRs: methylation from elsewhere makes dips as deep, not as wide |
+| the CpG test passes on real tracks | 7 of 7 primates with truth, rhesus and siamang. Chimpanzee passes (positional dips at 8 of 25 calls). The crab-eating macaque and rhesus (calls a median 9 and 12 Mb, up to 20) and gorilla (3.5-8 Mb) pass by the width of their CDRs: methylation from elsewhere makes dips as deep, not as wide |
 | it fails on misplaced methylation | rotated tracks 0 of 10 genomes (the 8 primates, HG002 ONT and PacBio); simulated misplaced tracks (36 tracks of both sets, the duck's and two fish's among them, 2,000 each): the test passes on 0.1% of genomes, at most 0.35%; tracks shifted by half a chromosome are rejected by the assembly check on 6 of 8 (0.10.1; the check is unchanged) |
-| two technologies, same assembly | HG002, ONT and PacBio: the test passes on 46 and 46 chromosomes (the cpg-vgp branch, depth alone: 46 and 0); five great apes, ONT R9 and PacBio HiFi (the survey below) on identical assemblies: the test passes on both tracks of all five, and where both tracks place a kinetochore (120) they lie within 50 kb on 103 |
-| kinetochore on DiMeLo-seq CENP-A (5 apes) | 53 of 63 within 50 kb (44 overlap); CENP-A higher inside the kinetochore than over the call on 59 of 62 (35 of 39; 39 of 39) |
-| kinetochore on the curated CDR | 87 of 89 (62 of 63) |
-| crab-eating macaque kinetochore inside the ChIP domain | 12 of 15 (12 of 15), inside domains that span several Mb of the call |
-| resolution | kinetochores a median 45 kb wide, calls 4.0 Mb (179 kinetochores, 8 primates; 55 kb, 5.1 Mb, 133) |
+| two technologies, same assembly | HG002, ONT and PacBio: the test passes on 46 and 46 chromosomes (depth alone: 46 and 0); five great apes, ONT R9 and PacBio HiFi (the survey below) on identical assemblies: the test passes on both tracks of all five, and where both tracks place a kinetochore (120) they lie within 50 kb on 103 |
+| kinetochore on DiMeLo-seq CENP-A (5 apes) | 53 of 63 within 50 kb (44 overlap); CENP-A higher inside the kinetochore than over the call on 59 of 62 |
+| kinetochore on the curated CDR | 87 of 89 |
+| crab-eating macaque kinetochore inside the ChIP domain | 12 of 15, inside domains that span several Mb of the call |
+| resolution | kinetochores a median 45 kb wide, calls 4.0 Mb (179 kinetochores, 8 primates) |
 | calls changed | 0 moved; siamang: 5 calls contested by another array's dip (`cpg_elsewhere`), 2 of them down one level; no new confidently wrong call |
 
 - **HG002** (no CENP-A data): kinetochores on 46 (ONT, median 38 kb; 45 inside the active array) and 45 (PacBio, median
-  20 kb; 44 inside). Where both place one (45), they lie within 50 kb on 38 (31 of 39). The PacBio track encodes
+  20 kb; 44 inside). Where both place one (45), they lie within 50 kb on 38. The PacBio track encodes
   methylation on a compressed scale (CDRs at 0.41 of their background, at 0.14 in the ONT track): its dips are spread
   dips, which the scale does not move.
 - **Gorilla** passes with either technology (ONT R9 25 of 25, PacBio HiFi 24 of 25 in the survey below); its
-  kinetochores lie within 50 kb of DiMeLo-seq CENP-A on 9 of 9 (8 of 8). Its calls span 3.5-8 Mb, and methylation from
-  elsewhere makes dips as deep on as many array bins: the two depths alone failed it, and so did the width read on the
-  profile pooled over three bins; read on each bin, as 0.15.0 did, the width carries it.
+  kinetochores lie within 50 kb of DiMeLo-seq CENP-A on 9 of 9. Its calls span 3.5-8 Mb, and methylation from elsewhere
+  makes dips as deep on as many array bins: the two depths alone fail it, and so does the width read on the profile
+  pooled over three bins; read on each bin, the width carries it.
 - **Low coverage** (0.10.1): rhesus thinned to 1/16 of its reads kept 21 of 21 kinetochores within 50 kb of full depth.
 - **Wrong calls get kinetochores too** (Bornean orangutan CM054652.2): the line refines a call; it cannot check it.
 - ***Arabidopsis*:** the CpG test is right to fail (the strongest dips lie off CENH3 on 4 of 5).
@@ -515,7 +514,7 @@ kinetochore. Drawn from the 0.10.1 release.*
 
 Inputs: PacBio HiFi 5mC pileups (pb-CpG-tools) of the assembled individual, on its first haplotype, for 82 VGP genomes
 and HG002 (hg002v1.1, maternal). The VGP tracks were made at MAPQ >= 60, which leaves the HOR arrays 0.36-0.68 of the
-genome's share of bins with data; they were rebuilt at MAPQ >= 1 (0.97 or more), and cenfuse now warns of such holes
+genome's share of bins with data; they were rebuilt at MAPQ >= 1 (0.97 or more), and cenfuse warns of such holes
 (`cpg_array_data`). Truth on 12 genomes: CENP-A CUT&RUN of five great apes (unpublished; G. Hartley, O'Neill lab,
 UConn, T2T primate browser hub: ask the lab before reuse) and of HG002 (one replicate of CENP-A and of IgG, 25 M
 read pairs each); CENP-A
@@ -523,38 +522,37 @@ ChIP of other animals of the species (horse, Grevy's zebra, chicken, stickleback
 (pig-tailed macaque: crab-eating macaque testis, Boukaba et al. 2022). The line was designed on 10 of them; the Sumatran
 orangutan and Grevy's zebra were held out and run once, after the design was final. Calls come from the satellite line
 alone (CpG alone), with Hi-C (10 genomes), and with every line (10 genomes); held-out genomes in all three.
+The survey ran this release's CpG code before the release was numbered and was not rerun for it.
 
 | test | result |
 |---|---|
 | calls moved | 0, in every arm |
 | confidence changed (CpG alone, 81 development genomes) | 6 down one level (7 calls contested, 1 already `low`); with Hi-C or with every line (10 genomes), 2 |
-| wrong confident calls | 2, as in 0.15.0 (stickleback chromosome 4 drops from `high` to `medium`; its contesting dip lies at the truth) |
-| genomes where the CpG test passes | 17 of 81 (0.15.0: 12): gained chimpanzee, human, opossum, brown anole and *fProLin1* (no truth for the last three), lost none; the duck passes on 2 chromosomes of 50 (0.15.0: 47; below) |
-| kinetochores on right calls inside the CENP-A domain (development) | 69 of 80 (0.15.0: 54 of 62) |
+| wrong confident calls | 2 (stickleback chromosome 4 drops from `high` to `medium`; its contesting dip lies at the truth) |
+| genomes where the CpG test passes | 17 of 81; the duck passes on 2 chromosomes of 50 (below) |
+| kinetochores on right calls inside the CENP-A domain (development) | 69 of 80 |
 | the same, by the chromosome's own positional P | <= 0.05: 40 of 44; 0.05-0.2: 24 of 27; above 0.2: 5 of 9 |
 | resolution | kinetochores a median 30 kb wide, calls 2.1 Mb (261 kinetochores, 17 genomes) |
-| HG002 | test passes on 23 of 23 (0.15.0: 0); its kinetochores are those of cpg-vgp in every arm: all inside the CenSat active array, at the 98th percentile of the array's CENP-A (median; top tenth on 20 of 23); on the 4 chromosomes with a clear domain, 4 of 4 |
-| held out: Sumatran orangutan | 25 kinetochores (0.15.0: 21); on right calls, 11 of 16 inside the CUT&RUN domain (0.15.0: 10 of 15) |
-| held out: Grevy's zebra | the test fails, as before |
-| time (lab server, a load of ~130 on 256 cores) | CpG stage a median 32 s, at most 217 s (cpg-vgp, at a load of ~200: 53 and 264 s; on Anvil, 24 and 129 s) |
+| HG002 | test passes on 23 of 23; its kinetochores lie inside the CenSat active array, at the 98th percentile of the array's CENP-A (median; top tenth on 20 of 23); on the 4 chromosomes with a clear domain, 4 of 4 |
+| held out: Sumatran orangutan | 25 kinetochores; on right calls, 11 of 16 inside the CUT&RUN domain |
+| held out: Grevy's zebra | the test fails |
+| time | CpG stage a median 32 s, at most 217 s (on a shared, loaded server) |
 
-- **Three measures** (this version; design.md): the cpg-vgp branch read a dip only as methylation over its background,
-  which moves with how a track encodes methylation: these HiFi tracks, rebuilt at MAPQ >= 1, read CDRs at 0.16 of their
-  background (HG002), deep enough for it; the lab server's tracks of the same assemblies are not all (HG002's PacBio Revio
-  bigWig: 0.41, and the test failed on 46 of 46). A depth in local SD and 0.15.0's width, read on each 5-kb bin, join it.
+- **Three measures** ([design.md](design.md)): a dip read only as methylation over its background moves with how a track
+  encodes methylation. These HiFi tracks, rebuilt at MAPQ >= 1, read HG002's CDRs at 0.16 of their background, deep
+  enough; its PacBio Revio bigWig reads them at 0.41, and that depth alone failed the test on 46 of 46 chromosomes. A
+  depth in local SD and the width, read on each 5-kb bin, join it.
   Against the two depths alone (10 genomes), the width regains gorilla, the pig-tailed macaque, the alligator gar (on 23 of
   28 chromosomes) and *fMicPou1*, and adds the brown anole and *fProLin1*; opossum passes on 5 chromosomes (1).
-- **Genomes the exact test cannot certify.** 0.15.0 passed the duck on 47 of 50 chromosomes; with every rotation offset,
-  0.15.0's own test passes none (5 of 44 calls positional instead of 24): its rotations skipped offsets near the call, and
-  21 of the duck's 47 calls span at least a sixth of their (micro)chromosome, where a call's own methylation makes up much
-  of what the rotations bring. This version passes 2 of its chromosomes. The house wren (0.15.0 with every offset: none) passes
-  here on 40, by its depths.
+- **Genomes the exact test cannot certify.** 21 of the duck's 47 calls span at least a sixth of their (micro)chromosome,
+  where a call's own methylation makes up much of what the rotations bring: with every rotation offset the test passes 2
+  of its 50 chromosomes. The house wren passes on 40, by its depths.
 - **Dipless calls are contested.** Where the test passes, a call whose arrays hold at least 10 bins of data, no dip and no
   positional P, while another array holds a dip that passes the positional test, is flagged `cpg_elsewhere` and drops one
   level; it never moves. In the development set, 7 calls: stickleback chromosome 4 (the dip lies at the truth), a chimpanzee
-  call whose CUT&RUN lies off the satellite arrays, and five without truth (two in the brown anole). A positional width now
-  spares three calls the two depths contested (a bonobo call whose CUT&RUN lies off the arrays, opossum, toad).
-- **Pig-tailed macaque** gets 22 kinetochores (0.15.0: 22; the two depths alone: none), 4 of 9 in the other species' ChIP
+  call whose CUT&RUN lies off the satellite arrays, and five without truth (two in the brown anole). The positional width
+  spares three calls the two depths alone contest (a bonobo call whose CUT&RUN lies off the arrays, opossum, toad).
+- **Pig-tailed macaque** gets 22 kinetochores (the two depths alone: none), 4 of 9 in the other species' ChIP
   domain. Its CENP-A domains hold no CpG dip (methylation 0.97-1.02 of the local background), and its arrays' deepest dips
   sit at the 75th percentile of the ChIP (median; top tenth on 1 of 19): it passes by its valleys' width.
 - **Not specific: the plains spadefoot toad** (*aSpeBom1*, no truth) passes on 13 of 13 chromosomes (10 of 12 calls
@@ -565,7 +563,7 @@ alone (CpG alone), with Hi-C (10 genomes), and with every line (10 genomes); hel
   methylation landscape the P values the gate combines are not independent (likely; not tested).
 - **Horse and zebra:** horse's CENP-A domains are no less methylated than its arrays (0.80 and 0.79). With CpG alone its calls
   are all `low` (no test); with Hi-C, 13 of its 24 calls are positional by their width (none by the depths), and the test
-  passes on 30 of 33 chromosomes (0.15.0: 0), placing 9 kinetochores. On the 6 chromosomes with truth all 6 lie inside the
+  passes on 30 of 33 chromosomes, placing 9 kinetochores. On the 6 chromosomes with truth all 6 lie inside the
   ChIP domains (1.0-5.7 Mb), which cover 29-71% of their calls: 6 of 6 by chance has P = 0.01. Zebra fails.
 
 ## CHG methylation (plants)
@@ -596,9 +594,9 @@ ONT methylation of five other *P. annua* plants. No ChIP, so no truth.
 |---|---|---|
 | randomized Hi-C: partners re-paired with coverage kept, or ends moved (57 runs: 14 mammals both ways, 18 other genomes, 10 genomes with `tes/`, *P. annua*) | Hi-C acts only on real 3D signal | no test passes, the support tier is never reached, no call differs from the run without Hi-C; the cis test by trans contacts reaches support on 3 of 46 libraries and does not act |
 | the LTR-core Hi-C tests on randomized Hi-C (10 genomes) | they need real contacts | none passes; the closest is moss (P 0.011 against a level of 0.01), and among 20 tests (10 maps, two signs) one P this small turns up about one time in five |
-| LTR element positions shuffled within chromosomes (270 shuffles of 54 genomes) | the signature needs real clustering | no candidate family, no seed |
-| GC shuffled among chromosomes (3,336 genomes) | the AT trough test holds its level | 3.9% pass, for a test at 5% |
-| CpG tracks rotated (10 genomes: 8 primates, HG002 ONT and PacBio), or shifted by half a chromosome (8 genomes); misplaced tracks simulated from the rotation test (30 tracks) | the CpG test needs methylation in place | rotated: 0 of 10 pass; simulated: at most 0.2% of genomes pass; shifted: rejected by the assembly check on 6 of 8 |
+| LTR element positions shuffled within chromosomes (270 shuffles of 54 genomes; earlier runs) | the signature needs real clustering | no candidate family, no seed |
+| GC shuffled among chromosomes (3,336 genomes; earlier runs) | the AT trough test holds its level | 3.9% pass, for a test at 5% |
+| CpG tracks rotated (10 genomes: 8 primates, HG002 ONT and PacBio), or shifted by half a chromosome (8 genomes); misplaced tracks simulated from the rotation test (30 tracks); earlier runs | the CpG test needs methylation in place | rotated: 0 of 10 pass; simulated: at most 0.2% of genomes pass; shifted: rejected by the assembly check on 6 of 8 |
 | holocentric genomes, every input set (196 chromosome-runs) | no single centromere, so no confident call | 0 confident calls |
 
 | holocentric genome | calls (FASTA only; with 3D data) |
@@ -666,17 +664,20 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 
 - **Adding `tes/` to a finished run:** 1-12 min. Hi-C and the integration take minutes. LTRquest on a tomato, 12
   threads: 1.8-4.1 h.
+- **The two repeat lines** (one thread each; they run only where most chromosomes have no confident sequence call):
+  repeat density and repeat families 27 and 26 min on *Ae. geniculata*, up to 17 and 15 min on barley, at most 11 min
+  each on a mammal, under 5 min each on the tomatoes and potatoes (0.7-1.2 Gb).
 - **Reproducibility:** fresh runs of *V. dahliae* and *M. sympodialis* from the FASTA equal the benchmark's runs (16
   tables, 0 differ).
 
 ## How the benchmark was run
 
 - **Criteria first.** Each benchmark's criteria were written before its runs (plants 2026-10-16/19, mammals 2026-10-21,
-  then one plan per release), with dated amendments, kept beside the runs.
+  then one plan per release), with dated amendments, kept with the runs (outside the repository).
 - **Development data.** Every genome was in view while rules were made. Each rule changed after a result was seen is
   listed below, with its reason and a recheck on other cases. A panel of 106 allotetraploids without truth checks rule
-  changes by whether homoeologous chromosomes place their calls alike (now 663 of 1,103 pairs in 105 species, within
-  5% of chromosome length).
+  changes by whether homoeologous chromosomes place their calls alike (665 of 1,119 pairs in 105 species, within 5% of
+  chromosome length).
 - **Criteria that failed as written** (reported, not reworded):
   - Hi-C peaks within 4 bins of CENP-A wherever the test passes: in four apes they sit beside the unmappable array.
   - `high` right more often than `medium`/`low` at P ≤ 0.01: too few `high` errors to test.
@@ -691,6 +692,13 @@ the FASTA (GNU time; its memory maximum counts the largest process):
   - No pass on GC shuffled among chromosomes: the AT test passes at its level, as a test at 5% must.
   - A rule for calls at the edge of a wide LTR core, adopted only if none of 125 right `te_concordant` calls fell below
     `medium`: 3 would, so it was not built.
+  - `cis_trans_pair` and `cis_end_pair` made confident if, on the tomatoes' own Hi-C, each had >= 10 calls in >= 3
+    genomes, >= 90% right: 2 calls in 1 genome each (all right), so both stay `low`.
+  - An array giving way to a decisive LTR core it overlaps (`satellite_in_core`), kept only if the polyploid panel's
+    homoeologous calls moved closer at least as often as farther: 26 closer, 40 farther, so it was withdrawn.
+  - A passing repeat-family line moving the `low` calls it contradicts, kept only if it gained on the benchmark and the
+    panel's homoeologous calls came no farther apart: the benchmark gained, the panel did not (24 pairs closer, 27
+    farther), so it only flags them ([repeat families](#repeat-centromeres-from-the-fasta)).
 
 **Rules changed after a result was seen** (grouped by line):
 
@@ -713,7 +721,7 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 | an AT trough places only what nothing else places, and pairs only with a Hi-C call it lies by | a code review | 40 paired calls, all right |
 | the CpG line, and its positional (rotation) null | designed on the primate tracks; the rotated gorilla control passed the first null | the other rotated controls, rhesus, *Arabidopsis* |
 | the CpG line's two measures of depth (level and spread, minP), and spread dips at least 34% below their background | the HG002 PacBio track failed the depth-only test on 46 of 46 chromosomes (ONT passed); chosen on six genomes with two tracks of the same assembly, by a rule fixed beforehand and blind to truth; the 34% after a code review (noise and single aberrant bins made spread dips) | the truth genomes of both sets; 30 tracks' simulated misplaced copies; rotated HG002 tracks |
-| 0.15.0's width as a third measure of the CpG test (minP; read on each 5-kb bin; it places no kinetochore) | against 0.15.0, the two depths swapped genomes (gorilla, three macaques, duck, two fish lost); the width read on the profile pooled over three bins still lost gorilla and a fish; reading each bin chosen on the six paired genomes by a rule fixed beforehand and blind to truth | the truth genomes of both sets (against 0.15.0: chimpanzee and human gained, none lost); 36 tracks' simulated misplaced copies; misplaced copies of the Anvil tracks it passes (the toad passes); 0.15.0's own code on the genomes without truth |
+| 0.15.0's width as a third measure of the CpG test (minP; read on each 5-kb bin; it places no kinetochore) | against 0.15.0, the two depths swapped genomes (gorilla, three macaques, duck, two fish lost); the width read on the profile pooled over three bins still lost gorilla and a fish; reading each bin chosen on the six paired genomes by a rule fixed beforehand and blind to truth | the truth genomes of both sets (against 0.15.0: chimpanzee and human gained, none lost); 36 tracks' simulated misplaced copies; misplaced copies of the survey's tracks it passes (the toad passes); 0.15.0's own code on the genomes without truth |
 | 45S motif hits need nuclear context; telomere units of 13-29 bp and loose stretches at ends | rice chr4, a plastid insertion called a NOR; *C. tropicalis*; soybean chr3 | 5.8S genes at kept and removed arrays (a one-base rule was rejected: it deleted a real barley 7H array); T2T assemblies: no end lost, no interstitial array gained |
 | a significant LTR core holding under half of the signature's elements replaces a `low` call and stays `low` (`minority_core`) | the 13 tomatoes: 41 of 71 wrong `low` calls had a right core | polyploid panel: the homoeolog pairs it touches agree on 7 of 11, against 3 without it. Outside *Solanum* it changes one scored call, cucumber chr1, from right to wrong (`low`) |
 | insertion age picks the youngest of comparable peaks of the signature's elements (`te_age_core`) | the 13 tomatoes; *P. annua* Pa1A | 31 genomes with truth and a signature: 26 cores move, 12 from wrong to right, 2 from right to wrong; polyploid panel: 32 of 62 homoeolog pairs agree with and without it |
@@ -722,3 +730,7 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 | the AT trough test reads the spread of the deepest troughs (room-aware random deal) | *V. dahliae* and *C. neoformans*: right troughs, failed test | 3,336 GC-shuffled genomes: 3.9% pass; *Z. tritici*, *C. tropicalis* and the holocentric genomes fail; *C. neoformans* still fails |
 | a passing AT test lets a `low` call's deepest trough choose its competing cluster (`at_chose_alt`) | T2T mouse | not rechecked: it acts only in mouse |
 | a prior-free Hi-C peak held at `medium` only because its null test cannot run counts as Hi-C alone (`low`) | *C. tropicalis* | it changes calls only in *C. tropicalis* (6 of 7 right) |
+| a cis call takes the interval of an AT trough or a repeat-density peak that agrees with it and becomes `medium` (`at_pair`, `rep_pair`) | *C. neoformans* in G1: its cis calls `low`, 2 of 14 cis bins 19 kb off CENP-A (future.md #33) | replays of the fungi, algae and holocentric genomes, randomized Hi-C included: no other call changes |
+| a confident LTR call the cis line contradicts moves to the extreme the trans contacts confirm (`cis_trans_pair`); a call in a terminal eighth moves to the interior extreme at its own trans peak (`cis_end_pair`); both `low` | the benchmark tomato: 2 wrong LTR calls with Hi-C, 2 wrong calls in terminal eighths without `tes/` | the 13 tomatoes' and *S. verrucosum*'s own Hi-C: TS-60 2 of 2 each, no other genome acts |
+| the cis line at its support tier raises the calls it agrees with and moves none | *S. verrucosum*'s own Omni-C: at support it moved 3 `low` calls, none right | no benchmark call changes: every acting cis line there passes |
+| the repeat-density line: satellite arrays masked, a level of 0.01; `rep_pair` only where the line passed its own test | *C. elegans* near a pass (P 0.052) with the arrays in; shuffled genomes passed 6.5% of the time at 0.05; *C. tropicalis*: 4 pairs from an untested line, 1 confidently wrong | the holocentric genomes fail; *C. neoformans*, *V. dahliae*, *Chlorella* and *Chlamydomonas* still pass |

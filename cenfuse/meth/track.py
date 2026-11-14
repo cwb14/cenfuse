@@ -59,7 +59,7 @@ def chromosome_count(lengths) -> int:
 
 
 def chromosome_set(fai: dict[str, int], n: int | None = None) -> tuple[list[str], float, float]:
-    """Analysed chromosomes = sequences >= MIN_LEN_D x D, where D = d_formula(G, n), G = all sequences in the .fai
+    """Analyzed chromosomes = sequences >= MIN_LEN_D x D, where D = d_formula(G, n), G = all sequences in the .fai
     and n = chromosome_count unless given (cenfuse passes the size of its own chromosome set: a --classify-from
     target's 0.8 set, a set the user listed). Returns (names in .fai order, G, D); names is empty when nothing is
     long enough."""
@@ -103,11 +103,6 @@ def slide(x: np.ndarray, w: int) -> np.ndarray:
     n = x.shape[-1]
     cs, i = _cs(x), np.arange(n)
     return cs[..., np.clip(i + w // 2 + 1, 0, n)] - cs[..., np.clip(i - (w - 1) // 2, 0, n)]
-
-
-def window(j: int, w: int, n: int) -> tuple[int, int]:
-    """Bin range [a, b) of the sliding window centred on bin j."""
-    return max(0, j - (w - 1) // 2), min(n, j + w // 2 + 1)
 
 
 def class_sums(v: np.ndarray, m: np.ndarray, geo: Geometry) -> tuple[np.ndarray, np.ndarray]:

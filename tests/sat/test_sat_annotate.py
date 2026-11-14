@@ -47,7 +47,7 @@ def test_annotate_synthetic_centromere(synth_annot, synth_complex, synth_familie
 
 @pytest.mark.skipif(not have("FasTAN", "FAtoGDB", "ONEview", "blastn", "mafft"), reason="tools missing")
 def test_chunked_search_matches_whole_chromosome(synth_complex, synth_families):
-    """Speed fix: nhmmer parallelises over query models only, so long models left 31 of 32 threads idle.
+    """Speed fix: nhmmer parallelizes over query models only, so long models left 31 of 32 threads idle.
     Chunked search (chunks x all models on a thread pool, E-values rescaled to the chromosome) must give
     the same monomer calls as one whole-chromosome search."""
     import pyhmmer
@@ -81,7 +81,7 @@ def test_drop_multimer_hits_prefers_shortest_unit():
 
 def test_phase_shifted_hits_are_not_double_counted():
     """Real data (A. thaliana, 4 phase-shifted CEN180 subfamilies): hits overlapping each of two accepted
-    neighbours by <= 50% survived the pairwise clash rule, inflating monomer counts by ~27% and putting
+    neighbors by <= 50% survived the pairwise clash rule, inflating monomer counts by ~27% and putting
     overlapping monomers into HOR strings. A hit is accepted only if <= 20% of it is covered by already
     accepted (higher-scoring) hits."""
     rows = [("c", 0, 178, "+", "A", 100.0, 1e-30, 1, 178, 178, 0.95),
@@ -129,7 +129,7 @@ def test_evalue_ref_len_scales_short_sequences(synth_complex, synth_families):
 
 
 def _drop_multimer_hits_reference(df, ratio=1.9, min_cov=0.5):
-    """The per-hit loop of satellite engine <= 0.6.1, kept as the reference for the vectorised version."""
+    """The per-hit loop of satellite engine <= 0.6.1, kept as the reference for the vectorized version."""
     import numpy as np
     from cenfuse.sat.util import union_bp
     if df.empty:
@@ -149,7 +149,7 @@ def _drop_multimer_hits_reference(df, ratio=1.9, min_cov=0.5):
 
 def test_drop_multimer_hits_matches_the_per_hit_reference():
     """Avena C genomes: tens of millions of hits, all of models >= 1.9x the 38-bp shortest, made the per-hit loop
-    take hours. The vectorised version must keep exactly the same hits."""
+    take hours. The vectorized version must keep exactly the same hits."""
     import numpy as np
     rng = np.random.default_rng(9)
     for trial in range(30):

@@ -1,6 +1,8 @@
-"""Stage orchestration. Checkpoints: <complex>/centromere/work/<stage>.done; a rerun resumes by default."""
+"""Stage orchestration. Checkpoints: OUTDIR/work/<stage>.done (OUTDIR: -o, default GENOME_DIR/centromere); a rerun
+resumes by default."""
 import json
 import os
+import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -10,52 +12,15 @@ import pysam
 import pyhmmer
 
 from . import __version__, annotate, centromere, classify, families, hor, karyotype, output, plot, seeds, signature, te
-from ..runtime import atomic_copy, atomic_csv, atomic_write_text, fasta_md5, file_fingerprint, unshare_tree
+from ..runtime import atomic_copy, atomic_csv, atomic_write_text, fasta_md5, unshare_tree
 from .genomes import discover_genomes, gene_gff, load_genes
 from .params import MAX_CHROMOSOMES, TE_DERIVED_FRAC, Params, format_borrow, parse_borrow, to_dict
 from .util import SatelliteError, log, require_tools
 
 STAGES = ["seeds", "families", "annotate", "classify", "centromeres", "hor", "output", "plot"]
-# results version per stage: bump a stage when its code can change outputs; a checkpoint's fingerprint carries the
-# highest version among it and earlier stages, so a bump invalidates that stage and later ones only.
-# 0.3.0 = C1/C2/I1 review fixes; 0.3.2 = classify: strong-family precedence per chromosome;
-# 0.3.3 = annotate: shortest-unit rule (drop_multimer_hits); 0.3.4 = annotate: coverage-based overlap resolution;
-# 0.3.5 = families: shared monomer frame for related families + near-identical family merge (0.97);
-#         centromeres: diffuse flag; plot: stacked bars capped at one bin;
-# 0.3.6 = families: trim run-through (terminally redundant) consensus + chain groups; annotate: chain per group.
-# 0.3.7 = classify: precedence only for dominant families (largest cluster on >= strong_prevalence of chromosomes).
-# 0.4.0 = any number of genomes; annotate: evalue_ref_len; classify: classify_from (borrowed families for contig
-#         assemblies) + genes/<genome>.gff3 gene loci; centromeres: borrowed genomes; plot: N panels.
-# 0.4.1 = plot: gene density line grey, under the satellite bars.
-# 0.4.2 = classify: 45S rDNA spacer repeats (arrays flanked by 18S/5.8S/25S genes) are never centromeric.
-# 0.4.3 = inputs: bgzip *.fa.gz genomes (results unchanged: no stage version bump).
-# 0.4.4 = families: models founded on a seed whose consensus spans its whole TRF period (base_unit).
-# 0.6.0 = classify: dominant column; centromeres: retrotransposon evidence (tes/), honesty cap without it.
-# 0.7.0 = centromeres: with decisive (CRM) evidence a satellite call away from the core is replaced by the core.
-# 0.4.0 (seeds) = stage trf renamed seeds; FasTAN engine (default) beside TRF.
-# 0.10.0 = classify: dispersed repeats (tandem test), dominance per satellite kind, acrocentric test;
-#          centromeres: competing clusters reported (alt_start/alt_end) and low (T2T mammal benchmark).
-# 0.10.1 = classify: the acrocentric test's interior rival is judged per satellite kind; centromeres: a second
-#          acrocentric satellite unrelated to the call competes with it (T2T mouse).
-# 0.10.2 = centromeres: a flags-only (non-CRM) LTR marker lifts the no-dominant cap only for calls it supports.
-# 0.10.3 = centromeres: a decisive core replaces a weak satellite call beside it (weak_satellite_beside_core).
-# 0.10.4 = centromeres: a significant CRM core replaces a flags-only marker's core on its chromosome.
-# seeds 0.11.0: FasTAN runs with address-space randomization off (fastan.fixed_layout), so reruns are identical.
-# families 0.12.0: clusters founded on two-copy seeds only are not families (families.build_families).
-# annotate 0.12.0: follows families (no change of its own; a fingerprint takes the highest version up to its stage).
-# classify 0.12.0: TE floor counts independent insertion sites (te.core); a decisive core replaces a confident
-# satellite call only if the clade marks it significantly more (te.contradicts). centromeres 0.12.1: the same test for
-# a call beside the core (satellite_beside_core). (0.10.5-0.11.0: v8 test variants.)
-# annotate 0.13.0: long models search with their low-complexity tracts neutral (annotate.neutralize).
-# classify 0.13.1: the period test of `related` is symmetric; dominant_satellite; te_rejected; ltr_clade counts every
-# overlapping element. centromeres 0.13.1: calls on chains of partial hits (cap_chain_calls); rejected_family, element
-# counts. output 0.13.1: copy spacing; new columns.
-# classify 0.14.0: the LTR signature (families recruited leave one chromosome out; a specific lineage other than CRM may
-# decide). centromeres 0.14.0: the one-per-chromosome test of the centromeric satellites caps calls; a core must be specific on
-# its chromosome to overrule a confident call; chain calls narrow to a decisive core. output 0.14.0: te_signature, satellite_test.
-# classify 0.15.0: the LTR signature's core is the youngest of several comparable peaks (age_choice), a family concentrated over the
-# chromosomes can seed it (pooled_candidates), a signature whose cores are not specific on their chromosomes does not decide; centromeres
-# 0.15.0: a significant minority core replaces a call that is low on its own (minority_core); output 0.15.0: core_age_from, core_alt.
+# results version per stage: bump a stage's version when its code can change that stage's outputs. A checkpoint's
+# fingerprint carries the highest version among its stage and the earlier ones, so a bump reruns that stage and
+# the later ones only.
 STAGE_VERSION = {"seeds": "0.11.0", "families": "0.12.0", "annotate": "0.13.0", "classify": "0.15.0",
                  "centromeres": "0.15.0", "hor": "0.3.0", "output": "0.15.0", "plot": "0.4.1"}
 # earliest stage each parameter affects; a stage's checkpoint fingerprint covers its own and all earlier stages'
@@ -81,6 +46,9 @@ TOOLS = ["makeblastdb", "blastn", "dustmasker", "mafft", "cd-hit-est", "minimap2
 # keyed also by those files' content, and the stages from it on are cheap next to the search, so a stale one is recomputed
 # (adding tes/ to a finished run is the commonest reason) where a stale search stage stops the run
 INPUT_STAGE = "classify"
+# sequence names (chrom, a family's defines) are read verbatim: pandas would read NA, None or null as missing
+# and 01 as a number
+VERBATIM = {"chrom": str, "defines": str}
 
 
 class Pipeline:
@@ -225,7 +193,21 @@ class Pipeline:
         return self._genes[g.name]
 
     def seed_table(self, g):
-        return seeds.load_seeds(self._p("seeds", f"{g.name}.seeds.tsv.gz"))
+        link = self._p("seeds", f"{g.name}.seeds.tsv.gz")
+        if link.is_symlink() and not link.exists():         # the folder or the seed cache moved
+            gk = seeds.genome_key(g)
+            found = [x for x in (seeds.cache_path(self.cache, gk, self.p), seeds.cache_path(self.cache, gk, self.p, legacy=True))
+                     if x.exists()]
+            if not found:
+                raise SatelliteError(f"seed table of {g.name} not found ({link} -> {os.readlink(link)}): the seed cache "
+                                     f"moved? rerun with --seed-cache DIR or --force seeds")
+            self._link(link, found[0])
+        return seeds.load_seeds(link)
+
+    def _link(self, link: Path, target: Path) -> None:
+        """link -> target, relative when target lies inside the output folder (a moved or copied folder keeps it)."""
+        link.unlink(missing_ok=True)
+        link.symlink_to(os.path.relpath(target, link.parent) if Path(target).is_relative_to(self.out) else target)
 
     def fam_table(self):
         return pd.read_csv(self._p("families", "families.tsv"), sep="\t",
@@ -239,14 +221,14 @@ class Pipeline:
                 for r in f.itertuples(index=False)}
 
     def monomers(self, g):
-        return pd.read_csv(self._p("annotate", f"{g.name}.monomers.tsv.gz"), sep="\t", dtype={"chrom": str})
+        return pd.read_csv(self._p("annotate", f"{g.name}.monomers.tsv.gz"), sep="\t", converters=VERBATIM)
 
     def arrays(self, g):
-        return pd.read_csv(self._p("annotate", f"{g.name}.arrays.tsv"), sep="\t", dtype={"chrom": str})
+        return pd.read_csv(self._p("annotate", f"{g.name}.arrays.tsv"), sep="\t", converters=VERBATIM)
 
     def fams(self, g, stage: str = "centromeres"):
         name = g if isinstance(g, str) else g.name
-        return pd.read_csv(self._p(stage, f"{name}.families.tsv"), sep="\t")
+        return pd.read_csv(self._p(stage, f"{name}.families.tsv"), sep="\t", converters=VERBATIM)
 
     def regions(self, g):
         return centromere.load_regions(self._p("centromeres", f"{g.name}.regions.tsv"))
@@ -280,18 +262,20 @@ class Pipeline:
     def stage_seeds(self):
         paths = seeds.seed_genomes(self.genomes, self.cache, self.threads, self.p)
         for g in self.genomes:
-            link = self._p("seeds", f"{g.name}.seeds.tsv.gz")
-            link.unlink(missing_ok=True)
-            link.symlink_to(paths[g.name])
+            self._link(self._p("seeds", f"{g.name}.seeds.tsv.gz"), paths[g.name])
             crashes = seeds.crash_path(paths[g.name])           # exists only if FasTAN crashed on this genome
             link = self._p("seeds", f"{g.name}.fastan_crashes.tsv")
             link.unlink(missing_ok=True)                        # a link left by an earlier run of this stage
             if crashes.exists():
-                link.symlink_to(crashes)
+                self._link(link, crashes)
 
     def stage_families(self):
-        families.build_families({g.name: self.seed_table(g) for g in self.genomes}, self.genomes,
-                                self.work / "families", self.threads, self.p)
+        wd = self.work / "families"
+        families.build_families({g.name: self.seed_table(g) for g in self.genomes}, self.genomes, wd, self.threads, self.p)
+        for pat in ("blast*", "rdna", "fam[0-9]*"):          # BLAST, rRNA and model scratch (GB); the outputs are files
+            for d in wd.glob(pat):
+                if d.is_dir():
+                    shutil.rmtree(d, ignore_errors=True)
 
     def stage_annotate(self):
         fam = self.fam_table()
@@ -335,6 +319,7 @@ class Pipeline:
                 rds[g.name] = rd = families.rdna_neighborhood(g.fasta, g.chroms, self.arrays(g), elig,
                                                                self._p("classify", f"rdna_{g.name}"), self.threads,
                                                                self.p.rdna_flank, self.p.rdna_arrays)
+                shutil.rmtree(self._p("classify", f"rdna_{g.name}"), ignore_errors=True)
                 for f, (n, k) in rd.items():
                     if n and k / n >= self.p.rdna_array_frac and f not in elsewhere:
                         elsewhere[f] = (g.name, k, n)
@@ -490,6 +475,7 @@ class Pipeline:
             centromere.write_regions(rows, self._p("centromeres", f"{g.name}.regions.tsv"))
             atomic_csv(lu, self._p("centromeres", f"{g.name}.longunit.tsv"), sep="\t", index=False)
             atomic_csv(fams, self._p("centromeres", f"{g.name}.families.tsv"), sep="\t", index=False)
+            shutil.rmtree(self.work / "centromeres" / f"tmp_{g.name}", ignore_errors=True)
             conf = pd.Series([r["confidence"] for r in rows.values()]).value_counts().to_dict()
             log.info(f"centromeres: {g.name}: {conf}; {len(lu)} long-unit arrays")
 
@@ -502,15 +488,16 @@ class Pipeline:
             atomic_csv(mh, self._p("hor", f"{g.name}.monomer_hor.tsv.gz"), sep="\t", index=False)
             atomic_csv(occ, self._p("hor", f"{g.name}.hor_occ.tsv"), sep="\t", index=False)
             atomic_csv(units, self._p("hor", f"{g.name}.hor_units.tsv"), sep="\t", index=False)
+            shutil.rmtree(self.work / "hor" / f"tmp_{g.name}", ignore_errors=True)
             log.info(f"hor: {g.name}: {len(units)} HOR units, {len(occ)} occurrences, "
                      f"{(mh.hor_unit != '.').sum()}/{len(mh)} classed monomers in HORs")
 
     def genome_data(self, g) -> dict:
-        rd = lambda n: pd.read_csv(self._p("hor", n), sep="\t", dtype={"chrom": str})
+        rd = lambda n: pd.read_csv(self._p("hor", n), sep="\t", converters=VERBATIM)
         return dict(genome=g, arrays=self.arrays(g), monomers=self.monomers(g), fams=self.fams(g),
                     regions=self.regions(g),
                     longunit=pd.read_csv(self._p("centromeres", f"{g.name}.longunit.tsv"), sep="\t",
-                                         dtype={"chrom": str}),
+                                         converters=VERBATIM),
                     mon_hor=rd(f"{g.name}.monomer_hor.tsv.gz"), hor_occ=rd(f"{g.name}.hor_occ.tsv"),
                     hor_units=rd(f"{g.name}.hor_units.tsv"), seeds=self.seed_table(g), genes=self.genes(g),
                     fam_info=self.fam_info())

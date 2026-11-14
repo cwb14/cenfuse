@@ -431,3 +431,65 @@ def test_worker_log_records_reach_the_parent_under_every_start_method(method, tm
         lg.handlers[:], lg.propagate = keep[0], keep[1]
         lg.setLevel(keep[2])
     assert sorted((tmp_path / "run.log").read_text().split("\n")[:-1]) == ["from worker 1", "from worker 2"]
+
+
+# ------------------------------------------------------------------ stage gates
+@pytest.mark.parametrize("n, runs", [(pipeline.atline.MAX_CHROMS, True), (pipeline.atline.MAX_CHROMS + 1, False)])
+def test_fasta_lines_do_not_read_a_genome_their_test_cannot_judge(tmp_path, monkeypatch, n, runs):
+    """The AT-trough, repeat-density and repeat-family stages read the whole genome; their one-per-chromosome test refuses
+    more than atline.MAX_CHROMS sequences (contigs, not chromosomes), so beyond that the stages do not run, and the
+    report's notes say why, once (0.16.0 read Ae. geniculata-sized genomes three times for a certain `untested`)."""
+    import pandas as pd
+    from types import SimpleNamespace
+    d = tmp_path / "in"
+    d.mkdir()
+    names = [f"s{i}" for i in range(n)]
+    (d / "g.fa").write_text("".join(f">{c}\nA\n" for c in names))
+    (d / "g.fa.fai").write_text("".join(f"{c}\t300000\t{i}\t300000\t300001\n" for i, c in enumerate(names)))
+    (d / "g.chromosomes.txt").write_text("\n".join(names) + "\n")
+    run = Run(d, tmp_path / "out")
+    g = run.genomes[0]
+    assert len(g.chroms) == n
+    seq = SimpleNamespace(calls=pd.DataFrame(dict(chrom=names, start=-1, evidence="none", confidence="none", alt_start=-1)),
+                          arrays=pd.DataFrame(columns=["chrom", "start", "end"]))
+
+    class Read(Exception):
+        pass
+
+    def read(*a, **k):
+        raise Read
+    for mod, fn in ((pipeline.atline, "gc_bins"), (pipeline.repline, "repeat_bins"), (pipeline.famline, "sample")):
+        monkeypatch.setattr(mod, fn, read)
+    for stage in (run.stage_attrough, run.stage_repeats, run.stage_repfam):
+        if runs:
+            with pytest.raises(Read):
+                stage(g, seq)
+        else:
+            assert stage(g, seq) is None
+    notes = [x for x in g.notes if "not run" in x]
+    assert notes == ([] if runs else [f"the AT-trough, repeat-density and repeat-family lines are not run: {n} sequences, "
+                                      f"more than their one-per-chromosome test takes ({pipeline.atline.MAX_CHROMS})"])
+
+
+@pytest.mark.parametrize("name", ["NA", "null", "None"])
+def test_the_methylation_key_covers_every_file_the_engine_reads(tmp_path, name):
+    """The methylation stage's key and run_info.json fingerprint the files of meth/<g>.tsv; they read the table as the engine
+    does (meth.io.read_samples: names as written, only an empty cell is missing), so a file named NA, null or None is not
+    left out of them while the engine reads it."""
+    from types import SimpleNamespace
+    (tmp_path / name).write_text("x")
+    (tmp_path / "g_satellite_arrays.gff").write_text("")
+    table = tmp_path / "g.tsv"
+    table.write_text(f"sample\tCHG\tCG\np1\t{name}\t\n")
+    g = SimpleNamespace(name="g", meth=table, tes=None, genes=None, exclude=None)
+    assert Run._meth_inputs_fp(None, g, tmp_path)["files"] == [file_fingerprint(tmp_path / name)]
+    assert manifest._meth_files(table) == [str(tmp_path / name)]
+
+
+def test_control_tables_keep_names_that_pandas_would_read_as_missing(tmp_path):
+    """controls._chunks reads fields as written (na_filter=False): a sequence named NA stays NA."""
+    from cenfuse import controls
+    f = tmp_path / "t.tsv"
+    f.write_text("NA\t1\nnull\t2\n")
+    rows = [r for ch in controls._chunks(f, ["chrom", "pos"], 0, ints=("pos",)) for r in ch.itertuples(index=False)]
+    assert [(r.chrom, r.pos) for r in rows] == [("NA", 1), ("null", 2)]

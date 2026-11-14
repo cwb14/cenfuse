@@ -19,9 +19,12 @@ Genomes above SAMPLE_ABOVE are read from a fixed 1/SAMPLE share of K-mers (FracM
 kept, so its count is exact; a 1-kb bin then holds about 1000/SAMPLE kept positions, enough over 10-kb windows).
 
 Calls: the densest window at the chosen size, widened to its half-height run. Like the AT line, it places only chromosomes
-nothing else places, `low` (fuse._at_places: rep_only), and never moves or opposes a call. Development (rules fixed
-before computing): C. neoformans P 0.0004, 14 of 14 peaks on CENP-A; V. dahliae, Chlorella and soybean pass, all right; 2,100
-block shuffles of 8 genomes passed 6.5% of the time at the nominal 0.05, so the line is held at 0.01 (REP_ALPHA).
+nothing else places, `low` (fuse._at_places: rep_only). Where its peaks agree beyond chance with the Hi-C readout that placed a
+call (with_hic: Hi-C's prior-free peaks, or the cis extremes), a peak at a Hi-C call on a chromosome without a sequence call
+gives that call its interval and raises it one level (fuse._refine: rep_pair). It never moves or opposes a sequence call.
+Development (rules fixed before computing): C. neoformans P 0.0004, 14 of 14 peaks on CENP-A; V. dahliae, Chlorella and
+soybean pass, all right; 2,100 block shuffles of 8 genomes passed 6.5% of the time at the nominal 0.05, so the line is held
+at 0.01 (REP_ALPHA).
 Chlamydomonas (ZeppL LINE clusters) passes too, but its chromosomes all carry low satellite calls, which the line leaves.
 C. elegans, C. nigoni, B. mori, M. sympodialis and tomato are silent; soybean and rice, whose centromeres are satellite
 arrays, are silent once the arrays are left out."""
@@ -30,7 +33,7 @@ from __future__ import annotations
 import numpy as np
 import pysam
 
-from . import atline
+from . import atline, loo
 from .hicfuse import END_ZONE
 from .util import log
 
@@ -218,8 +221,9 @@ def on_chromosome(res: dict | None, chrom: str) -> dict | None:
     if x is None:
         return None
     v, vc = res.get("hic") or {}, res.get("cis") or {}
+    sv, svc = loo.status_on(v, chrom), loo.status_on(vc, chrom)       # the tests without this chromosome (loo)
     return dict(start=int(x["start"]), end=int(x["end"]), density=float(x["gc"]), status=res["status"], window=res["best"],
-                validated=v.get("status") == "pass", support=v.get("status") == "support",
+                validated=sv == "pass", support=sv == "support",
                 agrees=bool((v.get("by_window") or {}).get(res["best"], {}).get(chrom)),
-                cis_validated=vc.get("status") == "pass", cis_support=vc.get("status") == "support",
+                cis_validated=svc == "pass", cis_support=svc == "support",
                 cis_agrees=bool((vc.get("by_window") or {}).get(res["best"], {}).get(chrom)))

@@ -6,6 +6,7 @@ import gzip
 import os
 import re
 import warnings
+import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -111,16 +112,35 @@ def _layout(line: str) -> str | None:
     return None
 
 
+_MAGIC = ((b"\x1f\x8b", "gzip"), (b"BZh", "bzip2"), (b"\xfd7zXZ\x00", "xz"), (b"\x28\xb5\x2f\xfd", "zstd"),
+          (b"\x89HDF", "HDF5"))
+_ALIAS = {"chr1": "chrom1", "chr2": "chrom2"}      # the 4DN specification's names for pairtools' chrom1/chrom2
+_UNREADABLE = (pd.errors.ParserError, UnicodeDecodeError, zlib.error)       # damaged or binary data in a pairs file
+
+
 def pairs_format(path) -> PairsFormat:
+    if not str(path).endswith(".gz"):
+        with open(path, "rb") as fb:
+            head = fb.read(8)
+        what = next((w for m, w in _MAGIC if head.startswith(m)), None)
+        if what:
+            raise InputError(f"{path}: {what} data in a file not named .gz; cenfuse reads plain-text or .gz pairs")
     n, cols, first = 0, None, ""
-    with _open(path) as f:
-        for line in f:
-            if not line.startswith("#"):
-                first = line
-                break
-            n += 1
-            if line.startswith("#columns:"):
-                cols = line.split(":", 1)[1].split()
+    try:
+        with _open(path) as f:
+            for line in f:
+                if not line.startswith("#"):
+                    first = line
+                    break
+                n += 1
+                if line.startswith("#columns:"):
+                    cols = [_ALIAS.get(c, c) for c in line.split(":", 1)[1].split()]
+    except UnicodeDecodeError:
+        raise InputError(f"{path}: not a text Hi-C pairs file") from None
+    except zlib.error as e:
+        raise InputError(f"{path}: unreadable gzip data ({e})") from None
+    if first == "":                     # end of file before any data line
+        raise InputError(f"{path}: no pairs (empty file, or header lines only)")
     if n == 0:
         kind = _layout(first) if first.strip() else "simple6"
         if kind is None:
@@ -136,7 +156,8 @@ def pairs_format(path) -> PairsFormat:
             cols = cols[:n] + [f"extra{i}" for i in range(n - len(cols))]
         return PairsFormat(kind, cols, 0, sep)
     if cols is None or not {"chrom1", "pos1", "chrom2", "pos2"} <= set(cols):
-        raise InputError(f"{path}: header lines but no '#columns:' line naming chrom1 pos1 chrom2 pos2")
+        raise InputError(f"{path}: header lines but no '#columns:' line naming chrom1 (or chr1), pos1, chrom2 (or "
+                         f"chr2) and pos2")
     return PairsFormat("4dn", cols, n)
 
 
@@ -179,12 +200,18 @@ def iter_pairs(path, chroms: dict, stats: PairStats, chunksize: int = params.PAI
         names, off = fmt.columns, 1
         use = ["chrom1", "pos1", "chrom2", "pos2"] + [c for c in ("mapq1", "mapq2") if c in names]
         stats.mapq_checked = "mapq1" in names and "mapq2" in names
-    # No usecols: with usecols pandas silently accepts over-wide rows; without it they are skipped and reported.
-    reader = pd.read_csv(path, sep=fmt.sep, header=None, names=names, skiprows=fmt.n_header,
-                         chunksize=chunksize, dtype={"chrom1": str, "chrom2": str}, on_bad_lines="warn")
-    it = iter(reader)
+    # No usecols: with usecols pandas silently accepts over-wide rows; without it they are skipped and reported (from the
+    # second row on: an over-wide first row shifts every column, so every line is counted as malformed).
+    try:                                # pandas reads the first block here
+        it = iter(pd.read_csv(path, sep=fmt.sep, header=None, names=names, skiprows=fmt.n_header,
+                              chunksize=chunksize, dtype={"chrom1": str, "chrom2": str}, on_bad_lines="warn"))
+    except _UNREADABLE as e:
+        raise InputError(f"{path}: unreadable after {stats.read} lines ({e})") from None
     while True:
-        ch, skipped = _next_chunk(it)
+        try:
+            ch, skipped = _next_chunk(it)
+        except _UNREADABLE as e:
+            raise InputError(f"{path}: unreadable after {stats.read} lines ({e})") from None
         if ch is None:
             break
         ch = ch[use]
@@ -202,7 +229,7 @@ def iter_pairs(path, chroms: dict, stats: PairStats, chunksize: int = params.PAI
         i1, i2 = ch.chrom1.map(idx), ch.chrom2.map(idx)
         inn = (i1.notna() & i2.notna()).to_numpy()
         if len(stats.unknown_chroms) < 5:
-            unk = set(ch.chrom1[i1.isna()].unique()) | set(ch.chrom2[i2.isna()].unique())
+            unk = set(ch.chrom1[i1.isna()].dropna().unique()) | set(ch.chrom2[i2.isna()].dropna().unique())
             stats.unknown_chroms += sorted(unk - set(stats.unknown_chroms))[: 5 - len(stats.unknown_chroms)]
         stats.dropped_chrom += int((ok & ~inn).sum())
         ok &= inn
