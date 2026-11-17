@@ -119,6 +119,7 @@ def test_outputs_and_resume(full):
               "Syn.plant_sites.tsv", "Syn.hic_anchored.bedgraph", "cenfuse_summary.tsv", "hic/Syn.centromeres.tsv",
               "hic/Syn.P3.centromeres.tsv", "methylation/Syn.candidates.tsv", "methylation/Syn.loco_signatures.tsv"):
         assert (out / f).exists(), f
+    assert (out / "Syn.overview.png").is_file() and (out / "Syn.closeups.png").is_file()
     s = pd.read_csv(out / "cenfuse_summary.tsv", sep="\t").iloc[0]
     assert s.meth_signature == "CHG:LTR:CRM:down" and s.hic_gate_pass == 10 and s.offset == 2
     assert s.meth_deciding == "P1" and s.hic_library == "hic" and s.plants_shifted == "P3:chr3"

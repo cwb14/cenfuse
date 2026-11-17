@@ -14,7 +14,8 @@ formats are); `.` = none or not applicable.
 | `cenfuse_summary.tsv` | one row per genome (columns below); warnings are in the log and the report |
 | `run_info.json` | the run manifest: cenfuse's version and git commit, the command, host, threads and times, Python and package versions, every external tool's path, version and conda package, a content fingerprint of every input, how the run ended (`status`: `running`, `done`, `failed` with the error; `incomplete` outputs), and what it cost (`cost`: `wall_minutes`, `cpu_hours` of cenfuse and every process it started, `peak_memory_gb` of the whole process tree, sampled every 30 s, and `memory`, what that measured; also the run's last log line) |
 | `.cenfuse.lock` | present while a run uses the folder (host, pid, process start, time, `cenfuse run GENOME_DIR`); removed at the end |
-| `cenfuse_overview.pdf`, `asm.overview.png` | the overview figure with its legend pages; its first page at 300 dpi |
+| `cenfuse_overview.pdf` | the figure, per genome: genome pages (A every chromosome with its call and confidence, B which signal was used, C each signal's genome test, D each signal around all centromeres against random places), close-up pages (E: one band per call through every signal track, with a sentence on how it was made), the plants page with scored plants (F, G), then a short and a long legend |
+| `asm.overview.png`, `asm.closeups.png` | the first genome page and the first close-up page at 300 dpi |
 | `asm.loci.tsv`, `asm.features.gff3` | every feature cenfuse found (below), with each line's signal there |
 | `asm.feature_signatures.tsv` | per kind of feature, each line's median signal (columns below) |
 | `asm.feature_contacts.tsv` | with Hi-C: how strongly each kind of feature contacts itself in 3D, against chance (columns below) |

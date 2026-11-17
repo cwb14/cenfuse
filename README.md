@@ -46,18 +46,28 @@ In `mygenome/cenfuse/`:
   what the centromeres are made of, the uncertain calls and the data that would settle them.
 - **`asm.centromeres.tsv`** (also `.bed`, `.gff3`): one row per chromosome with the call, its `confidence`, the evidence
   for and against it, and in words what it stands on (`basis`) and why it may be wrong (`caveat`).
-- **`cenfuse_overview.pdf`**: one page per genome (below), plus telomeres, rDNA arrays and other features in
-  `asm.loci.tsv`.
+- **`cenfuse_overview.pdf`** (and `asm.overview.png`, `asm.closeups.png`): the figure. One centromere per chromosome,
+  how confident the call is, and which evidence it rests on (examples below). Per genome: a whole-genome page,
+  close-ups, then legends. Telomeres, rDNA arrays and other features are in `asm.loci.tsv`.
 
 `high` and `medium` calls are confident; `low` is the best candidate, with another place not excluded. Read the
 `caveat` of any call you rely on. Every file and column: [docs/outputs.md](docs/outputs.md).
 
-<img src="docs/img/example_overview.png" width="640" alt="cenfuse overview page for Poa annua">
+<img src="docs/img/example_overview.png" width="640" alt="cenfuse genome page for Poa annua">
 
-*The overview page for* Poa annua *with all four inputs ([PDF with legend](docs/img/example_overview.pdf)): **A**
-each chromosome with its Hi-C score (blue), CHG methylation (black), satellite arrays and retrotransposon density, the
-sequence call (box) and the final call (gray band); **B** the evidence for (●) and against (×) each call; **C** where
-each kind of evidence puts the centromere; **D** the Hi-C score around the calls.*
+*Page 1 for* Poa annua *with all four inputs ([PDF with legends](docs/img/example_overview.pdf)). **A** every
+chromosome to scale, with its satellite arrays, retrotransposon elements and Hi-C contact, and the centromere as one
+triangle (solid black = high confidence, gray = medium, open = low). **B** for each chromosome, which evidence was used
+(●), points elsewhere (×) or was not used (–), then the confidence. **C** whether each kind of evidence marks the
+centromeres in this genome at all, against chance. **D** each signal's average around all centromeres, against random
+places, with how many of them that signal placed (it rises there by construction).*
+
+<img src="docs/img/example_closeups.png" width="640" alt="cenfuse close-ups for Poa annua">
+
+*The close-up page* (**E**)*: each centromere is one band running through its signal tracks, shaded by confidence
+(open with dashed edges when low). A bar in a track marks where that signal alone would put the centromere; a colored
+bar well off the band is a disagreement, a gray bar a signal that was not used. The sentence under each name says how
+the call was made.*
 
 ## How good it is
 

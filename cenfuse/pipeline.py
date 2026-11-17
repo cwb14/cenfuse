@@ -1076,7 +1076,8 @@ class Run:
                                 f"(`{g.name}.centromeres.tsv`, `{g.name}.loci.tsv`) are complete.\n")
                 failed.setdefault(g.name, []).append("report")
             figs.append(dict(genome=g, seq=seq, tel=tel, hic=hic, meth=meth, calls=t, loci=lt, telo=telo,
-                             plants=ptab, psites=psites, verdicts=verdicts, libraries=others,
+                             plants=ptab, psites=psites, verdicts=verdicts, libraries=others, summary=summary[-1],
+                             cpg=prep if prep is not None and prep.get("chroms") else None,
                              rdna=dict(nors=list(nors or ()), five_s=list(five_s or ()))))
             log.info(f"{g.name}: {len(t[t.start != '.'])}/{len(t)} chromosomes called; relations "
                      f"{t.relation.value_counts().to_dict()}; confidence "

@@ -1,22 +1,22 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
-Each image is the first page of `cenfuse_overview.pdf`, unedited (stored with a 256-color palette), from the
-genome's run with its richest benchmarked inputs: from cenfuse 0.16.1 for the 14 genomes whose run 0.16.1 reran
-(CHM13, siamang, HG002, *Arabidopsis*, *Ae. tauschii*, potato, tomato, *S. cerevisiae*, *S. pombe*, *N. crassa*, *V.
-dahliae*, *C. tropicalis*, *C. neoformans* G1 and *P. falciparum*, among them every genome here whose calls changed),
-else from 0.16.0's release run; the 0.16.0 pages of
-*C. neoformans* (anaphase library) and *Chlamydomonas* were redrawn with 0.16.1's figure code, which shows the repeat
-lines. Counts: right / chromosomes with truth (for mammals without CENP-A data: agreement with an independent
-satellite caller). Every number: [benchmark.md](benchmark.md).
+Each image is the first page of `cenfuse_overview.pdf` (also written as `<genome>.overview.png`), unedited (stored with
+a 256-color palette), drawn by the current code from a rerun of the genome's release run with its richest benchmarked
+inputs. The reruns gave the same calls as the release runs (809 of 809 calls checked in 46 runs; *Poa annua* and *P.
+infirma* also identical). The close-up pages (E) are in each PDF and in `<genome>.closeups.png`, not shown here.
+Counts: right / chromosomes with truth (for mammals without CENP-A data: agreement with an independent satellite
+caller). Every number: [benchmark.md](benchmark.md).
 
 **How to read one** (panel letters as in the images):
 
+For genomes with many chromosomes, A and B continue on the next page and C and D follow on a later page of the PDF, so their images here show A and B only.
+
 | panel | shows |
 |---|---|
-| **A** | every chromosome to scale: satellite arrays colored by role, the Hi-C centromere score (blue line; gray: the prior-free score), with `tes/` the density of the LTR signature's elements (orange), the sequence call (black box) and the final call (band; blue = placed by Hi-C, green = placed by an AT trough, wine = placed by a repeat peak; arrow = moved); AT troughs (green ▲) and the cis Hi-C extreme (purple ▲) where they acted; telomere arrays at the ends (▶ ◀) and inside (▼); 45S (◆) and 5S (◇) rDNA arrays |
-| **B** | which lines support (●) or oppose (×) each final call, then its relation and confidence (`fold`, `align`, `AT`, `rep`, `fam`, `age` and `CpG` columns appear only where those lines acted) |
-| **C** | where each line puts the centromere, relative to the sequence call |
-| **D** | the Hi-C score around every final call (prior-free score where no sequence call anchors it): a peak at 0 means the calls sit where centromeres meet in the nucleus |
+| **A** | every chromosome drawn to scale, with its satellite arrays (colored by type), the Hi-C contact as a blue trace, and any other signal the genome uses (for example retrotransposon elements as ticks). Under each chromosome, one triangle is its centromere: solid black = high confidence, gray = medium, open = low. A cross in a signal's color marks where a trusted signal that disagrees would put it. Gray boxes are the close-ups (E). Marks: black arrowheads at the ends are telomere arrays, a down-pointing one inside a chromosome is a telomere array in the middle; diamonds are rDNA arrays (filled = 45S, open = 5S); hatching is Hi-C without data |
+| **B** | one row per chromosome, one column per signal: ● the signal was used for the call, × it points elsewhere, – it was not used; then the confidence (or "no call"). A grayed column is a signal that is not trusted in this genome |
+| **C** | one row per signal: does it mark the centromeres in this genome at all? The bar is the share of chromosomes where it does, the black tick the share expected by chance, and the verdict says whether cenfuse trusts the signal here, does not, or keeps it as a lead only |
+| **D** | each signal around all the centromeres: thin traces are single centromeres, the bold trace their average, the gray band where random places on the same chromosomes fall (5-95%, median dashed). "placed k of n" is how many of the centromeres that signal placed itself, so its rise there is expected; support from other signals shows as a rise or dip clear of the band |
 
 ## Mammals with CENP-A truth
 

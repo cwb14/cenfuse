@@ -6,6 +6,11 @@ or `medium`.
 
 ## Unreleased
 
+- The overview figure is rewritten for biologists: one centromere per chromosome with its confidence, every signal on
+  its own track with the place where it alone puts the centromere, each marked used, points elsewhere or not used, and
+  one plain sentence per close-up on how the call was made. Each signal's genome test is shown in words (trusted, not
+  trusted here, a lead only). New `asm.closeups.png`.
+
 ## 0.16.1 (2026-11-14)
 
 - No evidence confirms itself: every test that validates one line by its agreement with another (Hi-C on the LTR cores,

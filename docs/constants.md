@@ -44,6 +44,37 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `SEED` | `7` | fixed seed: reruns give identical P values |  |
 | `PBCPG_COLS` | `9` | pb-CpG-tools: score, type (Total/hap1/hap2), coverage (6), estimated modified count (7) |  |
 
+## `closeup.py`
+
+| constant | value | reason | mark |
+|---|---|---|---|
+| `MM` | `1 / 25.4` | layout: inches per millimeter | layout |
+| `PAGE_W` | `180.0` | layout: page width, mm (two columns of a journal page) | layout |
+| `PAGE_H` | `240.0` | layout: the most a page may be tall, mm (within A4 with margins) | layout |
+| `FS` | `6.5` | layout: body text, pt | layout |
+| `FSS` | `6.0` | layout: smallest text, pt | layout |
+| `WIN_MAX` | `6_000_000` | layout: the narrowest window where chromosomes are over 12 Mb: a plant centromere (0.5-3 Mb) with its flanks; smaller genomes take half the median chromosome length | layout |
+| `SAT_LANES` | `6` | layout: most rows of satellite arrays in a track (overlaps go to the emptiest) | layout |
+| `H_BAR` | `2.3` | layout: a track with its bar alone, mm | layout |
+| `LINE_H` | `2.1` | layout: one line of 6-pt text at linespacing 0.95, mm | layout |
+| `LABEL_GAP` | `0.5` | layout: least space between two tracks' labels, mm | layout |
+| `LANE` | `0.7` | layout: one row of satellite arrays, mm | layout |
+| `ALT_ROW` | `0.8` | layout: the row of the second satellite cluster, mm | layout |
+| `FOOT_BAR` | `1.0` | layout: the zone at a track's foot that holds its bar, mm | layout |
+| `CARET` | `0.3` | layout: the Hi-C trace's top (its clip level) below the track's top, mm | layout |
+| `TRACK_GAP` | `0.5` | layout: space between tracks, mm | layout |
+| `LABEL_MAX` | `22.0` | layout: track labels wrap to this width, mm | layout |
+| `COL_GAP` | `3.0` | layout: space between the two columns of tiles, mm | layout |
+| `TOP` | `2.5` | layout: page top to the first tile, mm | layout |
+| `HEAD_LINE` | `2.4` | layout: tile top to the chromosome name's baseline, mm | layout |
+| `VERDICT_LINE` | `2.6` | layout: one line of the verdict, mm | layout |
+| `FOOT` | `2.0` | layout: under the tracks, the ticks and the space to the next tile row, mm | layout |
+| `SCALE_H` | `4.0` | layout: last tile row to the key, holding the scale bar, mm | layout |
+| `KEY_ROW` | `3.35` | layout: one key row at 6 pt, mm (measured: 3.34 a row + 0.64) | layout |
+| `KEY_PAD` | `1.3` | layout: margin under the key, mm | layout |
+| `CHIP_HALF` | `0.75` | layout: half the confidence chip's width (4 pt), mm | layout |
+| `MIN_NAME` | `12` | layout: characters a shortened name keeps before the window's span is dropped | layout |
+
 ## `controls.py`
 
 | constant | value | reason | mark |
@@ -238,9 +269,35 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | constant | value | reason | mark |
 |---|---|---|---|
 | `MM` | `1 / 25.4` | layout: inches per millimeter | layout |
-| `B_COL_MM` | `4.6` | panel B: spacing of the line columns | layout |
 | `ROWS_PER_PAGE` | `24` | layout: chromosome rows per page | layout |
-| `OVERLAY_BINS` | `40` | panel D spans +/- 40 Hi-C bins, at most 10 Mb (10 Mb at 250-kb bins, as before 0.10) | layout |
+| `N_NULL` | `200` | prior: random places per chromosome in panel D, ten draws in each tail of the 5-95% band | prior |
+| `ROW_HIC` | `6.0` | layout: a chromosome row with a Hi-C trace, mm | layout |
+| `ROW_BASE` | `4.2` | layout: a chromosome row without one, mm | layout |
+| `TRI_Y` | `0.75` | layout: the centromere triangle's center above the row's foot, mm | layout |
+| `BAR_Y` | `1.5` | layout: the chromosome bar's lower edge above the row's foot, mm | layout |
+| `BAR_H` | `1.3` | layout: the chromosome bar's height, mm | layout |
+| `TICK_H` | `0.8` | layout: an LTR element's tick above the bar, mm | layout |
+| `HIC_H` | `2.6` | layout: the Hi-C trace's height above the bar (0 to the top), mm | layout |
+| `MIN_FEAT` | `0.25` | layout: the narrowest array drawn, mm (smaller ones widened) | layout |
+| `COL_MM` | `4.2` | layout: panel B's column spacing, mm (a rotated 6-pt head: 2.2 mm) | layout |
+| `NAME_GAP` | `2.0` | layout: chromosome names to the chromosomes' start, mm | layout |
+| `AB_GAP` | `5.0` | layout: panel A's right end to panel B, mm | layout |
+| `HEAD_TOP` | `2.0` | layout: page top to panel B's column heads, mm | layout |
+| `AXIS_H` | `8.0` | layout: panel A's axis under its rows (ticks, labels, title), mm | layout |
+| `BLOCK_GAP` | `5.0` | layout: space above panels C and D, holding their letters, mm | layout |
+| `TEST_ROW` | `4.2` | layout: one row of panel C, mm | layout |
+| `TEST_BAR` | `18.0` | layout: panel C's k-of-n bar, mm | layout |
+| `D_H` | `22.0` | layout: a panel D plot's height, mm | layout |
+| `D_TOP` | `3.0` | layout: above a panel D plot, holding n, mm | layout |
+| `D_FOOT` | `8.5` | layout: under a panel D plot, its two-line axis title, mm | layout |
+| `D_GUT` | `14.0` | layout: left of each panel D plot, its two-line axis title, mm | layout |
+| `D_MAX_W` | `36.0` | layout: the widest panel D plot, mm | layout |
+| `KEY_GAP` | `2.0` | layout: the last panel to the key, mm | layout |
+| `LEGEND_PT` | `10.0` | layout: legend text, pt (a long legend takes a page more, never less) | layout |
+| `LEGEND_LH` | `1.3` | layout: a legend line, in font sizes | layout |
+| `LEGEND_SIDE` | `8.0` | layout: a legend page's left and right margins, mm | layout |
+| `LEGEND_TB` | `7.0` | layout: a legend page's top and bottom margins, mm | layout |
+| `LEGEND_PAR` | `0.5` | layout: space between two paragraphs, in lines | layout |
 
 ## `provenance.py`
 
@@ -386,6 +443,12 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | constant | value | reason | mark |
 |---|---|---|---|
 | `_FLOAT_NOISE` | `1e-12` | 3 x 0.1 != 0.3, and sums of float work are off by a few ulps: a tenth is not missed |  |
+
+## `signals.py`
+
+| constant | value | reason | mark |
+|---|---|---|---|
+| `NO_HIC_TOL` | `250_000` | prior: without Hi-C, a signal whose own place lies farther than this from the call points elsewhere (with Hi-C: one bin); one bin at the usual Hi-C resolution | prior |
 
 ## `telomere.py`
 

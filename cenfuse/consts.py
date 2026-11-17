@@ -82,11 +82,12 @@ def params_rows() -> list:
 
 
 def mark(reason: str, module: str) -> str:
+    """'layout' for a figure's layout; else the reason's marks (heuristic, prior); else 'layout' in a plot module."""
     r = reason.lower()
-    if module.endswith("plot.py") or r.startswith("layout"):
+    if r.startswith("layout"):
         return "layout"
     tags = [t for t in ("heuristic", "prior") if re.search(rf"\b{t}\b", r)]
-    return ", ".join(tags)
+    return ", ".join(tags) or ("layout" if module.endswith("plot.py") else "")
 
 
 def markdown(rows: list) -> str:
