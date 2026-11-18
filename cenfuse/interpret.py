@@ -132,7 +132,7 @@ def basis(r, ctx: dict) -> str:
         out.append(f"the densest stretch of sequence repeated elsewhere in the genome (mean log2 copy number "
                    f"{float(getattr(r, 'rep_density', 'nan')):.1f}), satellite arrays left out, in a genome whose densest "
                    f"stretches fall one per chromosome")
-    elif r.call_source == "composition" and "fam_only" in flags:
+    elif r.call_source == "composition" and {"fam_only", "fam_over_low"} & flags:
         out.append(f"the window where repeat families concentrated at one locus on most chromosomes cluster here "
                    f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), satellite arrays left out, in a genome where "
                    f"such families exist")
@@ -301,7 +301,7 @@ def caveat(r, ctx: dict) -> str:
         if "te_discordant" in sflags and _int(r.te_start) is not None and not te_in_alt:
             out.append(f"the {r.te_clade} core lies elsewhere ({interval(r.te_start, r.te_end)})")
     elif r.call_source == "composition":
-        if not {"rep_only", "fam_only"} & flags:                     # the repeat lines' calls say theirs below
+        if not {"rep_only", "fam_only", "fam_over_low"} & flags:     # the repeat lines' calls say theirs below
             out.append("a GC trough says where the sequence is AT-rich, not where the kinetochore sits")
             hint = hint or ("CENP-A/CENH3 data would confirm" if ctx["hic"] else "Hi-C would test it")
     elif r.confidence != "high":
@@ -374,6 +374,10 @@ def caveat(r, ctx: dict) -> str:
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if "fam_only" in flags:
         out.append("a repeat-family cluster alone, from a test that is not calibrated")
+        hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
+    if "fam_over_low" in flags:
+        out.append(f"a repeat-family cluster, from a test that is not calibrated, in place of the unsure satellite call at "
+                   f"{interval(r.seq_start, r.seq_end)}")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if {"cis_trans_pair", "cis_end_pair"} & flags:
         out.append("one library's two readouts (cis and trans), by a rule shaped on one genome (tomato), so the call stays low")
@@ -497,9 +501,10 @@ def facts(t: pd.DataFrame, summ: dict, lt: pd.DataFrame, fc: pd.DataFrame | None
              satellite_calls=len(sat), families=[(fam, int(n), ctx["unit"].get(fam)) for fam, n in fams.items()],
              te_calls=int((seq.seq_evidence == "retrotransposon").sum()),
              at_calls=int(((called.call_source == "composition") &
-                           ~called["flags"].astype(str).str.contains("rep_only|fam_only")).sum()),
+                           ~called["flags"].astype(str).str.contains("rep_only|fam_only|fam_over_low")).sum()),
              rep_calls=int(called["flags"].astype(str).str.contains("rep_only").sum()),
              fam_calls=int(called["flags"].astype(str).str.contains("fam_only").sum()),
+             fam_moved=int(called["flags"].astype(str).str.contains("fam_over_low").sum()),
              chain_calls=int(seq.seq_flags.astype(str).str.contains("partial_chain").sum()),
              tandem_calls=int((seq.seq_evidence == "long_unit_tandem").sum()),
              hic_moved=int((called.relation == "offset").sum()),
@@ -568,8 +573,8 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
         made.append(f"AT troughs on {f['at_calls']}")
     if f.get("rep_calls"):
         made.append(f"repeat-density peaks on {f['rep_calls']}")
-    if f.get("fam_calls"):
-        made.append(f"repeat-family clusters on {f['fam_calls']}")
+    if f.get("fam_calls") or f.get("fam_moved"):
+        made.append(f"repeat-family clusters on {f.get('fam_calls', 0) + f.get('fam_moved', 0)}")
     if f["tandem_calls"]:
         made.append(f"long-unit tandem arrays on {f['tandem_calls']}")
     if f["hic_moved"] or f["hic_placed"]:
@@ -700,7 +705,9 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                     "do not show one cluster per chromosome" if summ.get("fam_gate") == "fail" else
                     "cannot be tested (too few chromosomes long enough)")
                  + f" (P {summ.get('fam_p')}, windows of {summ.get('fam_window')} bp)"
-                 + (f"; they placed {f['fam_calls']} calls nothing else placed" if f.get("fam_calls") else "") + ".")
+                 + (f"; they placed {f['fam_calls']} calls nothing else placed" if f.get("fam_calls") else "")
+                 + (f"; they took the place of {f['fam_moved']} unsure satellite calls far from their clusters"
+                    if f.get("fam_moved") else "") + ".")
     if g.meth:
         if "meth_signature" in summ:
             sig = str(summ.get("meth_signature"))

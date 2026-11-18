@@ -4,6 +4,35 @@ What changed for users in each release, newest first, with the benchmark headlin
 [docs/benchmark.md](docs/benchmark.md). A *chromosome-run* is one chromosome in one benchmark run; *confident* = `high`
 or `medium`.
 
+## 0.18.0 (2026-11-18)
+
+- **A repeat-family window now takes the place of an unsure satellite call it contradicts.** Where the repeat-family line
+  passed its test, a `low` satellite call that no other rule changed, outside the terminal eighths, moves to its
+  chromosome's family window and stays `low` (`fam_over_low`; `seq_start`/`seq_end` keep the call it replaced) when four
+  things hold: the satellite could not vouch for the call in this genome (its families failed the one-per-chromosome test or
+  none dominates, or the call is the weak-satellite fallback); the window holds a cluster, at least 3 family K-mers; the
+  window lies farther from the call than the wider of the two intervals, the rule cenfuse already uses to judge whether a
+  satellite array and an LTR core agree; and no other line speaks to the call on that chromosome (no Hi-C reading acting
+  there, no agreeing LTR core, tested AT trough or repeat-density peak, no centromere-like methylation, no CpG line). Each
+  condition is a principle, not a fitted value: a tested line outranks the family line, whose test is not calibrated.
+  Benchmark: on the development genomes 94 calls went from wrong to right and 2 from right to wrong (one tomato
+  chromosome, without `tes/`), and no confident call or control changed; on the genomes added in 0.17, 11 went from wrong
+  to right (pepper 10, cotton 1) and none the other way; the polyploid panel's homoeologous calls agree a little more
+  often (665 of 1,119 pairs to 666 of 1,110). The 140 moved calls with truth are right 107 times, where about 11 would be
+  right by chance; the calls they replaced were right 4 times, against about 8 by chance. From the FASTA alone,
+  retrotransposon and satellite-free centromeres go from 60 to 114 of 272 chromosomes right (13 tomatoes 20 to 51 of 156).
+  0.17 had tested the move on any gap and not adopted it: in *Populus euphratica* the windows lay 0.3-3.6 Mb outside wide
+  satellite calls that were right. Requiring the window to point beyond both readouts' resolution answers that miss, so
+  the rule is listed among the rules changed after a result was seen (future.md #76).
+- **The repeat-family line speaks only where its window holds a cluster** (at least 3 family K-mers, the line's own
+  smallest cluster beyond a pair), for the calls it places too. In the holocentric control *Leptidea sinapis*, whose
+  family test passes on windows of 0-2 family K-mers, it no longer places its 16 `low` calls; no benchmark call with truth
+  changes.
+- **Faster repeat lines.** The repeat-density and repeat-family lines read the FASTA on the run's threads (`-t`) instead of
+  one, with byte-identical outputs at any thread count: on a 2.0-Gb genome, 0.17's code took 206 s and 233 s, 0.18 at 16
+  threads 34-42 s and 42-51 s, at no higher peak memory (at one thread, about 0.4 GB more) (future.md #74).
+- Report: the genome section counts the calls a repeat-family cluster placed apart from those it took over.
+
 ## 0.17.0 (2026-11-18)
 
 - **22 genomes added to the benchmark** to test cenfuse where it was weakest (`benchmark/truth_017.tsv`, every scored

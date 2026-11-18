@@ -155,6 +155,7 @@ RULE_ROWS = {
     "rep_only": ("composition", "repeats", ".", "rep_only"),
     "rep_pair": ("hic", "repeats,hic", ".", "cis_only,rep_pair"),
     "fam_only": ("composition", "families", ".", "fam_only"),
+    "fam_over_low": ("composition", "families", ".", "fam_over_low"),
     "cpg_elsewhere": ("sequence", "satellite", "cpg", "cpg_elsewhere"),
     "meth_support": ("sequence", "satellite,meth", ".", "."),
 }

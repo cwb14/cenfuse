@@ -131,7 +131,8 @@ cluster; the two repeat lines where most have no confident sequence call)
 | `none` | no call |
 
 A call moved to its competing cluster (`rule` `hic_chose_alt` or `at_chose_alt`) keeps the relation `concordant` or
-`sequence_only` (`contested` where the CpG line contests it): its `start` differs from `seq_start`.
+`sequence_only` (`contested` where the CpG line contests it): its `start` differs from `seq_start`. So does a call moved to
+a repeat-family window (`fam_over_low`, `sequence_only`).
 
 The satellite engine sets the starting confidence. A kept call rises one level for agreeing Hi-C (any readout, counted
 once) and one for centromere-like CHG methylation, two at most; other agreeing lines do not raise it. A contested call drops
@@ -149,7 +150,7 @@ validated peak moved the call); `hic_offset` (it points elsewhere and cannot mov
 line and the prior-free peak at one locus); `fold_offset`, `align_offset`, `hic_denovo_offset` (they oppose a kept call:
 contested); `te_hic_pair` (Hi-C at the LTR core); `cis_agrees`, `cis_only`, `cis_elsewhere`, `cis_trans_pair`, `cis_end_pair`
 (the cis signal); `at_only`, `at_denovo_pair`, `at_pair`, `at_chose_alt` (the AT trough); `rep_only`, `rep_pair` (the
-repeat-density line); `fam_only` (the repeat-family line); `cpg_elsewhere` (CpG finds the CDR on another array:
+repeat-density line); `fam_only`, `fam_over_low` (the repeat-family line); `cpg_elsewhere` (CpG finds the CDR on another array:
 contested); `meth_support` (methylation alone confirms the call); `none` (no call).
 
 ## Flags
@@ -189,8 +190,9 @@ are comma-separated.
 | `cis_agrees`, `cis_near`, `cis_only`, `cis_elsewhere` | the extreme of the contact crossing each bin, tested against the LTR cores (or, without them, by Hi-C's trans contacts on most chromosomes; column `cis_test`): at the call (one level up); within 4 bins of it (neither way); farther, a `low` call moved to it where the test passed on most chromosomes (still `low`), or a chromosome without a call placed there (`low`); farther, the call kept, one level lower if the test passed on most chromosomes (`contested`), flagged only at the support tier. The trans-tested signal is read outside the terminal eighths and leaves a call inside one as it is |
 | `rep_only` | a call placed by the repeat-density line alone, on a chromosome nothing else places (`low`) |
 | `rep_pair` | a Hi-C call on a chromosome without a sequence call, with the densest repeat stretch agreeing, in a genome whose repeat test passed and whose peaks agree beyond chance with Hi-C's prior-free peaks (or, for a call the cis signal placed, with its extremes): one level up (a `low` call to `medium`, a `medium` one to `high`), the peak's interval taken (Hi-C places within a few bins only) |
-| `fam_only` | a call placed by the repeat-family line alone, on a chromosome nothing else places (`low`) |
-| `fam_elsewhere` | a `low` sequence call outside the terminal eighths on a chromosome whose repeat-family window (the line passed its test) lies elsewhere: the call stays, the caveat names the window, and `families` is listed against it |
+| `fam_only` | a call placed by the repeat-family line alone, on a chromosome nothing else places (`low`); the line acts only where the chromosome's window holds a cluster, at least 3 family K-mers (so for `fam_over_low` and `fam_elsewhere` too) |
+| `fam_over_low` | a `low` satellite call that no other rule changed, outside the terminal eighths, whose satellite failed the one-per-chromosome test or has no dominant family (or a weak-satellite call), moved to its chromosome's repeat-family window (the line passed its test), which lies farther from it than the wider of the two intervals, on a chromosome where no other line speaks to the call (no Hi-C reading acting there, no agreeing LTR core, tested AT trough or repeat-density peak, no centromere-like methylation, no CpG line); the call stays `low`, and `seq_start`/`seq_end` keep the call it replaced |
+| `fam_elsewhere` | a `low` sequence call that no other rule changed, outside the terminal eighths, on a chromosome whose repeat-family window (the line passed its test) lies off the call where `fam_over_low` does not apply (within the wider of the two intervals, another line speaking to the call, a satellite whose own tests passed, a long-unit array or an LTR core): the call stays, the caveat names the window, and `families` is listed against it |
 | `at_only`, `at_pair`, `at_elsewhere` | a call placed by an AT trough alone; a Hi-C call on a chromosome without a sequence call, with the trough agreeing (the troughs tested against Hi-C's prior-free peaks, or against the cis extremes for a call the cis signal placed): it takes the trough's interval, one level up; a validated trough lies elsewhere (`at` listed `against`) |
 | `at_denovo_pair` | a chromosome nothing else places: its AT trough and Hi-C's prior-free peak (clean, placing no call of its own) agree, in a genome where the two agree beyond chance: the trough, `low` |
 | `at_chose_alt` | the genome's AT troughs passed their test and this chromosome's deepest trough window lies on the competing cluster of a `low` sequence call and not on the call: the competing cluster, `low` unless another line agrees there; not where validated Hi-C can tell the two clusters apart. A heuristic on the evidence of one genome (design.md) |

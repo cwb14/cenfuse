@@ -268,15 +268,27 @@ parts then seem to coincide, or merges neighbors and leaves no power ([future.md
 
 **Calls.** The strongest window at the chosen size, widened to its half-height run.
 
-**What it may change.** It places only a chromosome nothing else places, `low` (`fam_only`), after the AT trough and the
-repeat-density peak; the caveat says the test is not calibrated. On a `low` sequence call that no other rule changed, outside
-the terminal eighths, whose chromosome's family window lies elsewhere it says so (`fam_elsewhere`, in the caveat; `families` is
-listed `against`) and the call stays: moving such calls onto the window would mostly have been right on the benchmark, but did
-not bring the polyploid panel's homoeologous calls closer, and on the genomes added in 0.17, registered as a test beforehand,
-it held in one of the two lineages it touched ([future.md
-#76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). It never pairs with Hi-C: a line whose test is not
-calibrated cannot be one of the two tested lines that raise a call, so 0.16.1 removed 0.16.0's `fam_pair` (it had raised no
-call in the release runs). It never moves, contests or raises a sequence call.
+**What it may change.** It acts only on a chromosome whose window holds a cluster, at least 3 family K-mers (0.18;
+`famline.MIN_COPIES`, the fewest that can show a cluster beyond a pair): every chromosome gets a best window, also where no
+family clusters (the holocentric *Leptidea sinapis*, whose test passes on windows of 0-2 family K-mers). There it places a
+chromosome nothing else places, `low` (`fam_only`), after the AT trough and the repeat-density peak; the caveat says the
+test is not calibrated. Since 0.18 a `low` satellite call that no other rule
+changed, outside the terminal eighths, moves to its chromosome's family window and stays `low` (`fam_over_low`) where the two
+are the only readouts of that centromere and the window names another locus: the satellite could not vouch for its own call
+in this genome (its families failed the one-per-chromosome test or none dominates, or the call is the weak-satellite fallback);
+the window lies beyond the resolution of both readouts, farther from the call than the wider of the two intervals (the
+satellite engine's agreement rule for an array and an LTR core, `sat/te.agrees`); and no other line speaks to the call there
+(no Hi-C reading acting on the chromosome, no agreeing LTR core, tested AT trough or repeat-density peak, no centromere-like
+methylation, no CpG line): a tested reading outranks an untested one. Of two unsure candidates it then takes the one from the
+line whose own test passed, the principle by which `minority_core` and `weak_core` take an LTR core over a call the satellite
+line holds at `low`. Otherwise a window off the call only flags it (`fam_elsewhere`, in the caveat; `families` is listed
+`against`): beside the call, within the two readouts' resolution, the window may still be the better place (on the
+development genomes it was right on 64 of 77 such calls, the call on 13), but nothing the line can measure says so. 0.17 tested the move on any gap and did not adopt it: on the genomes added in 0.17 it held in one of the two
+lineages it touched, failing in *Populus euphratica*, whose right satellite calls span 5-12 Mb and whose windows lay 0.3-3.6 Mb
+outside them. The resolution rule is that miss's reason, so it sits in benchmark.md's table of rules changed after a result
+was seen; it makes no confident call ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). The
+line never pairs with Hi-C: a line whose test is not calibrated cannot be one of the two tested lines that raise a call, so
+0.16.1 removed 0.16.0's `fam_pair` (it had raised no call in the release runs). It never contests or raises a call.
 
 **Results** (every number of this section; rules fixed before computing). The 0.16.0 release runs the line where it runs in
 cenfuse; the development scan ran its test on all 71 FASTA-only benchmark genomes.
@@ -287,6 +299,14 @@ cenfuse; the development scan ran its test on all 71 FASTA-only benchmark genome
   contradicts, its window is right on 89 of 110 (in 15 genomes: 13 *Solanum*, *Ae. geniculata*, *Chlamydomonas*) and the
   calls on 8; on the polyploid panel, moving them brought the homoeologous pairs no closer (64 pairs: 24 closer, 27 farther).
   Over all release arms, 189 of the 207 flagged calls with truth are wrong (16 genomes).
+- *0.18, the move* (`fam_over_low`; 0.17.0's release runs replayed, the polyploid panel and the genomes added in 0.17
+  included): 123 development calls move (122 with truth), 94 from wrong to right and 2 from right to wrong (one tomato
+  chromosome), no confident call and no control changes; on the added genomes 11 of 18 moves go from wrong to right
+  (pepper, cotton) and none the other way. The 140 moved calls with truth are right 107 times, about 11 expected by chance
+  (the scorer's chance: call, truth and tolerance against chromosome length); the calls they replace 4 times, about 8 by
+  chance. Panel: 29 calls move and 10 `fam_only` calls on windows without a cluster go; homoeolog agreement 665 of 1,119
+  pairs to 666 of 1,110. Calls left flagged beside their window, within the readouts' resolution: window right on 64 of 77
+  development calls, the call on 13.
 - *Development scan* (all 71): passes in 32 (also in the 10 *B. rapa* lines, soybean, maize, rice and sorghum, whose
   confident satellite calls keep the line from running), peaks right on 323 of 363 chromosomes. It fails in every mammal and
   chicken (their satellite arrays left out), in the four holocentric genomes (P 0.34-0.71) and in barley (P 0.20, though its
@@ -513,9 +533,10 @@ repeat peak alone `low`.
 | `cis_end_pair`; flag `cis_blind` | the cis signal tested by trans contacts; a call in a terminal eighth, the extreme elsewhere | a `low` call moves to the interior extreme where its own trans peak lies, `low` (a named heuristic); else kept, flagged |
 | `at_only`, `at_denovo_pair`; flags `at_interior`, `at_terminal` | no call yet; AT troughs passed (or validated by Hi-C's prior-free peaks); or a trough and a clean prior-free peak that placed no call agree, in a genome where the two agree beyond chance | the trough, `low` (`at_only` with validated troughs: `medium`); a deepest trough centred in a terminal 5% gives way to the deepest trough clear of the ends (`at_interior`) or places nothing (`at_terminal`), unless Hi-C tested against the troughs agrees with it on this chromosome |
 | `rep_only` | no call yet; the repeat-density test passed | the densest repeat stretch, `low` |
-| `fam_only` | no call yet; the repeat-family test passed | the strongest family window, `low` |
+| `fam_only` | no call yet; the repeat-family test passed and this chromosome's window holds at least 3 family K-mers | the strongest family window, `low` |
+| `fam_over_low` | the repeat-family test passed and this chromosome's window holds at least 3 family K-mers; a `low` satellite call no other rule changed, outside the terminal eighths, whose satellite failed the one-per-chromosome test or has no dominant family (or the weak-satellite fallback); the family window farther from it than the wider of the two; no other line speaking to the call (Hi-C reading, agreeing LTR core, tested AT trough or repeat-density peak, centromere-like methylation, CpG line) | the family window, `low` |
 | `at_chose_alt` | AT troughs passed; a `low` call with a competing cluster; the deepest trough window on the cluster, not on the call; not where validated Hi-C can tell the two apart | that cluster, `low` unless another line agrees there (a named heuristic) |
-| flag `fam_elsewhere` | the repeat-family test passed; a `low` sequence call left as it is, outside the terminal eighths; the family window elsewhere | the call stays; the caveat names the window |
+| flag `fam_elsewhere` | the repeat-family test passed and this chromosome's window holds at least 3 family K-mers; a `low` sequence call left as it is, outside the terminal eighths; the family window off the call where `fam_over_low` does not apply | the call stays; the caveat names the window |
 | **`_refine`, `_cpg`** | | |
 | `at_pair`; flag `at_elsewhere` | a Hi-C call on a chromosome without a sequence call; a tested trough agrees (tested against the prior-free peaks, or against the cis extremes for a `cis_only` call) | the trough's interval, one level up; a validated trough elsewhere is flagged |
 | `rep_pair` | the same, no agreeing trough; a tested repeat-density peak agrees (the repeat-family window never pairs) | its interval, one level up |

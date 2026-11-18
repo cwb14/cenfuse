@@ -4,7 +4,7 @@
 #
 #   bash benchmark/release.sh OUT [TAG]
 #
-# OUT (created) receives, TAG (default 17) in the names:
+# OUT (created) receives, TAG (default 18) in the names:
 #   release$TAG.{chrom,runs}.tsv .txt .err   the scores (score.py)    cmp$TAG.{diffs,summary}.tsv .txt  vs reference runs
 #   rows_release$TAG.txt   rows beside PREV's   md$TAG/ md$TAG.log   the doc tables (+ one_per_chromosome.tsv, cis_trans.tsv)
 #   lines_alone$TAG.*  k2_release$TAG.*  randomized_release$TAG.*  headroom$TAG.*  precision$TAG.tsv (+ md$TAG/TABLE_PRECISION.md)
@@ -18,7 +18,7 @@
 set -uo pipefail
 [ $# -ge 1 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1' "$0" >&2; exit 2; }     # usage: the comment above
 OUT=$(mkdir -p "$1" && cd "$1" && pwd -P) || exit 2
-TAG=${2:-17}
+TAG=${2:-18}
 REPO=$(cd "$(dirname "$0")/.." && pwd -P)
 PY=${PY:-python}
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" OMP_NUM_THREADS=1 NUMPY_MADVISE_HUGEPAGE=0

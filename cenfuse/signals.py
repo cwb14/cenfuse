@@ -44,7 +44,7 @@ ACTED = {"hub": frozenset({"hic_denovo_only", "at_denovo_pair", "fold_pair", "al
                              "cis_blind"}),
          "fold": frozenset({"fold_pair", "fold_offset", "moved_with_fold"}),
          "align": frozenset({"align_pair", "align_offset", "moved_with_align"}),
-         "fam": frozenset({"fam_only"})}
+         "fam": frozenset({"fam_only", "fam_over_low"})}
 # the order of the signals' tracks, top to bottom, in the figure: the Hi-C readouts (the Hi-C trace first), methylation,
 # the LTR family, the satellite arrays, then the FASTA's composition signals
 TRACK_ORDER = ("hic", "flank", "fold", "align", "hub", "meth", "cpg", "te", "sat", "at", "rep", "fam")
@@ -436,7 +436,7 @@ def placed_by(rec: dict, row: Row, tags: set | None = None) -> frozenset:
             return frozenset({"sat", "at"})
         return frozenset({"te"} if ev == "retrotransposon" else set() if ev == "long_unit_tandem" else {"sat"})
     if src == "composition":
-        return frozenset({"rep"} if "rep_only" in tags else {"fam"} if "fam_only" in tags else
+        return frozenset({"rep"} if "rep_only" in tags else {"fam"} if {"fam_only", "fam_over_low"} & tags else
                          {"at", "hub"} if "at_denovo_pair" in tags else {"at"})
     return hic
 
@@ -484,7 +484,7 @@ def verdict(rec: dict, row: Row, clade: str = "LTR") -> str:
                     f"{_join(x)} {'agrees' if len(x) == 1 else 'agree'}, on a {kind}" if x else f"{kind} alone")
     elif src == "composition":
         head = ("Placed by repeat density alone (a lead)" if "rep_only" in tags else
-                "Placed by a repeat-family cluster alone (a lead)" if "fam_only" in tags else
+                "Placed by a repeat-family cluster alone (a lead)" if {"fam_only", "fam_over_low"} & tags else
                 "AT-rich trough and Hi-C hub agree" if "at_denovo_pair" in tags else
                 "Placed by the AT-rich trough alone")
     else:                                                # Hi-C placed or moved the call

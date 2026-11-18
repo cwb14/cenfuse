@@ -71,19 +71,19 @@ the call was made.*
 
 ## How good it is
 
-Numbers are from cenfuse 0.17.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
+Numbers are from cenfuse 0.18.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
 same assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq; the genomes added in 0.17 have their own bullet.
 
 - **Satellite centromeres** (mammals, birds, most crops): from the FASTA alone, right on 425 of 450 chromosomes in 32
   genomes, 2 of them confidently wrong.
 - **Retrotransposon or satellite-free centromeres** (barley, *Aegilops*, potato, 14 tomato genomes, moss, green
-  algae): the FASTA alone finds 60 of 272; with `tes/` 207 of 272 (22 genomes), with `tes/` and Hi-C 189 of 231 (19
+  algae): the FASTA alone finds 114 of 272; with `tes/` 213 of 272 (22 genomes), with `tes/` and Hi-C 189 of 231 (19
   genomes). Most confident errors are here (21 with `tes/`): treat a `medium` call that rests on an LTR core alone
   with caution.
 - **Fungi and *Plasmodium*** (9 genomes): 50 of 98 chromosomes from the FASTA alone (AT-rich and transposon-rich
   centromeres), 94 of 98 with Hi-C.
 - **Confidence means what it says.** Over all 63 genomes, each with its fullest set of inputs, `high` calls were right
-  453 of 459 times (99%), `medium` 137 of 155 (88%), `low` 149 of 197 (76%).
+  453 of 459 times (99%), `medium` 137 of 155 (88%), `low` 155 of 197 (79%).
 - **Controls stay silent.** Randomized Hi-C changed no call (55 runs); holocentric genomes got no confident call (0 of
   46 chromosomes, with any input).
 - **On genomes it was not developed on** (22 added in 0.17 and scored with 0.16.1, whose rules had never seen them):

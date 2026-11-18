@@ -395,6 +395,18 @@ def test_the_caveat_names_the_family_window_a_low_call_disagrees_with():
     assert it.caveat(r, ctx(hic=True)).endswith("-> CENP-A/CENH3 data would decide")
 
 
+def test_a_call_moved_to_the_family_window_says_what_it_replaced():
+    """0.18 (fam_over_low): the call sits on the family window; the basis describes the window, the caveat names the line's
+    uncalibrated test and the unsure call it replaced, and what would decide."""
+    r = row(call_source="composition", relation="sequence_only", confidence="low", support="families", flags="fam_over_low",
+            rule="fam_over_low", start=70_000_001, end=72_000_000, seq_start=40_000_001, seq_end=41_000_000, fam_votes=16)
+    assert "the window where repeat families concentrated at one locus on most chromosomes cluster here" in it.basis(r, ctx(hic=False))
+    cav = it.caveat(r, ctx(hic=False))
+    assert cav.startswith("a repeat-family cluster, from a test that is not calibrated, in place of the unsure satellite call "
+                          "at 40.00-41.00 Mb") and cav.endswith("-> Hi-C or CENP-A/CENH3 data would decide")
+    assert "GC trough" not in cav
+
+
 @pytest.mark.parametrize("flag, line, said", [("rep_only", "repeats", "a repeat-density peak alone"),
                                                ("fam_only", "families", "a repeat-family cluster alone, from a test that is not calibrated")])
 def test_a_repeat_line_call_says_its_own_line_not_a_gc_trough(flag, line, said):

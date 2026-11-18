@@ -100,7 +100,7 @@ RULE_TEXT = {"sequence": "the sequence call as it is", "hic_agrees": "the sequen
              "align_offset": "the sequence call, contested by the trans arm alignment",
              "hic_denovo_offset": "the sequence call, contested by Hi-C's prior-free peak",
              "rep_only": "a repeat-density peak alone", "rep_pair": "a Hi-C call refined by a repeat-density peak",
-             "fam_only": "a repeat-family peak alone"}
+             "fam_only": "a repeat-family peak alone", "fam_over_low": "a repeat-family peak in place of a low call"}
 
 
 def rule_of(rel, g, arm) -> dict:

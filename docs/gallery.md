@@ -73,7 +73,7 @@ For genomes with many chromosomes, A and B continue on the next page and C and D
 | [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/`, Hi-C | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 1/7) |
 | [moss (*Physcomitrium patens*)](#moss-physcomitrium-patens) | FASTA, `tes/`, Hi-C | 26/26 | Copia (Bryco) cluster centromeres without satellite; the Bryco signature decides |
 | [*Chlorella sorokiniana*](#chlorella-sorokiniana) | FASTA, `tes/` | 9/10 | centromeres of 2-7 Osser (Copia) insertions; the Osser signature decides |
-| [*Chlamydomonas reinhardtii*](#chlamydomonas-reinhardtii) | FASTA, `tes/` | 6/17 | LINE-cluster centromeres; every call `low` |
+| [*Chlamydomonas reinhardtii*](#chlamydomonas-reinhardtii) | FASTA, `tes/` | 12/17 | LINE-cluster centromeres; every call `low` (6/17 before 0.18: the repeat-family window now takes the place of 6 wrong satellite calls) |
 | [tomato](#tomato) | FASTA, `tes/`, Hi-C | 12/12 | satellite-free centromeres beside a dominant satellite: a Tekay family and Hi-C's cis signal place all 12, none confidently wrong (2 `low` calls by a 0.16 rule shaped on this genome) |
 
 ## Point, regional and AT-rich centromeres (Hi-C)

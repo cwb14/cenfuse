@@ -533,7 +533,7 @@ class Run:
         hit = self._cached("repeats", g.name, fp)
         if hit is None:
             t0 = time.time()
-            hit = repline.scan(repline.repeat_bins(g.fasta, g.fai, g.chroms, arrays), g.chroms)
+            hit = repline.scan(repline.repeat_bins(g.fasta, g.fai, g.chroms, arrays, self.threads), g.chroms)
             self._store("repeats", g.name, fp, hit)
             log.info(f"repeats: {g.name} done ({time.time() - t0:.0f} s)")
         return hit
@@ -552,7 +552,7 @@ class Run:
         hit = self._cached("repfam", g.name, fp)
         if hit is None:
             t0 = time.time()
-            hit = famline.scan(famline.sample(g.fasta, g.fai, g.chroms, arrays), g.chroms)
+            hit = famline.scan(famline.sample(g.fasta, g.fai, g.chroms, arrays, self.threads), g.chroms)
             self._store("repfam", g.name, fp, hit)
             log.info(f"repfam: {g.name} done ({time.time() - t0:.0f} s)")
         return hit

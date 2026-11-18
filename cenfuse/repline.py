@@ -30,11 +30,16 @@ C. elegans, C. nigoni, B. mori, M. sympodialis and tomato are silent; soybean an
 arrays, are silent once the arrays are left out."""
 from __future__ import annotations
 
+import functools
+import os
+import pickle
+
 import numpy as np
 import pysam
 
 from . import atline, loo
 from .hicfuse import END_ZONE
+from .runtime import process_pool
 from .util import log
 
 K = 21                    # K-mer length: odd (no K-mer is its own reverse complement); chance recurrence of a 21-mer is at
@@ -89,12 +94,83 @@ def _inside(ivs, s: int, e: int) -> np.ndarray:
     return out
 
 
-def repeat_bins(fasta, fai: dict, chroms: dict, arrays: dict | None = None) -> dict:
+def pieces(fasta, fai: dict, size: int, read, args, threads: int = 1):
+    """(piece, read(fa, *piece)) for every piece (name, L, s, e, *args(name)) of the whole FASTA, [s, e) of at most size bp,
+    in the FASTA's order (fai: {sequence: length}, file order). With threads > 1, worker processes read the pieces, each
+    with its own handle on the FASTA, in jobs of consecutive pieces of about size bp (short sequences share one), and the
+    results come back in the same order: what a caller builds from them does not depend on the number of threads."""
+    todo = [(name, L, s, min(L, s + size), *args(name)) for name, L in fai.items() for s in range(0, L, size)]
+    if threads > 1:
+        jobs, n = [], size
+        for p in todo:
+            if n + p[3] - p[2] > size:
+                jobs.append([])
+                n = 0
+            jobs[-1].append(p)
+            n += p[3] - p[2]
+        if len(jobs) > 1:
+            with process_pool(min(threads, len(jobs))) as ex:
+                for job, res in zip(jobs, ex.map(_job, [(read, str(fasta), j) for j in jobs])):
+                    yield from zip(job, pickle.loads(res))
+            return
+    with pysam.FastaFile(str(fasta)) as fa:
+        for p in todo:
+            yield p, read(fa, *p)
+
+
+@functools.lru_cache(maxsize=1)
+def _fasta(pid: int, path: str):
+    """This process's handle on the FASTA, kept for its next jobs (opening one reads the whole index); pid: a forked worker
+    opens its own (a handle shares its file offset across a fork)."""
+    return pysam.FastaFile(path)
+
+
+def _job(x) -> bytes:
+    """read on each piece of one job of pieces(), in a worker process, pickled for pieces() to unpickle in the thread that
+    keeps the results (unpickled by the pool's own result thread, they would leave its heap fragmented: about their size
+    again in freed memory that the counting after them cannot reuse)."""
+    read, fasta, job = x
+    fa = _fasta(os.getpid(), fasta)
+    return pickle.dumps([read(fa, *p) for p in job], protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _read(fa, name: str, L: int, s: int, e: int, base: int, ivs, sample: int) -> tuple:
+    """Piece [s, e) of a sequence of length L: its counted K-mers (those starting in it, a hash sample of 1 in sample), the
+    bin of each (-1: counted, read nowhere: other sequences, arrays) and, on an analyzed chromosome (base: its first bin,
+    else -1; ivs: its arrays), (the piece's first bin, called bases per bin, called bases outside the arrays per bin), bins
+    numbered over all analyzed chromosomes as base is."""
+    raw = np.frombuffer(fa.fetch(name, s, min(L, e + K - 1)).encode(), dtype=np.uint8)
+    km, ok = canonical_kmers(LUT[raw])
+    km, ok = km[:e - s], ok[:e - s]                       # K-mers starting in [s, e)
+    pos = np.flatnonzero(ok)
+    km = km[pos]
+    if sample > 1:                                         # the hash (murmur3 fmix64) is fixed: same K-mers every run
+        sel = (fmix64(km) % np.uint64(sample)) == 0
+        km, pos = km[sel], pos[sel]
+    bin_id = np.full(len(km), -1, np.int32)                # -1: counted, read nowhere (other sequences, arrays)
+    if base < 0:
+        return km, bin_id, None
+    up = raw[:e - s] & np.uint8(0xDF)                      # upper case
+    j = (np.arange(e - s) + s) // atline.BIN
+    lo, hi = s // atline.BIN, (e - 1) // atline.BIN + 1
+    isn = up != 78
+    ins = _inside(ivs, s, e)
+    called = np.bincount(j - lo, isn, minlength=hi - lo).astype(np.int64)
+    outside = np.bincount(j - lo, isn & ~ins, minlength=hi - lo).astype(np.int64)
+    # a K-mer that touches an array is the array's: one starting up to K - 1 bases before it holds its unit too
+    touch = _inside([(max(0, a - K + 1), b) for a, b in ivs or ()], s, e)
+    read = ~touch[pos]                                     # an array's K-mers count copies, are not read
+    bin_id[read] = ((pos[read] + s) // atline.BIN + base).astype(np.int32)
+    return km, bin_id, (base + lo, called, outside)
+
+
+def repeat_bins(fasta, fai: dict, chroms: dict, arrays: dict | None = None, threads: int = 1) -> dict:
     """{chrom: dict(called, outside, kpos, l2)} per atline.BIN bin of each analyzed chromosome: called (non-N) bases, called
     bases outside the satellite arrays, the counted K-mer positions outside them, and the sum of log2 of their genome-wide
     counts. fai: {sequence: length} of the whole FASTA (every sequence counts K-mers: unplaced ones and organelles share
     repeats with the chromosomes); arrays: {chrom: [(start, end)]}. Exact counts up to SAMPLE_ABOVE bp, else a fixed hash
-    sample of 1 in SAMPLE."""
+    sample of 1 in SAMPLE. threads: processes reading the FASTA in PIECE-bp pieces (pieces(): the same result at any
+    number)."""
     arrays = {c: sorted(v) for c, v in (arrays or {}).items()}
     total = int(sum(fai.values()))
     sample = SAMPLE if total > SAMPLE_ABOVE else 1
@@ -104,35 +180,14 @@ def repeat_bins(fasta, fai: dict, chroms: dict, arrays: dict | None = None) -> d
         off[c], o = o, o + nb[c]
     called, outside = np.zeros(o, np.int64), np.zeros(o, np.int64)
     K_all, B_all = [], []
-    S = np.uint64(sample)
-    with pysam.FastaFile(str(fasta)) as fa:
-        for name, L in fai.items():
-            base = off.get(name, -1)
-            for s in range(0, L, PIECE):
-                e = min(L, s + PIECE)
-                raw = np.frombuffer(fa.fetch(name, s, min(L, e + K - 1)).encode(), dtype=np.uint8)
-                km, ok = canonical_kmers(LUT[raw])
-                km, ok = km[:e - s], ok[:e - s]                       # K-mers starting in [s, e)
-                pos = np.flatnonzero(ok)
-                km = km[pos]
-                if sample > 1:                                         # the hash (murmur3 fmix64) is fixed: same K-mers every run
-                    sel = (fmix64(km) % S) == 0
-                    km, pos = km[sel], pos[sel]
-                bin_id = np.full(len(km), -1, np.int32)                # -1: counted, read nowhere (other sequences, arrays)
-                if base >= 0:
-                    up = raw[:e - s] & np.uint8(0xDF)                  # upper case
-                    j = (np.arange(e - s) + s) // atline.BIN
-                    lo, hi = s // atline.BIN, (e - 1) // atline.BIN + 1
-                    isn = up != 78
-                    ins = _inside(arrays.get(name), s, e)
-                    called[base + lo:base + hi] += np.bincount(j - lo, isn, minlength=hi - lo).astype(np.int64)
-                    outside[base + lo:base + hi] += np.bincount(j - lo, isn & ~ins, minlength=hi - lo).astype(np.int64)
-                    # a K-mer that touches an array is the array's: one starting up to K - 1 bases before it holds its unit too
-                    touch = _inside([(max(0, a - K + 1), b) for a, b in arrays.get(name) or ()], s, e)
-                    read = ~touch[pos]                                 # an array's K-mers count copies, are not read
-                    bin_id[read] = ((pos[read] + s) // atline.BIN + base).astype(np.int32)
-                K_all.append(km)
-                B_all.append(bin_id)
+    args = lambda name: (off.get(name, -1), arrays.get(name) if name in off else None, sample)     # noqa: E731
+    for _, (km, bin_id, bins) in pieces(fasta, fai, PIECE, _read, args, threads):
+        if bins is not None:
+            i, cl, ou = bins
+            called[i:i + len(cl)] += cl
+            outside[i:i + len(ou)] += ou
+        K_all.append(km)
+        B_all.append(bin_id)
     km, b = np.concatenate(K_all), np.concatenate(B_all)
     del K_all, B_all
     _, inv, cnt = np.unique(km, return_inverse=True, return_counts=True)     # every copy counts, in any sequence or array

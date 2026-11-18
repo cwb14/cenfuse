@@ -1130,8 +1130,10 @@ def _how(lg: _Legend) -> list:
         f"rep_pair). *Placed by two Hi-C measures* needs flank contact and contact with other chromosomes to agree "
         f"(cis_trans_pair, cis_end_pair), or arms that fold back or align at the place Hi-C alone singles out "
         f"(fold_pair, align_pair). An AT-rich trough, alone or with that place, repeat density or a repeat-family "
-        f"cluster places a centromere only where nothing else does, the last two as leads (at_only, at_denovo_pair, "
-        f"rep_only, fam_only), and *No centromere called* leaves none (none). After the semicolon come the trusted "
+        f"cluster places a centromere where nothing else does, the last two as leads (at_only, at_denovo_pair, "
+        f"rep_only, fam_only); a repeat-family cluster also takes the place of an unsure satellite call that lies far "
+        f"from it, still as a lead (fam_over_low); and *No centromere called* leaves none (none). After the semicolon "
+        f"come the trusted "
         f"signals that point elsewhere, with the gap to their place, and those that contest the centromere "
         f"without moving it lower its confidence (hic_offset, fold_offset, align_offset, hic_denovo_offset, "
         f"cis_elsewhere, cpg_elsewhere). *Overruled* marks a satellite array that a {cl} cluster replaced.")

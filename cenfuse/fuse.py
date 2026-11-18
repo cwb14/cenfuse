@@ -82,6 +82,14 @@ The integrated call is the sequence call unless a validated functional line move
   own agrees with it (at_denovo_pair). A trough never moves or opposes a confident satellite or LTR call; a passing genome's
   trough at the competing cluster of a low satellite call (its deepest window there, not at the call) chooses that cluster, still
   low (0.15, at_chose_alt; mouse: the minor satellite, not the pericentromeric major satellite).
+- Repeat families (0.16, famline.py): where the line passed its test and (0.18) the chromosome's window holds a cluster (at least
+  famline.MIN_COPIES family K-mers: _fam_speaks), a chromosome nothing else places takes its family window, low (fam_only).
+  0.18: a low sequence call that no other rule changed, outside the terminal eighths, moves to the window, still
+  low (fam_over_low), when the call is an array its own line could not vouch for (a satellite whose families failed the
+  one-per-chromosome test or of which none dominates, or the weak-satellite fallback), the window lies beyond the resolution of both
+  readouts (gap wider than the wider interval, sat/te.agrees) and no other line speaks to the call there (_fam_alone_against:
+  Hi-C, LTR core, methylation, AT trough, repeat-density peak, CpG); otherwise a window off the call is only flagged
+  (fam_elsewhere). The line never pairs, raises or opposes: its test is not calibrated.
 - Leave one chromosome out (0.16.1, cenfuse.loo): every status above with which a tested line acts on a chromosome (Hi-C on the
   LTR cores, the cis signal, the arm fold and alignment and the fold's lean, the troughs and repeat peaks tested against Hi-C) is
   the stricter of the genome's and the one the same test reaches on the other chromosomes alone, as the gate's: a chromosome's
@@ -106,6 +114,7 @@ import numpy as np
 import pandas as pd
 
 from . import atline
+from .famline import MIN_COPIES as FAM_MIN_VOTES
 from .hicfuse import END_ZONE, SUPPORT_LEVELS, clean_peak, visible_gap
 from .ageline import AGE_ALPHA
 from .params import AXIS_LEAN_P, GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
@@ -609,7 +618,9 @@ def _at_places(c: _Ctx, s: _Call) -> None:
     beside its peak. A heuristic, named as such (design.md): two satellites differ in composition whatever their centromeres do,
     so the deepest trough can lie on the inactive one; only T2T mouse exercises the rule, and the call stays low unless another
     line agrees at the chosen cluster. A trough centred in a terminal 5% places no call alone (0.17, at_interior): the deepest
-    trough clear of the ends does, or none (at_terminal), unless Hi-C tested against the troughs agrees with it here."""
+    trough clear of the ends does, or none (at_terminal), unless Hi-C tested against the troughs agrees with it here. A low
+    satellite call that a passing repeat-family window contradicts beyond both readouts' resolution, and that no other line speaks
+    to, moves to the window (0.18, fam_over_low)."""
     ev, h = c.ev, c.h
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
                   and h.get("denovo_confidence", "none") != "none")
@@ -637,7 +648,7 @@ def _at_places(c: _Ctx, s: _Call) -> None:
         # trough alone (C. neoformans from the FASTA: 14 of 14 peaks on CENP-A)
         s.call, s.relation, s.source, s.rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         s.flags.append("rep_only")
-    elif s.call is None and ev.fam and ev.fam.get("status") == "pass":
+    elif s.call is None and _fam_speaks(ev):
         # the repeat-family line (famline.py), likewise low: its pass says only that a family clustering once per chromosome
         # exists (the test is not calibrated), so its peak is the chromosome's untested best candidate
         s.call, s.relation, s.source, s.rule = (ev.fam["start"], ev.fam["end"]), "sequence_only", "composition", "fam_only"
@@ -647,12 +658,53 @@ def _at_places(c: _Ctx, s: _Call) -> None:
         if gap(lo, hi, *c.alt_iv) == 0 and gap(lo, hi, *s.call) > 0:
             s.call, s.rule = c.alt_iv, "at_chose_alt"
             s.flags.append("at_chose_alt")
-    if (ev.fam and ev.fam.get("status") == "pass" and s.call is not None and c.sconf == "low" and s.source == "sequence"
+    if (_fam_speaks(ev) and s.call is not None and c.sconf == "low" and s.source == "sequence"
             and s.rule == "sequence" and not in_end_zone(ev, s.call) and gap(ev.fam["start"], ev.fam["end"], *s.call) > 0):
-        # 0.16: said in the caveat, the call stays: the families that cluster at one locus per chromosome in this genome
-        # cluster elsewhere on this one (moving the call there brought homoeologous calls of the polyploid panel no closer)
-        s.flags.append("fam_elsewhere")
+        fam_iv = (ev.fam["start"], ev.fam["end"])
+        if not agrees(*s.call, dict(start=fam_iv[0], end=fam_iv[1])) and _fam_alone_against(c, s):
+            # 0.18 (fam_over_low, future.md #76): the window names another locus, beyond the resolution of both readouts (the
+            # gap exceeds the wider of the two: the satellite engine's agreement rule, sat/te.agrees), and nothing else speaks to
+            # the call here, so the low call moves there and stays low: of two unsure candidates, the one from the line whose
+            # own test passed, where the satellite line holds its own call at low. Never a confident call, never paired (the
+            # test is not calibrated)
+            s.call, s.relation, s.source, s.rule = fam_iv, "sequence_only", "composition", "fam_over_low"
+            s.flags.append("fam_over_low")
+        else:
+            # 0.16: said in the caveat, the call stays: the families that cluster at one locus per chromosome in this genome
+            # cluster off it (within the two readouts' resolution, or where another line speaks to the call)
+            s.flags.append("fam_elsewhere")
 
+
+def _fam_speaks(ev: Evidence) -> bool:
+    """The repeat-family line has something to say on this chromosome (0.18): its genome test passed and this chromosome's window
+    holds a cluster, at least FAM_MIN_VOTES family K-mers (famline.MIN_COPIES, the fewest that can show a cluster beyond a pair).
+    Every chromosome gets a best window, also where no family clusters at all (the holocentric Leptidea sinapis, whose test
+    passes: 0-2 family K-mers in the window of every chromosome that window placed or moved a call on), and the line neither
+    places, moves nor flags a call there."""
+    return bool(ev.fam and ev.fam.get("status") == "pass" and float(ev.fam.get("density", 0)) >= FAM_MIN_VOTES)
+
+
+def _fam_alone_against(c: _Ctx, s: _Call) -> bool:
+    """Whether the repeat-family window may take a low call's place (0.18, fam_over_low): the call is an array whose own line
+    could not vouch for it in this genome, a satellite whose families failed the one-per-chromosome test or of which none
+    dominates (not_one_per_chromosome, no_dominant_satellite), or the weak-satellite fallback (no centromeric family chosen on the
+    chromosome). Not a satellite call whose genome-level tests passed and that is low for its own reasons (a competing cluster, an
+    end): a tested line outranks the family line's uncalibrated one; not an unsupported long-unit array (no call at all, decide:
+    the lines that place a chromosome without one keep their order); not an LTR core held at low (minority_core, weak_core: its
+    signature passed its own test). And no other line speaks to the call on this chromosome: no Hi-C readout that acts here (a
+    peak where the gate passes or supports, a Rabl-axis line, Hi-C on the LTR cores, the cis signal, Hi-C alone), no LTR core that
+    agrees with it, no centromere-like methylation at it, no tested AT trough or passing repeat-density peak that agrees with it
+    (both place a chromosome before the family window), and no CpG line (its gate passed, so it judges the arrays)."""
+    ev, h = c.ev, c.h
+    untested = {"not_one_per_chromosome", "no_dominant_satellite"} & set(str(ev.seq.get("flags", "")).split(","))
+    if not (ev.seq["evidence"] == "weak_satellite" or (ev.seq["evidence"] == "satellite" and untested)):
+        return False
+    if h and (((c.valid or c.weak) and c.peak) or c.ax or h.get("te_pair") or h.get("cis") or c.untested):
+        return False
+    if _te_agrees(ev, s.call) or c.m_seq["label"] == "centromere_like" or ev.cpg is not None:
+        return False
+    rep_ok = bool(ev.rep and ev.rep.get("status") == "pass")
+    return not any(ok and agrees(*s.call, dict(start=x["start"], end=x["end"])) for x, ok in ((ev.at, c.at_ok), (ev.rep, rep_ok)))
 
 PHASES = (_te_hic_pair, _cis, _at_places)
 
@@ -716,7 +768,7 @@ def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
     support = ["at"] if s.at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if "rep_only" in flags or s.rep_pair:
         support.append("repeats")
-    if "fam_only" in flags:
+    if {"fam_only", "fam_over_low"} & set(flags):
         support.append("families")
     if ev.sat_bp and ev.sat_bp(*s.call) >= SAT_SUPPORT_BP:
         support.append("satellite")
@@ -790,7 +842,7 @@ def _confidence(c: _Ctx, s: _Call, support: list) -> str:
             s.relation = "concordant"
         return conf
     if s.source == "composition":
-        return "medium" if not {"rep_only", "fam_only"} & set(s.flags) and c.ev.at.get("validated") else "low"
+        return "medium" if not {"rep_only", "fam_only", "fam_over_low"} & set(s.flags) and c.ev.at.get("validated") else "low"
     if {"cis_trans_pair", "cis_end_pair"} & set(s.flags):
         return "low"                                 # 0.16: rules shaped on one genome make no confident call (future.md, rule 3)
     if "cis_only" in s.flags or "hic_medium_peak" in s.flags or "hic_denovo_only" in s.flags:
@@ -816,7 +868,8 @@ def _decide(ev: Evidence) -> dict:
     _cpg(c, s)
     # methylation is read where the call now is: its own item (the provisional call) where that is not the sequence call or Hi-C's
     # peak, as at the prior-free core or at a competing cluster that was chosen (the verdict on the abandoned call says nothing)
-    at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags) or "at_chose_alt" in s.flags or c.chose
+    at_core = "hic_denovo_only" in s.flags or (c.axis and f"{c.axis}_pair" in s.flags) or "at_chose_alt" in s.flags or c.chose or \
+        "fam_over_low" in s.flags
     m_call = _meth(ev, "provisional") if at_core else c.m_hic if s.source == "hic" else c.m_seq
     support = _support(c, s, m_call)
     against = _against(c, s)

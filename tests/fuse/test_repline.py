@@ -108,6 +108,69 @@ def test_samples_large_genomes_with_exact_counts(tmp_path, monkeypatch):
     assert r["status"] == "pass"
 
 
+def mixed(tmp_path):
+    """Three chromosomes and three unplaced sequences (in the FASTA, not in the chromosome set; one shorter than K),
+    interleaved, the chromosome set in another order: random sequence with copies of one 3-kb element on both strands of
+    four sequences, a tandem array of a 171-bp unit on c1 and u1, N runs (one across several piece borders), IUPAC codes
+    and a soft-masked stretch; arrays (unsorted, nested, one across a piece border) on c0, c1, the unplaced u1 and a name
+    in no FASTA."""
+    rng = np.random.default_rng(23)
+    te, unit = "".join(rng.choice(NT, size=3_000)), "".join(rng.choice(NT, size=171))
+    s = {c: list(rng.choice(NT, size=n)) for c, n in (("c0", 150_000), ("u1", 60_000), ("c1", 120_000), ("u2", 700),
+                                                     ("c2", 90_000), ("u3", 15))}
+    for c, at in (("c0", (30_000, 70_000, 141_000)), ("u1", (5_000,)), ("c1", (30_000, 95_000)), ("c2", (10_000, 45_000))):
+        for i, p in enumerate(at):
+            s[c][p:p + 3_000] = te if i % 2 else revcomp(te)
+    for c, p, n in (("c1", 60_000, 60), ("u1", 20_000, 40)):
+        s[c][p:p + 171 * n] = unit * n
+    s["c0"][14_000:26_000] = "N" * 12_000
+    s["c2"][5_000] = "N"
+    for p in (1_234, 50_001, 99_999):
+        s["c1"][p] = "R"
+    s["c2"][40_000:52_000] = [x.lower() for x in s["c2"][40_000:52_000]]
+    f = tmp_path / "m.fa"
+    f.write_text("".join(f">{c}\n{''.join(x)}\n" for c, x in s.items()))
+    pysam.faidx(str(f))
+    fai = {c: len(x) for c, x in s.items()}
+    arrays = {"c1": [(62_000, 63_000), (60_000, 60_000 + 171 * 60)], "c0": [(0, 500), (39_990, 40_010)],
+              "u1": [(20_000, 20_000 + 171 * 40)], "zz": [(0, 10)]}
+    return f, fai, {c: fai[c] for c in ("c2", "c0", "c1")}, arrays
+
+
+def same(a, b) -> bool:
+    """Equal down to the bytes: dict keys in the same order, arrays of the same dtype and shape, scalars of the same type."""
+    if isinstance(a, dict):
+        return type(b) is dict and list(a) == list(b) and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, np.ndarray):
+        return type(b) is np.ndarray and a.dtype == b.dtype and a.shape == b.shape and a.tobytes() == b.tobytes()
+    return type(a) is type(b) and a == b
+
+
+@pytest.mark.parametrize("sampled", [False, True])
+def test_any_thread_count_and_piece_size_give_the_same_bins(tmp_path, monkeypatch, sampled):
+    """Worker processes read the FASTA's pieces (threads); the bins are the same at any thread count and piece size, down
+    to the bytes, with exact and with sampled counts: unplaced sequences, arrays, N runs and pieces ending inside a bin
+    included."""
+    f, fai, chroms, arrays = mixed(tmp_path)
+    if sampled:
+        monkeypatch.setattr(repline, "SAMPLE_ABOVE", 1_000)
+    ref = repline.repeat_bins(f, fai, chroms, arrays)                        # one piece per sequence, in this process
+    assert list(ref) == list(chroms) and (ref["c0"]["called"][14:26] == 0).all()                # the N run
+    assert (ref["c1"]["outside"][60:70] == 0).all() and ref["c1"]["kpos"][60:70].sum() == 0     # the array
+    assert (sum(int(x["kpos"].sum()) for x in ref.values()) < 0.05 * sum(chroms.values())) == sampled
+    pools, pool = [], repline.process_pool
+
+    def spy(n):
+        pools.append(n)
+        return pool(n)
+    monkeypatch.setattr(repline, "process_pool", spy)
+    for piece in (10_000, 7_919):                                             # 7,919 bp: pieces end inside bins
+        monkeypatch.setattr(repline, "PIECE", piece)
+        for threads in (1, 3):
+            assert same(repline.repeat_bins(f, fai, chroms, arrays, threads), ref), (piece, threads)
+    assert pools == [3, 3]                                                    # worker processes read the pieces
+
+
 # ---------------------------------------------------------------- fuse
 def _ev(seq=None, rep=None, at=None):
     s = dict(start=seq[0], end=seq[1], evidence="satellite", confidence="low", flags=".", main_family="A") if seq else \

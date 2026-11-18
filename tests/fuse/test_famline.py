@@ -76,12 +76,72 @@ def test_satellite_arrays_are_left_out(tmp_path):
     assert famline.scan(masked, chroms)["status"] != "pass"
 
 
+def mixed(tmp_path):
+    """Three chromosomes and three unplaced sequences (in the FASTA, not in the chromosome set; one shorter than K),
+    interleaved, the chromosome set in another order: random sequence with copies of one 3-kb element on both strands of
+    four sequences, a tandem array of a 171-bp unit on c1 and u1, a microsatellite, N runs (one across several piece
+    borders), IUPAC codes and a soft-masked stretch; arrays (unsorted, nested, one across a piece border) on c0, c1, the
+    unplaced u1 and a name in no FASTA."""
+    rng = np.random.default_rng(23)
+    te, unit = "".join(rng.choice(NT, size=3_000)), "".join(rng.choice(NT, size=171))
+    s = {c: list(rng.choice(NT, size=n)) for c, n in (("c0", 150_000), ("u1", 60_000), ("c1", 120_000), ("u2", 700),
+                                                     ("c2", 90_000), ("u3", 15))}
+    for c, at in (("c0", (30_000, 70_000, 141_000)), ("u1", (5_000,)), ("c1", (30_000, 95_000)), ("c2", (10_000, 45_000))):
+        for i, p in enumerate(at):
+            s[c][p:p + 3_000] = te if i % 2 else te.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    for c, p, n in (("c1", 60_000, 60), ("u1", 20_000, 40)):
+        s[c][p:p + 171 * n] = unit * n
+    s["c2"][70_000:70_600] = "AC" * 300
+    s["c0"][14_000:26_000] = "N" * 12_000
+    s["c2"][5_000] = "N"
+    for p in (1_234, 50_001, 99_999):
+        s["c1"][p] = "R"
+    s["c2"][40_000:52_000] = [x.lower() for x in s["c2"][40_000:52_000]]
+    f = tmp_path / "m.fa"
+    f.write_text("".join(f">{c}\n{''.join(x)}\n" for c, x in s.items()))
+    pysam.faidx(str(f))
+    fai = {c: len(x) for c, x in s.items()}
+    arrays = {"c1": [(62_000, 63_000), (60_000, 60_000 + 171 * 60)], "c0": [(0, 500), (39_990, 40_010)],
+              "u1": [(20_000, 20_000 + 171 * 40)], "zz": [(0, 10)]}
+    return f, fai, {c: fai[c] for c in ("c2", "c0", "c1")}, arrays
+
+
+def same(a, b) -> bool:
+    """Equal down to the bytes: dict keys in the same order, arrays of the same dtype and shape, scalars of the same type."""
+    if isinstance(a, dict):
+        return type(b) is dict and list(a) == list(b) and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, np.ndarray):
+        return type(b) is np.ndarray and a.dtype == b.dtype and a.shape == b.shape and a.tobytes() == b.tobytes()
+    return type(a) is type(b) and a == b
+
+
+def test_any_thread_count_and_piece_size_give_the_same_sample(tmp_path, monkeypatch):
+    """Worker processes read the FASTA's pieces (threads); the sampled copies are the same at any thread count and piece
+    size, down to the bytes: unplaced sequences, arrays, N runs and pieces ending inside a bin included."""
+    from cenfuse import repline
+    f, fai, chroms, arrays = mixed(tmp_path)
+    ref = famline.sample(f, fai, chroms, arrays)                             # one piece per sequence, in this process
+    assert ref["nk"] > 0 and np.unique(ref["chrom"]).tolist() == [0, 1, 2] and list(ref["called"]) == list(chroms)
+    assert (ref["called"]["c0"][14:26] == 0).all() and (ref["called"]["c0"][:14] == 1000).all()   # the N run
+    pools, pool = [], repline.process_pool
+
+    def spy(n):
+        pools.append(n)
+        return pool(n)
+    monkeypatch.setattr(repline, "process_pool", spy)
+    for piece in (10_000, 7_919):                                             # 7,919 bp: pieces end inside bins
+        monkeypatch.setattr(famline, "PIECE", piece)
+        for threads in (1, 3):
+            assert same(famline.sample(f, fai, chroms, arrays, threads), ref), (piece, threads)
+    assert pools == [3, 3]                                                    # worker processes read the pieces
+
+
 # ---------------------------------------------------------------- fuse
 FAM = dict(start=400_000, end=600_000, density=310.0, status="pass", window=100_000)
 
 
-def _ev(seq=None, fam=None, rep=None, hic=None):
-    s = dict(start=seq[0], end=seq[1], evidence="satellite", confidence="low", flags=".", main_family="A") if seq else \
+def _ev(seq=None, fam=None, rep=None, hic=None, flags="."):
+    s = dict(start=seq[0], end=seq[1], evidence="satellite", confidence="low", flags=flags, main_family="A") if seq else \
         dict(start=-1, end=-1, evidence="none", confidence="none", flags=".", main_family=".")
     return fuse.decide(fuse.Evidence("c", 1_000_000, s, None, hic, None, lambda a, b: 0, rep=rep, fam=fam))
 
@@ -132,17 +192,114 @@ def test_a_family_peak_never_pairs_with_a_hic_call():
     assert d["call"] == (480_000, 520_000) and "rep_pair" in d["flags"] and "fam_pair" not in d["flags"]
 
 
-def test_a_low_call_the_family_line_contradicts_is_flagged_and_stays():
-    """0.16 (fam_elsewhere): where the passing repeat-family line clusters elsewhere on a chromosome with a low sequence call, the
-    call stays and the caveat says so; not for a call in a terminal eighth (the line reads no window there), a confident call,
-    a call the peak touches, or a line that did not pass. (Moving such calls onto the family window was tested and not
-    adopted: the polyploid panel's homoeologous calls came no closer.)"""
-    d = _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000))    # 1-Mb chromosome: ends < 125 kb
+def test_a_low_call_the_family_line_contradicts_beyond_resolution_moves_and_stays_low():
+    """0.18 (fam_over_low, future.md #76): where the passing repeat-family window lies beyond the resolution of both readouts (the
+    gap exceeds the wider interval, sat/te.agrees), a low sequence call that no other rule changed moves to the window and stays
+    low; closer than that the call stays, flagged (fam_elsewhere). Not for a call in a terminal eighth (the line reads no window
+    there), a confident call, a call the window touches, a line that did not pass, or a chromosome where validated Hi-C has a
+    peak (it outranks an untested line)."""
+    nop = "not_one_per_chromosome"                                              # the satellite's own test failed
+    d = _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000), flags=nop)   # gap 350 kb > 200 kb: another locus
+    assert d["call"] == (600_000, 800_000) and d["confidence"] == "low" and d["rule"] == "fam_over_low"
+    assert d["source"] == "composition" and "families" in d["support"] and "fam_elsewhere" not in d["flags"]
+    for fl in ("no_dominant_satellite", "near_end,no_dominant_satellite"):
+        assert _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000), flags=fl)["rule"] == "fam_over_low"
+    for fl in (".", "competing_cluster", "low_satellite,near_end"):              # low, but the satellite's own tests passed
+        d = _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000), flags=fl)
+        assert d["call"] == (150_000, 250_000) and "fam_elsewhere" in d["flags"] and "fam_over_low" not in d["flags"], fl
+    d = _ev(seq=(150_000, 250_000), fam=dict(FAM, start=300_000, end=500_000))    # gap 50 kb <= 200 kb: one region
     assert d["call"] == (150_000, 250_000) and d["confidence"] == "low" and "fam_elsewhere" in d["flags"]
-    assert "families" in d["against"] and d["rule"] == "sequence"
+    assert "families" in d["against"] and d["rule"] == "sequence" and "fam_over_low" not in d["flags"]
     for seq, fam in (((500_000, 600_000), FAM), ((20_000, 60_000), FAM), ((150_000, 250_000), dict(FAM, status="fail"))):
         d = _ev(seq=seq, fam=fam)                                       # touches; terminal eighth; no pass
-        assert d["call"] == seq and "fam_elsewhere" not in d["flags"]
+        assert d["call"] == seq and not {"fam_elsewhere", "fam_over_low"} & set(d["flags"])
     s = dict(start=150_000, end=250_000, evidence="satellite", confidence="medium", flags=".", main_family="A")
     d = fuse.decide(fuse.Evidence("c", 1_000_000, s, None, None, None, lambda a, b: 0, fam=dict(FAM, start=600_000, end=800_000)))
-    assert d["call"] == (150_000, 250_000) and "fam_elsewhere" not in d["flags"]          # a confident call: not flagged
+    assert d["call"] == (150_000, 250_000) and not {"fam_elsewhere", "fam_over_low"} & set(d["flags"])   # a confident call
+    hic = dict(callable=True, bin_size=HB, gate_pass=True, gate_support=False, anch_strong=False, anch_level="none",
+               anch_flags="", anch_peak_start=900_000, anch_peak_end=910_000, anch_core_start=900_000, anch_core_end=910_000,
+               masked=(), denovo_peak_start=-1, denovo_peak_end=-1, denovo_core_start=-1, denovo_core_end=-1,
+               denovo_confidence="none", denovo_flags="")
+    d = _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000), hic=hic, flags=nop)   # validated Hi-C peak here
+    assert d["call"] == (150_000, 250_000) and "fam_elsewhere" in d["flags"] and "fam_over_low" not in d["flags"]
+
+
+def test_an_unsupported_long_unit_array_keeps_the_order_of_the_lines_that_place_a_chromosome():
+    """An unsupported long-unit array is no call (fuse.decide: long_unit_unsupported), so the repeat-density peak places the
+    chromosome before the family window does, as without the array: the family move does not take that call."""
+    lu = dict(start=150_000, end=170_000, evidence="long_unit_tandem", confidence="low", flags=".", main_family=".")
+    rep = dict(start=420_000, end=440_000, density=6.0, status="pass", window=20_000)
+    for fam in (dict(FAM, start=600_000, end=800_000), dict(FAM, start=400_000, end=600_000)):
+        d = fuse.decide(fuse.Evidence("c", 1_000_000, lu, None, None, None, lambda a, b: 0, rep=rep, fam=fam))
+        assert d["call"] == (420_000, 440_000) and d["rule"] == "rep_only" and "long_unit_unsupported" in d["flags"]
+        assert "fam_over_low" not in d["flags"]
+    d = fuse.decide(fuse.Evidence("c", 1_000_000, lu, None, None, None, lambda a, b: 0, fam=dict(FAM, start=600_000, end=800_000)))
+    assert d["call"] == (600_000, 800_000) and d["rule"] == "fam_only"                # no repeat-density peak: the window
+
+
+def _failed_hic(**kw):
+    """A Hi-C row whose gate failed on this chromosome, with no anchored peak: Hi-C says nothing unless a keyword adds a reading."""
+    h = dict(callable=True, bin_size=HB, gate_pass=False, gate_support=False, gate_genome_untested=False, anch_strong=False,
+             anch_level="none", anch_flags="", anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1,
+             masked=(), denovo_peak_start=-1, denovo_peak_end=-1, denovo_core_start=-1, denovo_core_end=-1,
+             denovo_confidence="none", denovo_flags="")
+    return dict(h, **kw)
+
+
+def test_the_family_window_moves_only_a_satellite_call_that_no_other_line_speaks_to():
+    """0.18 (fam_over_low): the window takes the place only of the satellite line's own unsure array, and only where no tested
+    line speaks to that call on the chromosome (a tested reading outranks an untested one): not an LTR core held at low
+    (minority_core, weak_core), not a call with centromere-like methylation, an agreeing LTR core, an agreeing tested AT trough
+    or repeat-density peak, Hi-C read on the LTR cores, the cis signal or a Rabl-axis line acting here, or a CpG line; each such
+    call stays, flagged fam_elsewhere. A Hi-C row whose gate failed without a reading does not block the move."""
+    far = dict(FAM, start=600_000, end=800_000)
+    sat = dict(start=150_000, end=250_000, evidence="satellite", confidence="low", flags="not_one_per_chromosome", main_family="A")
+
+    def dec(seq=sat, te=None, hic=None, meth=None, **kw):
+        return fuse.decide(fuse.Evidence("c", 1_000_000, seq, te, hic, meth, lambda a, b: 0, fam=far, **kw))
+
+    assert dec(hic=_failed_hic())["rule"] == "fam_over_low"                                  # Hi-C says nothing here
+    assert dec(seq=dict(sat, evidence="weak_satellite"))["rule"] == "fam_over_low"
+    blocked = {
+        "LTR core held at low": dict(seq=dict(sat, evidence="retrotransposon", flags="minority_core")),
+        "methylation": dict(meth={"sequence_call": {"label": "centromere_like", "score": 0.9}}),
+        "agreeing LTR core": dict(te=dict(clade="Tekay", start=140_000, end=260_000, decisive=False, strong=False)),
+        "AT trough": dict(at=dict(start=180_000, end=220_000, gc=0.3, status="pass")),
+        "repeat-density peak": dict(rep=dict(start=160_000, end=240_000, density=6.0, status="pass", window=20_000)),
+        "CpG line": dict(cpg=lambda a, b: None),
+        "cis signal": dict(hic=_failed_hic(cis=dict(peak=(270_000, 280_000), status="pass", tested_by="ltr", interior=False,
+                                                     pair=False, trans_pair=False))),
+        "Rabl axis": dict(hic=_failed_hic(), fold=dict(status="pass", point=900_000, core_start=880_000, core_end=920_000,
+                                                       agrees=False)),
+    }
+    for what, kw in blocked.items():
+        d = dec(**kw)
+        assert "fam_over_low" not in d["flags"] and d["call"] != (600_000, 800_000), what
+        assert "fam_elsewhere" in d["flags"], what
+    alt = dict(sat, alt_start=250_000, alt_end=300_000)                                     # Hi-C on the LTR cores at the call,
+    d = dec(seq=alt, hic=_failed_hic(te_pair=dict(core=(150_000, 250_000), status="pass", clade="Tekay")))   # beside its rival
+    assert "hic_alt_ambiguous" in d["flags"] and "fam_over_low" not in d["flags"] and d["call"] == (150_000, 250_000)
+
+
+def test_a_moved_call_reads_methylation_at_its_new_place():
+    """The moved call's methylation is the provisional call's (at the window), as for a chosen competing cluster: the verdict on
+    the abandoned array says nothing about the window. The call stays low: the family line never pairs."""
+    meth = {"sequence_call": {"label": "dip", "score": 0.1}, "provisional": {"label": "centromere_like", "score": 0.9}}
+    sat = dict(start=150_000, end=250_000, evidence="satellite", confidence="low", flags="no_dominant_satellite", main_family="A")
+    d = fuse.decide(fuse.Evidence("c", 1_000_000, sat, None, None, meth, lambda a, b: 0, fam=dict(FAM, start=600_000, end=800_000)))
+    assert d["rule"] == "fam_over_low" and d["meth_call"]["label"] == "centromere_like" and d["confidence"] == "low"
+
+
+def test_the_family_line_speaks_only_where_its_window_holds_a_cluster():
+    """0.18: every chromosome gets a best family window, also where no family clusters (the holocentric Leptidea sinapis, whose
+    test passes, has 0-2 family K-mers in each window that placed or moved a call): where the window holds fewer than
+    famline.MIN_COPIES family K-mers (no cluster beyond a pair), the line places no call (fam_only), moves none (fam_over_low)
+    and flags none (fam_elsewhere)."""
+    thin = dict(FAM, density=2.0)
+    assert _ev(fam=thin)["call"] is None and _ev(fam=dict(FAM, density=3.0))["rule"] == "fam_only"
+    nop = "not_one_per_chromosome"
+    d = _ev(seq=(150_000, 250_000), fam=dict(thin, start=600_000, end=800_000), flags=nop)
+    assert d["call"] == (150_000, 250_000) and not {"fam_over_low", "fam_elsewhere"} & set(d["flags"])
+    d = _ev(seq=(150_000, 250_000), fam=dict(thin, start=300_000, end=500_000), flags=nop)
+    assert not {"fam_over_low", "fam_elsewhere"} & set(d["flags"])
+    assert _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000, density=3.0), flags=nop)["rule"] == "fam_over_low"

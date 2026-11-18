@@ -1,6 +1,6 @@
 # Future development
 
-Open problems after cenfuse 0.17.0, for developers. Each entry gives the problem, its evidence, what would settle it
+Open problems after cenfuse 0.18.0, for developers. Each entry gives the problem, its evidence, what would settle it
 (**Settle**) and where to start (**Code**). Entry numbers are stable (the code, tests and docs cite `future.md #N`); a closed
 entry keeps its number as one line under [Closed entries](#closed-entries). Release history: [CHANGELOG.md](../CHANGELOG.md).
 The next new entry is 80.
@@ -46,10 +46,13 @@ An entry is done only when these hold (design.md, Principles).
 0.17: on the 22 genomes added in 0.17, scored after 0.16.1's rules were fixed, `medium` calls were right 74% of the time against
 88% on the development genomes; their confident misses come from centromeres away from the genome's main satellite (#78) and
 from CRM cores (#79, #46). 0.16.0: 2,309 of 2,624 chromosome-runs with truth right in the real arms (88.0%), 35 confidently
-wrong. The largest headroom is in retrotransposon genomes from the FASTA alone, where the repeat-family window is right on 89 of
-the 110 `low` calls it contradicts in the release runs but only flags them (#76); then the competing clusters (40
-chromosome-runs where the second array is right) and yeasts' AT troughs, "right" only at the 250-kb tolerance (#37). Confident
-misses: [benchmark.md](benchmark.md#every-confident-miss).
+wrong. The largest headroom was in retrotransposon genomes from the FASTA alone, where the repeat-family window was right on 89
+of the 110 `low` calls it contradicted but only flagged them; since 0.18 it replaces an unsure satellite call it contradicts
+beyond both readouts' resolution, where its window holds a cluster and nothing else speaks to the call (#76: on the
+development genomes 94 wrong calls became right and 2 right ones wrong; on the genomes added in 0.17, 11 and 0), and 77 calls
+remain flagged beside their window, within that resolution (window right 64 times, call 13). Next come the competing
+clusters (40 chromosome-runs where the second array is right) and yeasts' AT troughs, "right" only at the 250-kb tolerance
+(#37). Confident misses: [benchmark.md](benchmark.md#every-confident-miss).
 
 1. **#79, #46, #78**: confidence on genomes cenfuse was not developed on: a CRM core alone, and centromeres away from the
    genome's main satellite (Hi-C or methylation needed).
@@ -60,14 +63,14 @@ misses: [benchmark.md](benchmark.md#every-confident-miss).
    with the case would let them make confident calls.
 5. **#45**: which locus holds CENH3 where an array sits at the edge of a wide LTR core.
 6. **#37, #38, #50**: the mammal misses (6 scored against other animals' ChIP or another caller).
-7. **#74, #76**: the repeat lines read the FASTA on one thread (up to 27 + 15 min on 4-5 Gb).
+7. **#74, #76**: the repeat lines' genome-wide sort after reading runs on one thread (the reading is parallel since 0.18).
 8. **#63, #60, #65**: the remaining large functions; CI's first result.
 
 ## All entries
 
 Grouped by area below; each entry opens with its status.
-- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 76, 77, 78, 79.
-- **Partly done:** 1, 5, 8, 9, 10, 14, 15, 34, 35, 37, 39, 44, 46, 47, 52, 53, 56, 58, 60, 62, 63, 65, 66, 73.
+- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 77, 78, 79.
+- **Partly done:** 1, 5, 8, 9, 10, 14, 15, 34, 35, 37, 39, 44, 46, 47, 52, 53, 56, 58, 60, 62, 63, 65, 66, 73, 76.
 - **Built, unchecked by truth:** 30, 31, 32, 68, 74. **Waiting for data:** 4, 13, 22, 29. **User's decision:** 7.
 - **Tested, not adopted:** 3, 40, 67, 75 ([below](#tested-not-adopted)). **Closed:** 11, 12, 17-21, 23-26, 33, 36, 59, 64, 69
   ([below](#closed-entries)).
@@ -387,6 +390,13 @@ least 3 times wider than the call, 11 right and 4 wrong; otherwise 114 and 1 (ex
   Mb outside the LTR core that holds CENH3 (the authors' neocentromere). Not acted on: where a call lies beside a decisive core
   (disjoint, within tolerance), the call is right more often than the core in the 0.16.1 release (13 against 10 of 15); the new
   genomes have too few such cases to say (2 against 3 of 3).
+- **The 3-fold split holds out of sample (0.18 check).** On the genomes added in 0.17, which the 0.13 split never saw, satellite
+  calls flagged `te_concordant` (every arm with `tes/`, 0.17 release runs) are right 17 of 24 times where the agreeing core is at
+  least 3 times wider than the call, against 125 of 131 otherwise (development genomes in the same runs: 55 of 74 against 359
+  of 370). A core merely wider than the call does not separate on the added genomes (98 of 107 against 44 of 48), and judging
+  agreement by chance does not either (chance of agreement 0.02-1 for every such call; above 0.2 right 203 of 204), so no
+  principled cut is in hand; the rule would sit in the satellite engine (`finalize`), which the stored FASTA-only replays
+  read as is. A lead, not a rule.
 - **Settle:** the five calls fall to `low` or move onto CENH3; none of the 125 right calls drops below `medium`; CRM-plateau genomes
   not used to make the rule (wheat, the soybean lines: #35). **Code:** `sat/centromere.py` (`te_concordant`), `sat/te.py`
   (`agrees`), `linetests.py`.
@@ -415,7 +425,8 @@ overruled by CRM (#35). **Code:** `sat/signature.py` (`seed_of`, `TE_SEED_MIN_CO
 Partly done. The LTR line reads classified LTR elements only. In *Cryptococcus* 89-94% of LTRquest's elements lie in the CENP-A
 domains but none has a REXdb lineage (unknown, chromo-outgroup); since 0.16 the repeat-density line places *C. neoformans* from
 the FASTA instead (#74). *Chlamydomonas*' centromeres are clusters of ZeppL, a LINE: LTRquest finds 669 elements, 613 without
-lineage; 6 of 17 right, all `low`. Pooling unclassified elements qualified in fish genomes without truth (design.md); all LTR
+lineage; 6 of 17 right, all `low` (12 of 17 since 0.18, where the repeat-family window takes the place of 6 wrong satellite
+calls). Pooling unclassified elements qualified in fish genomes without truth (design.md); all LTR
 elements pooled per chromosome (0.15) are right on 6 of 14 *C. neoformans* and 3 of 8 *V. dahliae* but never significant (too few
 independent insertions). **Approach.** Lineage labels covering fungal Ty3 and chromoviruses; a non-LTR annotation read by the
 family signature; each needs a second genome with truth. **Settle:** *Chlamydomonas* placed with `tes/`; fish and *Oryza*
@@ -625,20 +636,48 @@ Built in 0.16 (`repline.py`; design.md). It passes in *C. neoformans* (14 of 14 
   peaks (0.7-3.5 Mb). Replacing the `low` calls it contradicts was right on 14 of 14 benchmark cases (13 in *Chlamydomonas*) but
   took the panel's homoeologous calls apart (36 pairs: agreeing 21 → 11): not adopted. In *Malus toringoides* it placed 4
   chromosomes that had no call; the 2 homoeologous pairs they form disagree.
-- **Speed.** It runs on one thread: 27 min on *Ae. geniculata* (7.9 Gb), 17 min on barley, minutes below 1 Gb. The K-mer pass could
-  run one process per sequence.
+- **Speed.** Since 0.18 both repeat lines read the FASTA on the run's threads (`repline.pieces`; outputs byte-identical at any
+  thread count): on *E. rockii* (2.0 Gb), 0.17's single-thread code took 206 s (repeat density) and 233 s (repeat families),
+  0.18 at 16 threads 34-42 s and 42-51 s, at no higher peak memory (one thread: about 0.4 GB more). What remains serial is
+  the genome-wide sort after reading (`np.unique`, a stable `argsort`), about half of the 16-thread time. On a loaded shared
+  server at 4 threads per run, stage times in the release replays followed the load more than the code.
 - **Settle:** a large genome with truth where it passes. **Code:** `repline.py`, `fuse.py` (`rep_only`, `rep_pair`).
 
 ### 76. The repeat-family line and low calls it contradicts
 
-Open. Built in 0.16 (`famline.py`; design.md, where its Results paragraph holds the numbers). Its test is not calibrated, so
-since 0.16.1 it places only `low` calls and flags (`fam_pair` removed); the move is not adopted.
+Partly done (0.18: `fam_over_low`). Built in 0.16 (`famline.py`; design.md, where its Results paragraph holds the numbers). Its test
+is not calibrated, so since 0.16.1 it places only `low` calls (`fam_pair` removed).
 - **What it finds.** Release runs: the line runs in 39 FASTA-only genomes and passes in 18, peaks right on 183 of 211
   chromosomes (13 of the 16 *Solanum* genomes, *Ae. geniculata* 14 of 14, *Chlamydomonas*, *Chlorella*, *N. crassa*, *V.
   dahliae*). The development scan of all 71 FASTA-only genomes passes 32 (also *B. rapa*, soybean, maize, rice, sorghum,
   where confident satellite calls keep the line from running), peaks right on 323 of 363. Holocentric genomes, mammals and
   chicken fail.
-- **The move not made.** Of the `low` calls it contradicts (outside the terminal eighths), its window is right on 89 of 110
+- **The move, 0.18.** A `low` satellite call that no other rule changed, outside the terminal eighths, moves to the window and
+  stays `low` (`fam_over_low`, `fuse._fam_alone_against`) when the satellite could not vouch for it (`not_one_per_chromosome`,
+  `no_dominant_satellite`, or the weak-satellite fallback), the window holds a cluster (at least `famline.MIN_COPIES` family
+  K-mers, `fuse._fam_speaks`, which also gates `fam_only` and `fam_elsewhere`), the window lies farther from the call than the
+  wider of the two intervals (`sat/te.agrees`, the rule for an array and an LTR core), and no other line speaks to the call on
+  the chromosome (a Hi-C reading acting there, an agreeing LTR core, tested AT trough or repeat-density peak, centromere-like
+  methylation, a CpG line); any other window off a `low` call only flags it (`fam_elsewhere`). Registered with its criteria
+  before the replay, after the counterfactual on the stored runs was known; the resolution rule answers C1's miss in *Populus*
+  (below), so it is a rule changed after a result was seen. The guards came after the first replays: a code review found the
+  first form also moved low LTR cores (`minority_core`, `weak_core`) and calls other tested lines spoke to (fixed from the
+  rule's own reason); the satellite-test guard came from designing for genomes outside the benchmark (it changed no call with
+  truth); the cluster guard from the holocentric *Leptidea*, whose test passes on windows of 0-2 family K-mers (a guard on
+  the window's rank among the genome's strongest, tried first, was decided there by ties among empty windows and cost a right
+  pepper move: withdrawn). Replayed (development, panel, added genomes): development 123 calls moved (122 with truth), 94 wrong
+  -> right, 2 right -> wrong (LA0111 CM175153.1 without `tes/`, with and without Hi-C), no confident or control call changed;
+  added genomes 18 moved, 11 wrong -> right (pepper 10, cotton 1), none lost, *Populus* untouched; *Leptidea*'s 16 `low`
+  `fam_only` calls gone; panel 29 `low` calls moved and 10 `fam_only` calls gone (*Sesamum radiatum*, windows of 0-1 K-mers),
+  homoeolog agreement 665 of 1,119 pairs to 666 of 1,110. Per lineage, window right against replaced call right: *Solanum* 76
+  vs 4, *Aegilops* 8 vs 0, *Chlamydomonas* 12 vs 0, *Capsicum* 10 vs 0. The 140 moved calls with truth are right 107 times
+  where about 11 would be right by chance (the scorer's chance); the calls they replaced, 4 times against about 8. Still
+  open: 77 calls flagged beside their window, within the readouts' resolution (15 genomes), window right 64 times and call
+  13; and 2 checks with no gain, run on the development and added genomes: running the line in arms where it does not run now
+  (+3, -4 on the `low` calls it would reach, from 0.17's F-arm windows) and narrowing a wide call (at least twice the window's
+  width) to a window inside it (both right in 64 of 65, but the window's midpoint closer to truth only in *Populus*, 16 of 16;
+  farther in *N. crassa*, 24 of 24).
+- **The move not made (0.16-0.17).** Of the `low` calls it contradicts (outside the terminal eighths), its window is right on 89 of 110
   in the release (15 genomes: 13 *Solanum*, *Ae. geniculata*, *Chlamydomonas*) against 8 for the calls, but on the panel the
   homoeologous pairs touched came no closer (64 pairs: 24 closer, 27 farther; agreeing 20 → 17). Such calls are flagged
   `fam_elsewhere`. In *Solanum* FASTA-only arms this is the largest headroom left.
@@ -668,7 +707,7 @@ since 0.16.1 it places only `low` calls and flags (`fam_pair` removed); the move
 - **Settle:** more truth where the line passes and the calls are `low` (#35: oat, wheat, other Solanaceae with ChIP). For the
   test: a null that deals each family's clusters among chromosomes by length, which tests the line's own claim (the old test
   passes 8 of 100 such planted genomes); or family membership from `tes/` annotations, which removes the grouping problem.
-  **Code:** `famline.py`, `fuse.py` (`fam_only`, `fam_elsewhere`).
+  **Code:** `famline.py`, `fuse.py` (`fam_only`, `fam_over_low`, `_fam_speaks`, `_fam_alone_against`, `fam_elsewhere`).
 
 ### 77. Leave-one-out for the one-locus tests
 

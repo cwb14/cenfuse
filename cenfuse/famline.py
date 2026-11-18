@@ -22,16 +22,18 @@ holocentric genomes do not pass it (C. elegans P 0.44, B. mori P 0.71). No famil
 K-mers: grouping them into families splits diverged families or merges neighbors (docs/future.md #76). Its peaks are
 leads.
 
-Calls: the strongest vote window at the chosen size, widened to its half-height run. The line places only `low` calls, on
-chromosomes nothing else places (fuse: fam_only), and flags a `low` sequence call whose family window lies elsewhere
-(fam_elsewhere). It never pairs with Hi-C (an uncalibrated test cannot be one of two tested lines) and never moves, opposes
-or raises a sequence call."""
+Calls: the strongest vote window at the chosen size, widened to its half-height run. The line places only `low` calls: on
+chromosomes nothing else places (fuse: fam_only), and (0.18) in place of a `low` satellite call that its satellite could not
+vouch for, that its window contradicts beyond the resolution of both readouts and that no other line speaks to (fam_over_low,
+fuse._fam_alone_against); any other window off a `low` call is flagged (fam_elsewhere). It acts only on a chromosome whose
+window holds a cluster, at least MIN_COPIES family K-mers (fuse._fam_speaks): every chromosome gets a best window, also where
+no family clusters. It never pairs with Hi-C (an uncalibrated test cannot be one of two tested lines) and never opposes or
+raises a call."""
 from __future__ import annotations
 
 import math
 
 import numpy as np
-import pysam
 
 from . import atline, repline
 from .hicfuse import END_ZONE
@@ -58,43 +60,48 @@ def periodic(km: np.ndarray, k: int = K, p_max: int = K // 2) -> np.ndarray:
     return out
 
 
-def sample(fasta, fai: dict, chroms: dict, arrays: dict | None = None) -> dict:
+def _read(fa, name: str, L: int, s: int, e: int, ci: int, ivs) -> tuple:
+    """Piece [s, e) of a sequence of length L: the kept copies (a hash sample of 1 in SAMPLE) of the K-mers starting in it as
+    (K-mer, chromosome index ci (-1: not analyzed), position (0 off the analyzed chromosomes), touches an array) and, on an
+    analyzed chromosome (ivs: its arrays), (first bin of the piece, called bases per bin)."""
+    raw = np.frombuffer(fa.fetch(name, s, min(L, e + K - 1)).encode(), dtype=np.uint8)
+    km, ok = repline.canonical_kmers(repline.LUT[raw], K)
+    km, ok = km[:e - s], ok[:e - s]                        # K-mers starting in [s, e)
+    pos = np.flatnonzero(ok)
+    km = km[pos]
+    sel = (repline.fmix64(km) % np.uint64(SAMPLE)) == 0
+    km, pos = km[sel], pos[sel]
+    ch = np.full(len(km), ci, np.int16)
+    if ci < 0:
+        return km, ch, np.zeros(len(km), np.int64), np.zeros(len(km), bool), None
+    up = raw[:e - s] & np.uint8(0xDF)
+    lo, hi = s // atline.BIN, (e - 1) // atline.BIN + 1
+    called = np.bincount((np.arange(e - s) + s) // atline.BIN - lo, up != 78, minlength=hi - lo).astype(np.int64)
+    # a K-mer that touches an array is the array's: one starting up to K - 1 bases before it holds its unit too
+    touch = repline._inside([(max(0, a - K + 1), b) for a, b in ivs or ()], s, e)
+    return km, ch, (pos + s).astype(np.int64), touch[pos], (lo, called)
+
+
+def sample(fasta, fai: dict, chroms: dict, arrays: dict | None = None, threads: int = 1) -> dict:
     """The kept copies of the family-candidate K-mers on the analyzed chromosomes: dict(kid, chrom, pos, nk, called) with kid
     the K-mer's index, chrom the chromosome's index in `chroms`, pos 0-based; called = {chrom: non-N bases per atline.BIN
     bin}. fai: {sequence: length} of the whole FASTA (every sequence counts copies); arrays: {chrom: [(start, end)]} 0-based
-    half-open (the satellite engine's arrays)."""
+    half-open (the satellite engine's arrays). threads: processes reading the FASTA in PIECE-bp pieces (repline.pieces: the
+    same result at any number)."""
     names = list(chroms)
     idx = {c: i for i, c in enumerate(names)}
     arrays = {c: sorted(v) for c, v in (arrays or {}).items()}
     called = {c: np.zeros(L // atline.BIN + 1, np.int64) for c, L in chroms.items()}
-    S = np.uint64(SAMPLE)
     KM, CH, PO, AR = [], [], [], []
-    with pysam.FastaFile(str(fasta)) as fa:
-        for name, L in fai.items():
-            ci = idx.get(name, -1)
-            for s in range(0, L, PIECE):
-                e = min(L, s + PIECE)
-                raw = np.frombuffer(fa.fetch(name, s, min(L, e + K - 1)).encode(), dtype=np.uint8)
-                km, ok = repline.canonical_kmers(repline.LUT[raw], K)
-                km, ok = km[:e - s], ok[:e - s]                        # K-mers starting in [s, e)
-                pos = np.flatnonzero(ok)
-                km = km[pos]
-                sel = (repline.fmix64(km) % S) == 0
-                km, pos = km[sel], pos[sel]
-                if ci >= 0:
-                    up = raw[:e - s] & np.uint8(0xDF)
-                    lo, hi = s // atline.BIN, (e - 1) // atline.BIN + 1
-                    called[name][lo:hi] += np.bincount((np.arange(e - s) + s) // atline.BIN - lo, up != 78,
-                                                       minlength=hi - lo).astype(np.int64)
-                    # a K-mer that touches an array is the array's: one starting up to K - 1 bases before it holds its unit too
-                    touch = repline._inside([(max(0, a - K + 1), b) for a, b in arrays.get(name) or ()], s, e)
-                    AR.append(touch[pos])
-                    PO.append((pos + s).astype(np.int64))
-                else:
-                    AR.append(np.zeros(len(km), bool))
-                    PO.append(np.zeros(len(km), np.int64))
-                KM.append(km)
-                CH.append(np.full(len(km), ci, np.int16))
+    args = lambda name: (idx.get(name, -1), arrays.get(name) if name in idx else None)     # noqa: E731
+    for (name, *_), (km, ch, po, ar, bins) in repline.pieces(fasta, fai, PIECE, _read, args, threads):
+        if bins is not None:
+            lo, cl = bins
+            called[name][lo:lo + len(cl)] += cl
+        KM.append(km)
+        CH.append(ch)
+        PO.append(po)
+        AR.append(ar)
     km, ch, po, ar = (np.concatenate(x) for x in (KM, CH, PO, AR))
     del KM, CH, PO, AR
     order = np.argsort(km, kind="stable")

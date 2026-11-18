@@ -8,6 +8,7 @@ from cenfuse.fuse import (Evidence, _bins, _clean_denovo, _clean_flags, _clean_m
                           _peak_agrees, _peak_far, _te_agrees, _te_decides, _te_near, _vgap, axis_line, hic_core, hic_peak,
                           in_end_zone)
 from cenfuse.atline import interior
+from cenfuse.sat.te import agrees
 from cenfuse.hicfuse import SUPPORT_LEVELS
 from cenfuse.params import HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
 from cenfuse.util import gap, level_shift
@@ -181,7 +182,8 @@ def decide_014(ev: Evidence) -> dict:
     elif call is None and getattr(ev, "rep", None) and ev.rep.get("status") == "pass":      # 0.16: the repeat-density line
         call, relation, source, rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         flags.append("rep_only")
-    elif call is None and getattr(ev, "fam", None) and ev.fam.get("status") == "pass":      # 0.16: the repeat-family line
+    elif call is None and getattr(ev, "fam", None) and ev.fam.get("status") == "pass" and \
+            float(ev.fam.get("density", 0)) >= 3:                                          # 0.16; 0.18: a cluster in the window
         call, relation, source, rule = (ev.fam["start"], ev.fam["end"]), "sequence_only", "composition", "fam_only"
         flags.append("fam_only")
     elif at_ok and sconf == "low" and alt_iv and rule == "sequence" and (amb or not (valid and peak)) and gap(ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"]), *alt_iv) == 0 \
@@ -189,9 +191,21 @@ def decide_014(ev: Evidence) -> dict:
         call, rule = alt_iv, "at_chose_alt"
         flags.append("at_chose_alt")
     fp0 = getattr(ev, "fam", None)                       # 0.16: said in the caveat, the call stays
-    if fp0 and fp0.get("status") == "pass" and call is not None and sconf == "low" and source == "sequence" and \
+    if fp0 and fp0.get("status") == "pass" and float(fp0.get("density", 0)) >= 3 and call is not None and sconf == "low" and \
+            source == "sequence" and \
             rule == "sequence" and not in_end_zone(ev, call) and gap(fp0["start"], fp0["end"], *call) > 0:
-        flags.append("fam_elsewhere")
+        rp0 = getattr(ev, "rep", None)                    # 0.18: beyond resolution, the satellite line's own array, no other line
+        unsure = {"not_one_per_chromosome", "no_dominant_satellite"} & set(str(ev.seq.get("flags", "")).split(","))
+        alone = (ev.seq["evidence"] == "weak_satellite" or (ev.seq["evidence"] == "satellite" and bool(unsure))) and \
+            not (h and (((valid or weak) and peak) or fo or h.get("te_pair") or h.get("cis") or untested)) and \
+            not (_te_agrees(ev, call) or m_seq["label"] == "centromere_like" or getattr(ev, "cpg", None) is not None) and \
+            not (at_ok and agrees(*call, dict(start=ev.at["start"], end=ev.at["end"]))) and \
+            not (rp0 and rp0.get("status") == "pass" and agrees(*call, dict(start=rp0["start"], end=rp0["end"])))
+        if not agrees(*call, dict(start=fp0["start"], end=fp0["end"])) and alone:
+            call, relation, source, rule = (fp0["start"], fp0["end"]), "sequence_only", "composition", "fam_over_low"
+            flags.append("fam_over_low")
+        else:
+            flags.append("fam_elsewhere")
     if call is None:
         return dict(call=None, relation="none", confidence="none", source="none", support=[], against=[],
                     flags=flags, rule="none", second=second, meth_call={"label": "", "score": np.nan})
@@ -230,12 +244,13 @@ def decide_014(ev: Evidence) -> dict:
     elif fo and "hic_denovo_only" in flags and _fold_far(ev, f_core, call):
         f_opp = True                                       # the axis line passed genome-wide but points elsewhere
         flags.append(f"{axis}_offset")                     # here: said, not hidden (the call is low already)
-    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags) or "at_chose_alt" in flags or chose   # 0.15: the call sits at
+    at_core = "hic_denovo_only" in flags or (axis and f"{axis}_pair" in flags) or "at_chose_alt" in flags or chose or \
+        "fam_over_low" in flags   # 0.15: the call sits at
     m_call = _meth(ev, "provisional") if at_core else m_hic if source == "hic" else m_seq   # the prior-free core or a chosen competing cluster: its own item
     support = ["at"] if at_pair or {"at_only", "at_denovo_pair", "at_chose_alt"} & set(flags) else []
     if "rep_only" in flags or rep_pair:
         support.append("repeats")
-    if "fam_only" in flags:
+    if {"fam_only", "fam_over_low"} & set(flags):
         support.append("families")
     if ev.sat_bp and ev.sat_bp(*call) >= SAT_SUPPORT_BP:
         support.append("satellite")
@@ -276,7 +291,7 @@ def decide_014(ev: Evidence) -> dict:
         if relation == "sequence_only" and "meth" in support:
             relation = "concordant"
     elif source == "composition":      # a trough alone is low; tested against Hi-C's peaks genome-wide, medium
-        conf = "medium" if "rep_only" not in flags and "fam_only" not in flags and ev.at.get("validated") else "low"
+        conf = "medium" if not {"rep_only", "fam_only", "fam_over_low"} & set(flags) and ev.at.get("validated") else "low"
     elif {"cis_trans_pair", "cis_end_pair"} & set(flags):
         conf = "low"                                # 0.16: shaped on one genome, no confident call
     elif "cis_only" in flags or "hic_medium_peak" in flags or "hic_denovo_only" in flags:
