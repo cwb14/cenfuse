@@ -70,6 +70,11 @@ def _evidence(r: random.Random) -> fuse.Evidence:
         u0, u1 = _iv(r, 0)
         at = dict(start=u0, end=u1, gc=0.3, status=r.choice(["pass", "fail", "untested"]), validated=r.random() < 0.3,
                   support=r.random() < 0.3, agrees=r.random() < 0.5)
+        if r.random() < 0.6:                 # 0.17: the deepest trough's own window (often at an end) and the deepest
+            at.update(trough_start=u0, trough_end=min(L, u0 + 50_000))     # trough clear of the ends, or none
+            w0 = r.choice([s for s in SITES if 0.05 * L <= s <= 0.9 * L])
+            at.update(inner_start=w0, inner_end=w0 + 400_000, inner_gc=0.35) if r.random() < 0.6 else \
+                at.update(inner_start=None, inner_end=None, inner_gc=None)
     meth = None
     if r.random() < 0.3:
         lab = lambda: dict(label=r.choice(["", "centromere_like", "dip", "other"]), score=r.random())
@@ -104,13 +109,15 @@ def _same(a: dict, b: dict) -> bool:
 
 def test_split_rules_decide_as_the_single_cascade():
     r = random.Random(14)
-    n, fired = 20_000, {}
+    n, fired, flags = 20_000, {}, set()
     for i in range(n):
         ev = _evidence(r)
         new, old = fuse._decide(ev), decide_014(ev)
         assert _same(new, old), (i, ev, new, old)
         fired[new["rule"]] = fired.get(new["rule"], 0) + 1
+        flags.update(new["flags"])
     assert len(fired) >= 18, fired                          # the draw reaches most rules
+    assert {"at_interior", "at_terminal"} <= flags          # and the 0.17 terminal-trough branches
 
 
 def test_the_cascade_order_is_declared():

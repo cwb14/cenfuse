@@ -71,8 +71,8 @@ the call was made.*
 
 ## How good it is
 
-Numbers are from cenfuse 0.16.1 on every genome benchmarked so far, scored against centromeres mapped on the same
-assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq.
+Numbers are from cenfuse 0.17.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
+same assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq; the genomes added in 0.17 have their own bullet.
 
 - **Satellite centromeres** (mammals, birds, most crops): from the FASTA alone, right on 425 of 450 chromosomes in 32
   genomes, 2 of them confidently wrong.
@@ -86,11 +86,16 @@ assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq.
   453 of 459 times (99%), `medium` 137 of 155 (88%), `low` 149 of 197 (76%).
 - **Controls stay silent.** Randomized Hi-C changed no call (55 runs); holocentric genomes got no confident call (0 of
   46 chromosomes, with any input).
+- **On genomes it was not developed on** (22 added in 0.17 and scored with 0.16.1, whose rules had never seen them):
+  `high` calls were right 104 of 110 times (95%), `medium` 23 of 31 (74%), `low` 57 of 83 (69%). Most confident
+  misses were centromeres that sit away from the genome's main satellite (*Nicotiana benthamiana*) and `medium` calls
+  resting on one retrotransposon core; the 5 holocentric genomes got no confident call
+  ([details](docs/benchmark.md#genomes-added-in-017)).
 
 Right means overlapping the mapped domain in mammals, within 1 Mb of it in plants (8 Mb in barley), within 100 kb in
 moss and algae, and within one Hi-C bin in fungi (250 kb without Hi-C, a lenient rule); every rule:
 [benchmark/README.md](benchmark/README.md#scoring-rules). These genomes are not an independent test: cenfuse's rules
-were developed while looking at them.
+were developed while looking at them; the genomes added in 0.17 are an independent test of 0.16.1.
 
 ![cenfuse on every benchmark genome, by the data it was given](docs/img/performance.png)
 
@@ -101,7 +106,9 @@ centromere type; gray bars: chance; circles: single genomes. **C** every genome 
 **D** how often `high`, `medium` and `low` calls were right. **E** Hi-C changes calls only when it carries real signal.*
 
 Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every genome's overview page:
-[docs/gallery.md](docs/gallery.md); every result, one row per chromosome: [benchmark/results.tsv](benchmark/results.tsv).
+[docs/gallery.md](docs/gallery.md); every result, one row per chromosome:
+[benchmark/results.tsv](benchmark/results.tsv) (the genomes added in 0.17:
+[benchmark/results_017.tsv](benchmark/results_017.tsv)).
 
 ## Install
 

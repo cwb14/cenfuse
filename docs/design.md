@@ -180,13 +180,23 @@ chromosome could not pass after the correction (about 6 or fewer chromosomes of 
 windows on at least 3 chromosomes and on more than half of them, or above 200 sequences. GC blocks shuffled among
 chromosomes pass 4% of the time; holocentric genomes fail.
 
-**Calls.** The deepest trough at the chosen window, widened to its half-depth run (the window Hi-C's test chose where that
-test passes, or supports while the FASTA test does not).
+**Calls.** The deepest trough at the chosen window, widened to its half-depth run (the window Hi-C's test chose where
+that test passes, or supports while the FASTA test does not). A trough centred in the terminal 5% of its chromosome
+places no call alone (0.17, `at_interior`): subtelomeres are AT-rich in many genomes, and a trough cannot tell an
+acrocentric centromere from a subtelomere. The chromosome's deepest trough whose half-depth run lies wholly outside the
+terminal 5% places it instead (its interval is then in the `at_*` columns; a trough on the shoulder of the terminal
+AT-rich block does not qualify), and without one the trough places nothing (`at_terminal`). Where Hi-C, tested against
+the troughs, agrees with the terminal trough on that chromosome, the trough keeps its place: Hi-C tells the two apart.
+From the FASTA, outside the acrocentric mouse, troughs in a terminal 5% lay on the centromere on 3 of 22 chromosomes
+(*Z. tritici* 2 of 6, *P. carinii* 0 of 5, *P. murina* 1 of 9, *C. tropicalis* 0 of 1, *K. pini* 0 of 1). The rule came
+from *P. carinii*, where it moves 5 calls, all onto CENP-A; no call of the 424 runs of the 0.16.1 benchmark changes. The
+trough still chooses between a satellite call's two clusters at an end (`at_chose_alt`, mouse).
 
 **What it may change.** It runs where most chromosomes have no sequence call (a long-unit array counts as none) or a `low`
 one with a competing cluster. It never moves a confident satellite or LTR call. Where the troughs passed their test or Hi-C's
 prior-free peaks validated them:
-- A chromosome nothing else places takes its trough (`at_only`: `low`; `medium` where validated).
+- A chromosome nothing else places takes its trough (`at_only`: `low`; `medium` where validated); a trough at an end
+  gives way to one clear of the ends (`at_interior`) or places nothing (`at_terminal`), as above.
 - On a `low` call no other rule changed, with a competing cluster, the trough's deepest window on that cluster and not on the
   call chooses the cluster (`at_chose_alt`), still `low` unless Hi-C or methylation agrees there; not where validated Hi-C
   can tell the two apart. **A named heuristic, on one genome**: two satellites differ in composition whatever their
@@ -248,13 +258,13 @@ family 31-mer is concentrated on at least half of the chromosomes. Each family 3
 concentrated, at the center of its densest window. The profile is the votes per window (0.1, 0.3, 1 and 3 Mb).
 
 **The test** is the AT line's, on the negated votes, at P ≤ 0.01 after the correction for the window sizes, with windows in a
-terminal eighth left out. It runs where the repeat-density line runs: most chromosomes have no confident sequence call.
-The test is not calibrated. Every family 31-mer votes at most once per chromosome, so one family that clusters once per
-chromosome puts its votes one per chromosome wherever its clusters sit: a pass says that such a family exists, not where the
-centromeres are. It passes in genomes whose repeat units were moved to random places, and holocentric genomes do not pass
-it (Results). No calibrated null could be built from K-mers: grouping them into families either splits a diverged family, whose
-parts then seem to coincide, or merges neighbors and leaves no power
-([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). Its peaks are leads.
+terminal eighth left out. It runs where the repeat-density line runs: most chromosomes have no confident sequence call. The
+test is not calibrated. Every family 31-mer votes at most once per chromosome, so one family that clusters once per chromosome
+puts its votes one per chromosome wherever its clusters sit: a pass says that such a family exists, not where the centromeres
+are. It passes in genomes whose repeat units were moved to random places, and in one holocentric genome, *Leptidea sinapis*
+(Results). No calibrated null could be built from K-mers: grouping them into families either splits a diverged family, whose
+parts then seem to coincide, or merges neighbors and leaves no power ([future.md
+#76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). Its peaks are leads.
 
 **Calls.** The strongest window at the chosen size, widened to its half-height run.
 
@@ -262,10 +272,11 @@ parts then seem to coincide, or merges neighbors and leaves no power
 repeat-density peak; the caveat says the test is not calibrated. On a `low` sequence call that no other rule changed, outside
 the terminal eighths, whose chromosome's family window lies elsewhere it says so (`fam_elsewhere`, in the caveat; `families` is
 listed `against`) and the call stays: moving such calls onto the window would mostly have been right on the benchmark, but did
-not bring the polyploid panel's homoeologous calls closer, so it waits for more truth where the line passes
-([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). It never pairs with Hi-C: a line whose test
-is not calibrated cannot be one of the two tested lines that raise a call, so 0.16.1 removed 0.16.0's `fam_pair` (it had raised
-no call in the release runs). It never moves, contests or raises a sequence call.
+not bring the polyploid panel's homoeologous calls closer, and on the genomes added in 0.17, registered as a test beforehand,
+it held in one of the two lineages it touched ([future.md
+#76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). It never pairs with Hi-C: a line whose test is not
+calibrated cannot be one of the two tested lines that raise a call, so 0.16.1 removed 0.16.0's `fam_pair` (it had raised no
+call in the release runs). It never moves, contests or raises a sequence call.
 
 **Results** (every number of this section; rules fixed before computing). The 0.16.0 release runs the line where it runs in
 cenfuse; the development scan ran its test on all 71 FASTA-only benchmark genomes.
@@ -500,7 +511,7 @@ repeat peak alone `low`.
 | `cis_agrees`, `cis_only`, `cis_elsewhere`; flag `cis_near` | gate failed; the cis signal tested against the LTR cores (`support` or `pass`) or by trans contacts (`pass`) | the extreme at the call: one level up; within 4 bins: nothing; farther: at `pass` a `low` call moves to it, still `low`, and a confident call stays, `contested`, one level lower; at `support` both stay, flagged; a chromosome without a call takes the extreme, `low` |
 | `cis_trans_pair` | the LTR cores and the trans contacts both pass the cis signal; this chromosome's own trans peak lies at its extreme; a confident call elsewhere | moves to the extreme, `low` (a named heuristic) |
 | `cis_end_pair`; flag `cis_blind` | the cis signal tested by trans contacts; a call in a terminal eighth, the extreme elsewhere | a `low` call moves to the interior extreme where its own trans peak lies, `low` (a named heuristic); else kept, flagged |
-| `at_only`, `at_denovo_pair` | no call yet; AT troughs passed (or validated by Hi-C's prior-free peaks); or a trough and a clean prior-free peak that placed no call agree, in a genome where the two agree beyond chance | the trough, `low` (`at_only` with validated troughs: `medium`) |
+| `at_only`, `at_denovo_pair`; flags `at_interior`, `at_terminal` | no call yet; AT troughs passed (or validated by Hi-C's prior-free peaks); or a trough and a clean prior-free peak that placed no call agree, in a genome where the two agree beyond chance | the trough, `low` (`at_only` with validated troughs: `medium`); a deepest trough centred in a terminal 5% gives way to the deepest trough clear of the ends (`at_interior`) or places nothing (`at_terminal`), unless Hi-C tested against the troughs agrees with it on this chromosome |
 | `rep_only` | no call yet; the repeat-density test passed | the densest repeat stretch, `low` |
 | `fam_only` | no call yet; the repeat-family test passed | the strongest family window, `low` |
 | `at_chose_alt` | AT troughs passed; a `low` call with a competing cluster; the deepest trough window on the cluster, not on the call; not where validated Hi-C can tell the two apart | that cluster, `low` unless another line agrees there (a named heuristic) |

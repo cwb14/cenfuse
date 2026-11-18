@@ -2,7 +2,7 @@
 
 The truth files, the stored runs and the earlier releases' tables live outside the repository (too large, and some truth
 is unpublished). DATA is the root they live under: $CENFUSE_BENCH_DATA, else the folder they were made in (DEFAULT_DATA).
-The names below default to the 0.16.1 release, whose runs and tables made docs/benchmark.md; release.sh takes any of
+The names below default to the 0.17.0 release, whose runs and tables made docs/benchmark.md; release.sh takes any of
 them from the environment instead.
 
   python -m benchmark.paths [--shell]     # print the roots (--shell: as bash defaults for release.sh)"""
@@ -19,7 +19,7 @@ DOCS_SRC = HERE / "docs_src"             # the template of docs/benchmark.md
 DEFAULT_DATA = Path("/data2/chris/centromere_benchmark")
 DATA = Path(os.environ.get("CENFUSE_BENCH_DATA") or DEFAULT_DATA)
 
-# development folders, nested: v2 = 0.1.0, v11 = 0.12, v12 = 0.13, v13 = 0.14, v14 = 0.15, v16 = 0.16
+# development folders, nested: v2 = 0.1.0, v11 = 0.12, v12 = 0.13, v13 = 0.14, v14 = 0.15, v16 = 0.16, v18 = 0.17
 V2 = DATA / "v2"
 V5 = V2 / "v3/v4/v5"
 V11 = V5 / "v6/v7/v8/v9/v10/v10.1/v10.2/v10.3/v10.4/v11"
@@ -27,19 +27,21 @@ V12 = V11 / "v12"
 V13 = V12 / "v13"
 V14 = V13 / "v14"
 V16 = V14 / "v15/v16"
+V18 = V16 / "v17/v18"
 
-# the 0.16.1 release: the 0.16.0 runs (runs/rel16), the 51 that 0.16.1 can change rerun (runs/rel161); runs/rel161m
-# links each arm to its newest run
-RUNS = V16 / "runs/rel161m"                      # release root: RUNS/<arm>/<id>
+# the 0.17.0 release: every arm of 0.16.1's release (318 benchmark runs, 106 panel runs) replayed with 0.17.0, and the
+# runs of the genomes added in 0.17 (benchmark/truth_017.tsv; their tables, md17/HELD17_*.md, come from v18
+# bench/md_held17.py)
+RUNS = V18 / "runs/rel17b"                       # release root: RUNS/<arm>/<id>
 JOBS = V13 / "bench/jobs_rel14.tsv"              # arm, id, inputs, threads, satellite dir, reference run (260 arms)
-RESULTS = V16 / "results/docs161_rel161m"        # the chain's stored outputs (read-only reference)
-JOBS_CMP = RESULTS / "jobs_cmp16.tsv"            # the same arms; column 6 = the 0.15.0 run of each
+RESULTS = V18 / "results/docs17_rel17b"          # the chain's stored outputs (read-only reference)
+JOBS_CMP = RESULTS / "jobs_cmp17.tsv"            # the same arms; column 6 = the 0.16.1 run of each
 JOBS_RABL = V12 / "bench/jobs_rel12_run.tsv"     # the 220 arms of 0.12's own run (the Rabl-axis table)
-SCORES = RESULTS / "release16"                   # this release's scores (score.py prefix)
-TABLES = RESULTS / "md16"                        # its computed doc tables (fill_docs.py TABLES)
-PREV = V14 / "results/docs15_rel15c/release15"   # 0.15.0's scores (score.py prefix)
-PREV_RUNS = V14 / "runs/rel15c"                  # 0.15.0's runs (score_dev.py reference)
-PREV_REDO = None                                 # reference runs redone after the release (none for 0.15.0)
+SCORES = RESULTS / "release17"                   # this release's scores (score.py prefix)
+TABLES = RESULTS / "md17"                        # its computed doc tables (fill_docs.py TABLES)
+PREV = V16 / "results/docs161_rel161m/release16"   # 0.16.1's scores (score.py prefix)
+PREV_RUNS = V16 / "runs/rel161m"                 # 0.16.1's runs (score_dev.py reference)
+PREV_REDO = None                                 # reference runs redone after the release (none for 0.16.1)
 EXTRA_REF = None                                 # a second reference for score_dev.py (none)
 CIS_SURVEY = V11 / "results/cis_survey4.tsv"     # the cis-signal survey of every Hi-C genome (0.12)
 ASM_REPORTS = V2 / "data/truth/src"              # NCBI assembly reports: accession -> chromosome name (K2 check)

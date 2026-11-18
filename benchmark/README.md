@@ -1,18 +1,20 @@
 # benchmark/
 
-For developers: every scored result of the 0.16.1 release, the truth manifest, the frozen scorer, and the chain that
+For developers: every scored result of the 0.17.0 release, the truth manifests, the frozen scorer, and the chain that
 scores a release's runs and refills [docs/benchmark.md](../docs/benchmark.md), which presents the results.
 
 ## Files
 
 | file | what |
 |---|---|
-| `results.tsv` | one row per scored chromosome-run of the 0.16.1 release (the 0.16.0 runs, 51 of them rerun with 0.16.1): call, confidence, rule, outcome, truth, the repeat-family window and the CpG kinetochore; 1-based inclusive coordinates throughout (truth start = BED start + 1); its header lines give the counts and define the columns |
+| `results.tsv` | one row per scored chromosome-run of the 0.17.0 release (every benchmark run of 0.16.1 replayed with 0.17.0; 316 have truth): call, confidence, rule, outcome, truth, the repeat-family window and the CpG kinetochore; 1-based inclusive coordinates throughout (truth start = BED start + 1); its header lines give the counts and define the columns |
 | `summary.py` | summaries of `results.tsv`: right, wrong and no call per input set and centromere class, confidence calibration, and the controls (`python -m benchmark.summary`) |
 | `truth.tsv` | the manifest, one row per genome: `kind`, `rule`, `tol_bp`, `hic_bins`, `truth` (files under the data root, `;`-separated; `.` for holocentric), `source` (assembly, accessions, paper, how the BED was made), `notes` |
-| `score.py` | the frozen scorer, reading the manifest |
+| `truth_017.tsv` | the 22 genomes added in 0.17, same columns: scored apart, so that 0.16.1's results on them (its rules fixed before any of them was scored) show how cenfuse does on genomes it was not developed on, and so that the tables of the development genomes stay comparable across releases |
+| `results_017.tsv` | one row per scored chromosome-run of those genomes (0.17.0, every input set they have: FASTA, `tes/`, Hi-C, all), same coordinates as `results.tsv` |
+| `score.py` | the frozen scorer, reading a manifest (`--manifest truth_017.tsv` for the added genomes) |
 | `canonical.tsv` | genome labels, lineages and the arm each doc table shows |
-| `paths.py` | every input of the chain, under the data root; defaults to the 0.16.1 release (`python -m benchmark.paths` lists them) |
+| `paths.py` | every input of the chain, under the data root; defaults to the 0.17.0 release (`python -m benchmark.paths` lists them) |
 | `release.sh` | the chain for one release: scores, every computed table, the filled docs/benchmark.md |
 | `fill_docs.py`, `docs_src/benchmark.template.md` | the template of docs/benchmark.md and its filler: edit the template, never docs/benchmark.md |
 | `md_tables.py`, `md_013.py`, `rabl_table.py`, `precision.py` | the computed tables of docs/benchmark.md |
@@ -28,21 +30,22 @@ it imports cenfuse from anywhere else. Point `CENFUSE_BENCH_DATA` at the data ro
 
 ```bash
 export CENFUSE_BENCH_DATA=/path/to/centromere_benchmark
-PYTHONPATH=$PWD python -m benchmark.paths                       # every input and its default (the 0.16.1 release)
-RUNS=/path/to/runs PREV=/path/to/release16 PY=python bash benchmark/release.sh OUT 17
+PYTHONPATH=$PWD python -m benchmark.paths                       # every input and its default (the 0.17.0 release)
+RUNS=/path/to/runs PREV=/path/to/release17 PY=python bash benchmark/release.sh OUT 18
 ```
 
-`release.sh OUT TAG` writes the scores (`OUT/releaseTAG.*`), every computed table (`OUT/mdTAG/`), the checks against the
-previous release and the filled `OUT/docs/docs/benchmark.md`; `DOCS=<repository root>` rewrites the repository's own. Any input of
-`paths.py` can be set in the environment (`RUNS`, `JOBS`, `JOBS_CMP`, `JOBS_RABL`, `PREV`, `PREV_RUNS`, `PREV_REDO`,
-`EXTRA_REF`, `CIS_SURVEY`); an empty value skips the optional ones. A failing table is reported and the chain goes on
-(exit 1 at the end); failed scoring stops it. Eight placeholders stay unfilled: the rows of the genomes outside the job
-table (*Ae. geniculata*, *S. verrucosum*, the 13 tomatoes and the tomatoes' own Hi-C) come from scripts kept with the runs.
+`release.sh OUT TAG` writes the scores (`OUT/releaseTAG.*`), every computed table (`OUT/mdTAG/`), the checks against
+the previous release and the filled `OUT/docs/docs/benchmark.md`; `DOCS=<repository root>` rewrites the repository's
+own. Any input of `paths.py` can be set in the environment (`RUNS`, `JOBS`, `JOBS_CMP`, `JOBS_RABL`, `PREV`,
+`PREV_RUNS`, `PREV_REDO`, `EXTRA_REF`, `CIS_SURVEY`); an empty value skips the optional ones. A failing table is
+reported and the chain goes on (exit 1 at the end); failed scoring stops it. Twelve placeholders stay unfilled: the
+rows of the genomes outside the job table (*Ae. geniculata*, *S. verrucosum*, the 13 tomatoes and the tomatoes' own
+Hi-C, and the genomes added in 0.17) come from scripts kept with the runs.
 
 After editing the template, refill from a release's stored tables (seconds), then run the tests:
 
 ```bash
-T=$(PYTHONPATH=$PWD python -m benchmark.paths | awk '$1 == "TABLES" {print $2}')     # the 0.16.1 tables
+T=$(PYTHONPATH=$PWD python -m benchmark.paths | awk '$1 == "TABLES" {print $2}')     # the 0.17.0 tables
 PYTHONPATH=$PWD python -m benchmark.fill_docs "$T" .          # rewrites docs/benchmark.md; prints any unfilled name
 PYTHONPATH=$PWD python -m pytest -q tests/benchmark -p no:cacheprovider
 ```
@@ -57,9 +60,9 @@ Frozen when each benchmark was first run; `score.py` reproduces them exactly.
 | `overlap` | >= 1-bp overlap with a truth interval | none | 5 mammals scored against the satellome locus (kind `agreement`); *Arabidopsis* |
 | `active` | >= 1-bp overlap with a CenSat row named `active_hor*` | none | HG002 |
 | `gap`, `hic_bins` 4 | gap <= 4 x the run's Hi-C bin; without Hi-C, gap <= `tol_bp` | 1 Mb (rice, potato, horse EquCab3); barley 8 Mb | rice, potato, barley, horse EquCab3 |
-| `gap` | gap <= `tol_bp`, with or without Hi-C | 1 Mb; 100 kb (moss, *Chlamydomonas*, *Chlorella*); 0 (chicken, mouse) | the other plants and algae, chicken, mouse |
-| `bin1` | gap <= 1 Hi-C bin of the run; without Hi-C, gap <= 250 kb | 10 or 50 kb with Hi-C | fungi, *Plasmodium* |
-| `holo` | never: no single centromere exists | | *C. elegans*, *C. nigoni*, *B. mori*, *R. breviuscula* |
+| `gap` | gap <= `tol_bp`, with or without Hi-C | 1 Mb; 100 kb (moss, *Chlamydomonas*, *Chlorella*); 0 (chicken, mouse) | the other plants and algae, chicken, mouse; the plants and donkey of `truth_017.tsv` (1 Mb) |
+| `bin1` | gap <= 1 Hi-C bin of the run where the manifest sets `hic_bins`; otherwise gap <= `tol_bp` | 10 or 50 kb with Hi-C; without, 250 kb; `truth_017.tsv` sets no `hic_bins`: 25 kb with or without Hi-C | fungi, *Plasmodium*; the fungi and *Toxoplasma* of `truth_017.tsv` |
+| `holo` | never: no single centromere exists | | *C. elegans*, *C. nigoni*, *B. mori*, *R. breviuscula*; 5 in `truth_017.tsv` |
 
 - The gap is the number of bases strictly between call and truth: 0 when they overlap or touch, so `gap` with
   tolerance 0 counts a touching call as right. `score.py` reads calls 1-based inclusive and truth BEDs 0-based
@@ -89,6 +92,11 @@ Yunusbaev et al. 2026 (Table S2, Mb resolution); *S. verrucosum*: CENH3 ChIP by 
 accession; another caller's satellome locus for 5 mammals without functional data (agreement, not truth). A genome
 whose truth file is missing is skipped with a warning.
 
+`truth_017.tsv` (0.17): CENH3 or CENP-A ChIP-seq or CUT&Tag of the assembled line by the same frozen rule on the
+first 10 million read pairs of each run (the donkey's CENP-A from two other animals; *Toxoplasma*'s CenH3 from strain
+RH, at 2-kb bins), the pepper authors' published CENH3 domains, published CENP-A, CENP-C or Cse4 centromeres of the
+fungi, and five holocentric controls.
+
 To add a genome: append a row to `truth.tsv`, with its rule fixed before its runs are scored and its source given.
 
 ## Caveats
@@ -112,11 +120,12 @@ To add a genome: append a row to `truth.tsv`, with its rule fixed before its run
 
 ## Outside the repository
 
-The runs and their inputs stayed on the server where cenfuse was built, in one nested folder per release (`v2` to `v16`,
+The runs and their inputs stayed on the server where cenfuse was built, in one nested folder per release (`v2` to `v18`,
 as `paths.py` spells out); `CENFUSE_BENCH_DATA` points the scripts at a copy. They stay out because of size and rights:
 
 - **Too large for git:** the assemblies, Hi-C pairs, methylation tracks, LTR annotations and truth BEDs, and the runs
-  themselves (318 for 0.16.0, with their checkpoints and the stored satellite searches they replay).
+  themselves (424 for 0.17.0, 106 of them the panel's, and 39 of the added genomes, with their checkpoints and the
+  stored satellite searches they replay).
 - **Unpublished:** the five great apes' CDRs are the Logsdon lab's curated set (v1.3), "contact the lab before
   publication" (docs/benchmark.md credits Logsdon et al. 2024). `results.tsv` keeps their outcomes and leaves their
   coordinates empty.

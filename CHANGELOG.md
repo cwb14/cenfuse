@@ -4,8 +4,28 @@ What changed for users in each release, newest first, with the benchmark headlin
 [docs/benchmark.md](docs/benchmark.md). A *chromosome-run* is one chromosome in one benchmark run; *confident* = `high`
 or `medium`.
 
-## Unreleased
+## 0.17.0 (2026-11-18)
 
+- **22 genomes added to the benchmark** to test cenfuse where it was weakest (`benchmark/truth_017.tsv`, every scored
+  chromosome in `benchmark/results_017.tsv`, [docs/benchmark.md](docs/benchmark.md#genomes-added-in-017)): two peppers,
+  *Populus euphratica*, *Oryza australiensis*, two *Sesbania* lines, four allotetraploids of the polyploid panel
+  (cotton, *N. benthamiana*, *B. hybridum*, *E. rockii*), the T2T donkey, six fungi and parasites, and five holocentric
+  controls, with CENH3 or CENP-A ChIP-seq or CUT&Tag of the assembled line (the donkey's from other donkeys,
+  *Toxoplasma*'s from another strain) or published centromeres. 0.16.1's rules were fixed before any of them was scored,
+  so its results on them measure how cenfuse does on genomes it was not developed on: `high` right 104 of 110 times,
+  `medium` 23 of 31, `low` 57 of 83 (development genomes: 453 of 459, 137 of 155, 149 of 197). Most confident misses
+  come from centromeres that sit away from the genome's main satellite (*N. benthamiana*) and from `medium` calls on a
+  CRM core (pepper, *Sesbania*). The holocentric controls got no confident call.
+- AT troughs at chromosome ends no longer place a call alone: subtelomeres are AT-rich in many genomes, and a trough
+  cannot tell an acrocentric centromere from a subtelomere. Where a chromosome's deepest trough is centred in its
+  terminal 5%, its deepest trough whose run lies clear of the ends places the call (`at_interior`; `at_start`, `at_end`,
+  `at_gc` give that trough), or none (`at_terminal`, and the caveat says why), unless Hi-C tested against the troughs
+  agrees with the terminal trough on that chromosome. *Pneumocystis carinii*: 9 to 14 of 17 right; no call of the
+  development benchmark changes.
+- Tested on the added genomes and not adopted: moving a `low` call to the repeat-family window that contradicts it
+  (registered beforehand; it held in one of the two lineages it touched), and holding weak CRM cores to the 10-fold of
+  other lineages (measured after *Sesbania*'s result: such cores were right more often than the arrays they replaced)
+  (future.md #76, #46, #79).
 - The overview figure is rewritten for biologists: one centromere per chromosome with its confidence, every signal on
   its own track with the place where it alone puts the centromere, each marked used, points elsewhere or not used, and
   one plain sentence per close-up on how the call was made. Each signal's genome test is shown in words (trusted, not

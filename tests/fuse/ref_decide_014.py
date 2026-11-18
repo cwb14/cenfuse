@@ -7,6 +7,7 @@ from cenfuse.ageline import AGE_ALPHA
 from cenfuse.fuse import (Evidence, _bins, _clean_denovo, _clean_flags, _clean_medium, _denovo_far, _fold_far, _iv, _meth,
                           _peak_agrees, _peak_far, _te_agrees, _te_decides, _te_near, _vgap, axis_line, hic_core, hic_peak,
                           in_end_zone)
+from cenfuse.atline import interior
 from cenfuse.hicfuse import SUPPORT_LEVELS
 from cenfuse.params import HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
 from cenfuse.util import gap, level_shift
@@ -161,10 +162,22 @@ def decide_014(ev: Evidence) -> dict:
     # own agree here, in a genome where the two agree beyond chance (atline.validate: support); C. neoformans in anaphase: 3
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
                   and h.get("denovo_confidence", "none") != "none")
-    if call is None and (at_ok or at_two):           # nothing else places this chromosome
-        call, relation, source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
-        flags.append("at_only" if at_ok else "at_denovo_pair")
+    # 0.17: a trough alone does not place a call from a terminal 5%: the deepest trough clear of the ends does (at_interior),
+    # or none (at_terminal); not where Hi-C, tested against the troughs, agrees with the terminal trough here
+    hic_here = bool(ev.at and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")) and h
+                    and _clean_flags(h) and h.get("denovo_confidence", "none") != "none")
+    end_trough = bool(at_ok and not hic_here and not interior(ev.at.get("trough_start", ev.at["start"]),
+                                                              ev.at.get("trough_end", ev.at["end"]), ev.chrom_len))
+    at_iv = ((ev.at["inner_start"], ev.at["inner_end"]) if ev.at.get("inner_start") is not None else None) if end_trough else \
+        (ev.at["start"], ev.at["end"]) if at_ok else None
+    if call is None and end_trough and at_iv is None:
+        flags.append("at_terminal")
+    if call is None and (at_iv or at_two):           # nothing else places this chromosome
+        call, relation, source = at_iv or (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
+        flags.append("at_only" if at_iv else "at_denovo_pair")
         rule = flags[-1]
+        if at_iv and end_trough:
+            flags.append("at_interior")
     elif call is None and getattr(ev, "rep", None) and ev.rep.get("status") == "pass":      # 0.16: the repeat-density line
         call, relation, source, rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         flags.append("rep_only")

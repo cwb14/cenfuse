@@ -307,6 +307,28 @@ def test_a_call_placed_by_an_at_trough_says_so():
     assert it.caveat(r, ctx(hic=False)).endswith("-> Hi-C would test it")
 
 
+def test_a_call_placed_by_an_interior_trough_says_why():
+    """0.17 (at_interior): the deepest trough lay in a terminal 5%, so the deepest interior one placed the call; the sentence
+    names the genome's test as it passed (by itself, or against Hi-C's peaks)."""
+    kw = dict(call_source="composition", seq_evidence="none", at_gc=0.14, support="at", main_family=".", confidence="low",
+              relation="sequence_only", flags="at_only,at_interior", rule="at_only")
+    b = it.basis(row(at_gate="pass", **kw), ctx())
+    assert "the deepest AT trough of this chromosome away from its ends (GC 14%; a deeper one lies in a terminal 5%" in b
+    assert "in a genome whose deepest troughs fall one per chromosome" in b
+    assert "in a genome whose troughs agree with Hi-C's prior-free peaks" in it.basis(row(at_gate="pass_hic", **kw), ctx())
+    assert "where the sequence is AT-rich, not where the kinetochore sits" in it.caveat(row(at_gate="pass", **kw), ctx())
+
+
+def test_a_chromosome_whose_only_trough_is_terminal_says_so():
+    """0.17 (at_terminal): the AT test passed, but this chromosome's deepest trough lies at an end and none clear of the
+    ends is among its deepest, so nothing is placed; the caveat says why instead of 'no line found a centromere'."""
+    r = row(relation="none", start=".", end=".", confidence="none", call_source="none", flags="at_terminal", at_gate="pass",
+            at_start=10_001, at_end=40_000, support=".", seq_evidence="none", main_family=".")
+    cav = it.caveat(r, ctx())
+    assert cav.startswith(f"the only candidate, the deepest AT trough ({it.interval(10_001, 40_000)}), lies in a terminal 5%")
+    assert "no line found a centromere" not in cav
+
+
 def test_a_trough_agreeing_with_hic_is_named():
     r = row(call_source="hic", relation="functional_only", flags="hic_denovo_only,at_pair", at_gc=0.08, support="hic,at",
             confidence="medium", seq_evidence="none", fold_gate=".", align_gate=".")

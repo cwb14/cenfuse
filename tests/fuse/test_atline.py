@@ -230,6 +230,75 @@ def test_a_passing_trough_places_a_low_call():
     assert "at_only" in d["flags"] and d["support"] == ["at"]
 
 
+def test_a_trough_at_an_end_places_no_call_alone_the_deepest_interior_one_does():
+    """0.17 (at_interior): subtelomeres are AT-rich, so a trough centred in a terminal 5% places no call alone; the chromosome's
+    deepest interior trough does (and is the AT place written out), and without one nothing is placed. P. carinii: 5 such
+    chromosomes, all five interior troughs on CENP-A."""
+    end = dict(TROUGH, start=5_000, end=40_000, trough_start=10_000, trough_end=11_000, gc=0.08)    # 1-Mb chromosome: 5% = 50 kb
+    d = fuse.decide(ev(at=dict(end, inner_start=300_000, inner_end=303_000, inner_gc=0.1)))
+    assert d["call"] == (300_000, 303_000) and d["confidence"] == "low" and d["rule"] == "at_only"
+    assert {"at_only", "at_interior"} <= set(d["flags"]) and d["support"] == ["at"]
+    e = ev(at=dict(end, inner_start=300_000, inner_end=303_000, inner_gc=0.1))
+    r = fuse.row(e, fuse.decide(e))
+    assert (r["at_start"], r["at_end"], r["at_gc"]) == (300_001, 303_000, 0.1)          # the trough that placed the call
+    assert fuse.decide(ev(at=dict(end, inner_start=None, inner_end=None, inner_gc=None)))["call"] is None
+    d = fuse.decide(ev(at=dict(TROUGH, inner_start=300_000, inner_end=303_000, inner_gc=0.1)))   # an interior deepest: as before
+    assert d["call"] == (300_000, 303_000) and "at_interior" not in d["flags"]
+
+
+def test_interior_is_outside_the_terminal_5_percent():
+    assert not atline.interior(0, 1_000, 1_000_000) and not atline.interior(990_000, 1_000_000, 1_000_000)
+    assert atline.interior(50_000, 51_000, 1_000_000) and atline.interior(400_000, 500_000, 1_000_000)
+    assert atline.clear_of_ends(50_000, 950_000, 1_000_000) and not atline.clear_of_ends(40_000, 300_000, 1_000_000)
+    assert not atline.clear_of_ends(600_000, 960_000, 1_000_000)
+
+
+def _end_ev(agrees=True, support=True, validated=False, inner=(300_000, 303_000)):
+    """A 1-Mb chromosome (5% = 50 kb): its deepest trough at 10 kb, a clean prior-free Hi-C peak on it (medium: it places
+    no call of its own), and its deepest trough clear of the ends at 300 kb (or none)."""
+    s = dict(start=-1, end=-1, evidence="none", confidence="none", flags=".", main_family=".")
+    h = dict(callable=True, bin_size=HB, gate_pass=False, gate_support=False, gate_genome_untested=True, anch_strong=False,
+             anch_level="none", anch_peak_start=-1, anch_peak_end=-1, anch_core_start=-1, anch_core_end=-1, masked=(),
+             denovo_peak_start=10_000, denovo_peak_end=20_000, denovo_core_start=10_000, denovo_core_end=20_000,
+             denovo_confidence="medium", denovo_flags="")
+    at = dict(TROUGH, start=5_000, end=40_000, trough_start=10_000, trough_end=11_000, gc=0.08, agrees=agrees,
+              support=support, validated=validated, inner_start=inner[0] if inner else None,
+              inner_end=inner[1] if inner else None, inner_gc=0.1 if inner else None)
+    return fuse.decide(fuse.Evidence("c", 1_000_000, s, None, h, None, lambda a, b: 0, at=at))
+
+
+def test_a_terminal_trough_that_hic_agrees_with_keeps_its_place():
+    """0.17: Hi-C tested against the troughs tells an acrocentric centromere from a subtelomere, so where this chromosome's
+    clean prior-free peak agrees with its terminal trough, the trough places the call as before 0.17; where Hi-C does not
+    agree, the trough clear of the ends does, and without one nothing is placed (at_terminal)."""
+    for tested in (dict(support=True), dict(support=False, validated=True)):
+        d = _end_ev(**tested)
+        assert d["call"] == (5_000, 40_000) and "at_only" in d["flags"] and "at_interior" not in d["flags"], tested
+    d = _end_ev(agrees=False)
+    assert d["call"] == (300_000, 303_000) and {"at_only", "at_interior"} <= set(d["flags"])
+    d = _end_ev(agrees=False, inner=None)
+    assert d["call"] is None and "at_terminal" in d["flags"]
+
+
+def test_the_trough_that_replaces_a_terminal_one_lies_clear_of_the_ends():
+    """A trough on the shoulder of a terminal AT-rich block can be centred past 5% while its half-depth run reaches into
+    the block: the replacement is the deepest trough whose whole run lies clear of the terminal 5%."""
+    k, n = 5, 1000                                           # 5-kb windows on 1-Mb chromosomes (1-kb bins)
+    rng = np.random.default_rng(3)
+    prof = {}
+    for i in range(6):
+        f = 0.40 + rng.normal(0, 0.003, n - k + 1)
+        f[300 + 60 * i:305 + 60 * i] = 0.15                  # each chromosome's own deepest trough, interior
+        prof[f"c{i}"] = f
+    f = prof["c0"]
+    f[300:305] = 0.40
+    f[0:90], f[0:5], f[600:605] = 0.20, 0.10, 0.25          # c0: a terminal AT-rich block, deepest at the end; a trough at 600 kb
+    r = atline.scan_profiles(lambda use, kk: {c: prof[c] for c in use}, {c: 1_000_000 for c in prof}, sizes=(k * atline.BIN,))
+    x = r["scales"][k * atline.BIN]["calls"]["c0"]
+    assert x["trough_start"] < 50_000                                    # the deepest trough is terminal
+    assert (x["inner_start"], x["inner_end"]) == (600_000, 609_000)       # not the block's shoulder near 55 kb
+
+
 def test_a_failing_trough_places_nothing():
     d = fuse.decide(ev(at=dict(TROUGH, status="fail")))
     assert d["call"] is None and d["relation"] == "none"

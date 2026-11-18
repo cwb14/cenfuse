@@ -72,7 +72,9 @@ The integrated call is the sequence call unless a validated functional line move
   (pass only), read outside the terminal eighths: a call inside one is neither supported, opposed nor moved (blind); where the
   extreme lies beyond HIC_FAR_BINS of it, the call is flagged cis_blind and its caveat says so.
 - AT troughs (0.12, atline.py): only on a chromosome without a sequence call. Where the genome's troughs passed the
-  one-per-chromosome test, a chromosome nothing else places takes its trough, low (flag at_only). Where they also agree with
+  one-per-chromosome test, a chromosome nothing else places takes its trough, low (flag at_only); 0.17: a deepest trough
+  centred in a terminal 5% gives way to the deepest trough whose run lies clear of the ends (at_interior), or places none
+  (at_terminal), unless Hi-C tested against the troughs agrees with it on that chromosome. Where they also agree with
   Hi-C's prior-free peaks genome-wide (validated), a Hi-C call in agreement takes the trough's interval and rises a level
   (at_pair: low -> medium, medium -> high), one in disagreement is flagged (at_elsewhere), and a chromosome nothing else
   places takes its trough at medium. Agreement beyond chance but on a minority (atline.validate: support) allows at_pair,
@@ -103,6 +105,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from . import atline
 from .hicfuse import END_ZONE, SUPPORT_LEVELS, clean_peak, visible_gap
 from .ageline import AGE_ALPHA
 from .params import AXIS_LEAN_P, GATE_MIN_REF, HIC_FAR_BINS, HIC_TOL_BINS, MAX_RAISE, SAT_SUPPORT_BP
@@ -605,14 +608,30 @@ def _at_places(c: _Ctx, s: _Call) -> None:
     Not where validated Hi-C has a peak on this chromosome and can tell the two apart: it has chosen already, or the call stands
     beside its peak. A heuristic, named as such (design.md): two satellites differ in composition whatever their centromeres do,
     so the deepest trough can lie on the inactive one; only T2T mouse exercises the rule, and the call stays low unless another
-    line agrees at the chosen cluster."""
+    line agrees at the chosen cluster. A trough centred in a terminal 5% places no call alone (0.17, at_interior): the deepest
+    trough clear of the ends does, or none (at_terminal), unless Hi-C tested against the troughs agrees with it here."""
     ev, h = c.ev, c.h
     at_two = bool(ev.at and ev.at.get("support") and ev.at.get("agrees") and h and _clean_flags(h)
                   and h.get("denovo_confidence", "none") != "none")
-    if s.call is None and (c.at_ok or at_two):
-        s.call, s.relation, s.source = (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
-        s.flags.append("at_only" if c.at_ok else "at_denovo_pair")
+    # 0.17 (at_interior): a trough alone places no call in the terminal 5% of its chromosome (subtelomeres are AT-rich, and a
+    # trough cannot tell an acrocentric centromere from a subtelomere): the deepest trough whose run lies clear of the ends
+    # places it, and without one the chromosome is left to the lines below (flag at_terminal). Not where Hi-C, tested against
+    # the troughs, agrees with the terminal trough on this chromosome: Hi-C tells the two apart. The trough still chooses
+    # between a satellite call's two clusters at an end (at_chose_alt: mouse)
+    hic_here = bool(ev.at and ev.at.get("agrees") and (ev.at.get("validated") or ev.at.get("support")) and h
+                    and _clean_flags(h) and h.get("denovo_confidence", "none") != "none")
+    end_trough = bool(c.at_ok and not hic_here and not atline.interior(ev.at.get("trough_start", ev.at["start"]),
+                                                                       ev.at.get("trough_end", ev.at["end"]), ev.chrom_len))
+    at_iv = ((ev.at["inner_start"], ev.at["inner_end"]) if ev.at.get("inner_start") is not None else None) if end_trough else \
+        (ev.at["start"], ev.at["end"]) if c.at_ok else None
+    if s.call is None and end_trough and at_iv is None:
+        s.flags.append("at_terminal")
+    if s.call is None and (at_iv or at_two):
+        s.call, s.relation, s.source = at_iv or (ev.at["start"], ev.at["end"]), "sequence_only", "composition"
+        s.flags.append("at_only" if at_iv else "at_denovo_pair")
         s.rule = s.flags[-1]
+        if at_iv and end_trough:
+            s.flags.append("at_interior")
     elif s.call is None and ev.rep and ev.rep.get("status") == "pass":
         # 0.16: the repeat-density line (repline.py), tested one per chromosome, places what nothing else places: low, as a
         # trough alone (C. neoformans from the FASTA: 14 of 14 peaks on CENP-A)
@@ -821,6 +840,7 @@ def row(ev: Evidence, d: dict) -> dict:
     if call and seq_iv and call != seq_iv and not (alt_iv and call == alt_iv):
         off = gap(*call, *seq_iv)
     over_iv = _iv(ev.seq, "overruled_start", "overruled_end") if seq_iv and "overruled_start" in ev.seq else None
+    inner = "at_interior" in d["flags"]
     return dict(
         chrom=ev.chrom, chrom_len=ev.chrom_len, start=one(call[0]) if call else na, end=end(call[1]) if call else na,
         length=call[1] - call[0] if call else na, call_source=d["source"], relation=d["relation"],
@@ -839,8 +859,10 @@ def row(ev: Evidence, d: dict) -> dict:
         te_chrom_elements=ev.te.get("n", na) if ev.te else na,
         te_core_elements=end(ev.seq.get("te_core_elements")), te_call_elements=end(ev.seq.get("te_call_elements")),
         at_gate=("pass_hic" if ev.at.get("validated") else ev.at["status"]) if ev.at else na,
-        at_start=one(ev.at["start"]) if ev.at else na, at_end=end(ev.at["end"]) if ev.at else na,
-        at_gc=round(ev.at["gc"], 3) if ev.at else na,
+        # the trough the line placed this call at: its deepest interior one where the deepest lay at an end (at_interior)
+        at_start=one(ev.at["inner_start" if inner else "start"]) if ev.at else na,
+        at_end=end(ev.at["inner_end" if inner else "end"]) if ev.at else na,
+        at_gc=round(ev.at["inner_gc" if inner else "gc"], 3) if ev.at else na,
         rep_gate=ev.rep["status"] if ev.rep else na, rep_start=one(ev.rep["start"]) if ev.rep else na,
         rep_end=end(ev.rep["end"]) if ev.rep else na, rep_density=round(ev.rep["density"], 3) if ev.rep else na,
         fam_gate=ev.fam["status"] if ev.fam else na, fam_start=one(ev.fam["start"]) if ev.fam else na,

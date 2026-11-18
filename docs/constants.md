@@ -19,6 +19,7 @@ Every numeric constant cenfuse decides with, as the code states it: module, name
 | `AT_ALPHA` | `0.05` | conventional level, after the correction for the sizes tried. The line alone gives `low` calls |  |
 | `MIN_AGREE` | `3` | agreements needed to speak of a test at all (cenfuse's GATE_MIN_REF) |  |
 | `CHUNK` | `10_000_000` | bp read at a time: streaming, never a whole chromosome string above this |  |
+| `END_TROUGH` | `0.05` | a trough centred in the terminal 5% of its chromosome (cenfuse's near-end zone, as hicfuse.END_SHARE) places no call alone, the deepest trough whose half-depth run lies wholly outside it does (fuse: at_interior): subtelomeres are AT-rich in many genomes, and a trough cannot tell an acrocentric centromere from a subtelomere (from the FASTA, troughs there lay on the centromere on 3 of 22 chromosomes outside the acrocentric mouse) |  |
 
 ## `cdr.py`
 

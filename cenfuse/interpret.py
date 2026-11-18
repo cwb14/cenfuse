@@ -136,11 +136,16 @@ def basis(r, ctx: dict) -> str:
         out.append(f"the window where repeat families concentrated at one locus on most chromosomes cluster here "
                    f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), satellite arrays left out, in a genome where "
                    f"such families exist")
+    elif r.call_source == "composition" and "at_interior" in flags:
+        out.append(f"the deepest AT trough of this chromosome away from its ends (GC {float(r.at_gc):.0%}; a deeper one lies in a "
+                   f"terminal 5%, where subtelomeres are AT-rich), " +
+                   ("in a genome whose deepest troughs fall one per chromosome" if str(r.at_gate) == "pass" else
+                    "in a genome whose troughs agree with Hi-C's prior-free peaks"))
     elif r.call_source == "composition":
-        out.append(f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose deepest troughs "
-                   f"fall one per chromosome" if str(r.at_gate) == "pass" else
-                   f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), where Hi-C's prior-free peak agrees, "
+        out.append(f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), where Hi-C's prior-free peak agrees, "
                    f"in a genome where the two agree beyond chance" if "at_denovo_pair" in flags else
+                   f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose deepest troughs "
+                   f"fall one per chromosome" if str(r.at_gate) == "pass" else
                    f"the deepest AT trough of this chromosome (GC {float(r.at_gc):.0%}), in a genome whose troughs agree "
                    f"with Hi-C's prior-free peaks")
     else:
@@ -236,7 +241,10 @@ def caveat(r, ctx: dict) -> str:
     if r.relation == "none" or _int(r.start) is None:
         need = _could(r, ctx)
         head = (f"no line supports the only candidate, a long-unit tandem array ({interval(r.seq_start, r.seq_end)})"
-                if "long_unit_unsupported" in _toks(r.flags) else "no line found a centromere (satellite-free?)")
+                if "long_unit_unsupported" in _toks(r.flags) else
+                f"the only candidate, the deepest AT trough ({interval(r.at_start, r.at_end)}), lies in a terminal 5% of the "
+                f"chromosome, where subtelomeres are AT-rich, and no trough away from the ends is among its deepest"
+                if "at_terminal" in _toks(r.flags) else "no line found a centromere (satellite-free?)")
         return head + failed + (f" -> {' or '.join(need)} can place one" if need else "")
     flags, sflags, against = set(_toks(r.flags)), set(_toks(r.seq_flags)), _toks(r.against)
     out, hint = [], None

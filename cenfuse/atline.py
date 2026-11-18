@@ -19,7 +19,9 @@ deepest trough at that size, widened to the half-depth run around it.
 
 Where Hi-C is given, the prior-free Hi-C peaks test the troughs directly (agreement), an independent line. Alone, the line
 gives `low` calls on chromosomes without a sequence call, and in a passing genome chooses a `low` sequence call's competing
-cluster when its deepest window lies there and not on the call (fuse._at_places). It never moves a confident satellite or TE
+cluster when its deepest window lies there and not on the call (fuse._at_places). A deepest trough centred in a terminal
+END_TROUGH places no call alone (0.17, at_interior): the deepest trough whose run lies clear of the ends does, unless Hi-C
+agrees with the terminal one on that chromosome. It never moves a confident satellite or TE
 call: satellites are AT-rich or GC-rich whatever their centromeres do."""
 from __future__ import annotations
 
@@ -48,6 +50,23 @@ MAX_CHROMS = 200        # more sequences than this are contigs, not chromosomes:
 AT_ALPHA = 0.05         # conventional level, after the correction for the sizes tried. The line alone gives `low` calls
 MIN_AGREE = 3           # agreements needed to speak of a test at all (cenfuse's GATE_MIN_REF)
 CHUNK = 10_000_000      # bp read at a time: streaming, never a whole chromosome string above this
+END_TROUGH = 0.05       # a trough centred in the terminal 5% of its chromosome (cenfuse's near-end zone, as hicfuse.END_SHARE)
+                        # places no call alone, the deepest trough whose half-depth run lies wholly outside it does (fuse:
+                        # at_interior): subtelomeres are AT-rich in many genomes, and a trough cannot tell an acrocentric
+                        # centromere from a subtelomere (from the FASTA, troughs there lay on the centromere on 3 of 22
+                        # chromosomes outside the acrocentric mouse)
+
+
+def interior(lo: int, hi: int, L: int) -> bool:
+    """A window [lo, hi) centred outside the terminal END_TROUGH of a chromosome of length L."""
+    m = (lo + hi) / 2
+    return min(m, L - m) >= END_TROUGH * L
+
+
+def clear_of_ends(lo: int, hi: int, L: int) -> bool:
+    """An interval [lo, hi) lying wholly outside the terminal END_TROUGH of a chromosome of length L (a trough on the
+    shoulder of a terminal AT-rich block has a half-depth run that reaches into it)."""
+    return lo >= END_TROUGH * L and hi <= L - END_TROUGH * L
 
 
 def gc_bins(fasta, chroms: dict) -> dict:
@@ -221,6 +240,12 @@ def scan_profiles(profiles, chroms: dict, sizes=SCALES, alpha: float = AT_ALPHA)
             lo, hi = half_depth_run(prof[c], j, k)
             calls[c] = dict(start=lo * BIN, end=min(chroms[c], hi * BIN), gc=gc, first=c in first, trough_start=j * BIN,
                             trough_end=min(chroms[c], (j + k) * BIN))
+            # the deepest of its troughs whose half-depth run lies wholly outside the terminal END_TROUGH, or none
+            for g2, j2 in x:
+                ilo, ihi = half_depth_run(prof[c], j2, k)
+                if clear_of_ends(ilo * BIN, min(chroms[c], ihi * BIN), chroms[c]):
+                    calls[c].update(inner_start=ilo * BIN, inner_end=min(chroms[c], ihi * BIN), inner_gc=g2)
+                    break
         scales[w] = dict(n=n, m=t["m"], covered=len(first), p=t["p"], best_possible=t["best_possible"],
                          null_median=t["null_median"], calls=calls)
     if not scales:
@@ -324,4 +349,7 @@ def on_chromosome(res: dict | None, chrom: str) -> dict | None:
                 agrees=bool((v.get("by_window") or {}).get(res["window"], {}).get(chrom)),
                 cis_validated=svc == "pass", cis_support=svc == "support",
                 cis_agrees=bool((vc.get("by_window") or {}).get(res["window"], {}).get(chrom)),
-                trough_start=int(x.get("trough_start", x["start"])), trough_end=int(x.get("trough_end", x["end"])))
+                trough_start=int(x.get("trough_start", x["start"])), trough_end=int(x.get("trough_end", x["end"])),
+                inner_start=int(x["inner_start"]) if x.get("inner_start") is not None else None,
+                inner_end=int(x["inner_end"]) if x.get("inner_end") is not None else None,
+                inner_gc=float(x["inner_gc"]) if x.get("inner_gc") is not None else None)

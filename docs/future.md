@@ -1,9 +1,9 @@
 # Future development
 
-Open problems after cenfuse 0.16.0, for developers. Each entry gives the problem, its evidence, what would settle it
+Open problems after cenfuse 0.17.0, for developers. Each entry gives the problem, its evidence, what would settle it
 (**Settle**) and where to start (**Code**). Entry numbers are stable (the code, tests and docs cite `future.md #N`); a closed
 entry keeps its number as one line under [Closed entries](#closed-entries). Release history: [CHANGELOG.md](../CHANGELOG.md).
-The next new entry is 78.
+The next new entry is 80.
 
 **Status.** *open*; *partly done*; *built, unchecked* (in the code, untested by truth); *waiting for data*; *user's decision*.
 Ideas measured and not adopted: [Tested, not adopted](#tested-not-adopted) and [Tried and set aside](#tried-and-set-aside-not-in-designmd).
@@ -11,13 +11,13 @@ Ideas measured and not adopted: [Tested, not adopted](#tested-not-adopted) and [
 **Words.** *Arm*: one benchmark run of a genome with one input set; *chromosome-run*: one chromosome in one arm. *Release runs*:
 every arm rerun for a release, most replaying a stored satellite search (`--satellite-dir`). *Confident*: `high` or `medium`.
 *Headroom*: chromosome-runs where some line's own locus is right but the final call is not (`benchmark/headroom.py`). *The panel*:
-106 allotetraploids without truth, replayed to check that homoeologous calls agree (#68).
+106 allotetraploids, replayed to check that homoeologous calls agree (#68); 4 of them have CENH3 truth since 0.17.
 
 **Where things live.** The repo: `cenfuse/`, `tests/`, `docs/`, `benchmark/` (truth manifest, frozen scorer, the table chain
 `benchmark/release.sh` that writes docs/benchmark.md). docs/constants.md is generated from the code (`python -m cenfuse.consts`):
 edit the code. Truth files, stored runs and analysis scripts live outside the repo under `$CENFUSE_BENCH_DATA`, one nested
 folder per release (v2-v7 = 0.1.0 development, v8 = 0.8, v9 = 0.9, v10 = 0.10.0, v10.1-v10.3 = 0.10.1, v10.4 = 0.11, v11 = 0.12,
-v12 = 0.13, v13 = 0.14, v14 = 0.15, v15 = the 0.16 CpG line, v16 = 0.16); scripts are cited as `v14 bench/x.py`.
+v12 = 0.13, v13 = 0.14, v14 = 0.15, v15 = the 0.16 CpG line, v16 = 0.16, v17-v18 = 0.17); scripts are cited as `v14 bench/x.py`.
 
 ## Rules for any change
 
@@ -43,25 +43,30 @@ An entry is done only when these hold (design.md, Principles).
 
 ## Where to start
 
-0.16.0: 2,309 of 2,624 chromosome-runs with truth right in the real arms (88.0%), 35 confidently wrong. The largest headroom is
-in retrotransposon genomes from the FASTA alone, where the repeat-family window is right on 89 of the 110 `low` calls it
-contradicts in the release runs but only flags them (#76); then the competing clusters (40 chromosome-runs where the second array is right) and
-yeasts' AT troughs, "right" only at the 250-kb tolerance (#37). Confident misses: [benchmark.md](benchmark.md#every-confident-miss).
+0.17: on the 22 genomes added in 0.17, scored after 0.16.1's rules were fixed, `medium` calls were right 74% of the time against
+88% on the development genomes; their confident misses come from centromeres away from the genome's main satellite (#78) and
+from CRM cores (#79, #46). 0.16.0: 2,309 of 2,624 chromosome-runs with truth right in the real arms (88.0%), 35 confidently
+wrong. The largest headroom is in retrotransposon genomes from the FASTA alone, where the repeat-family window is right on 89 of
+the 110 `low` calls it contradicts in the release runs but only flags them (#76); then the competing clusters (40
+chromosome-runs where the second array is right) and yeasts' AT troughs, "right" only at the 250-kb tolerance (#37). Confident
+misses: [benchmark.md](benchmark.md#every-confident-miss).
 
-1. **#76, #27, #72**: retrotransposon centromeres: truth beyond *Solanum* where the repeat-family line passes and the calls are
+1. **#79, #46, #78**: confidence on genomes cenfuse was not developed on: a CRM core alone, and centromeres away from the
+   genome's main satellite (Hi-C or methylation needed).
+2. **#76, #27, #72**: retrotransposon centromeres: truth beyond *Solanum* where the repeat-family line passes and the calls are
    `low`; Hi-C settles them only where the library shows the centromeres (TS-60).
-2. **#35**: the public truth sets.
-3. **#32, #27**: `cis_end_pair` and `cis_trans_pair` are right on 4 of 4 in two genomes each (tomato, TS-60); a third genome
+3. **#35**: the public truth sets.
+4. **#32, #27**: `cis_end_pair` and `cis_trans_pair` are right on 4 of 4 in two genomes each (tomato, TS-60); a third genome
    with the case would let them make confident calls.
-4. **#45**: which locus holds CENH3 where an array sits at the edge of a wide LTR core.
-5. **#37, #38, #50**: the mammal misses (6 scored against other animals' ChIP or another caller).
-6. **#74, #76**: the repeat lines read the FASTA on one thread (up to 27 + 15 min on 4-5 Gb).
-7. **#63, #60, #65**: the remaining large functions; CI's first result.
+5. **#45**: which locus holds CENH3 where an array sits at the edge of a wide LTR core.
+6. **#37, #38, #50**: the mammal misses (6 scored against other animals' ChIP or another caller).
+7. **#74, #76**: the repeat lines read the FASTA on one thread (up to 27 + 15 min on 4-5 Gb).
+8. **#63, #60, #65**: the remaining large functions; CI's first result.
 
 ## All entries
 
 Grouped by area below; each entry opens with its status.
-- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 76, 77.
+- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 76, 77, 78, 79.
 - **Partly done:** 1, 5, 8, 9, 10, 14, 15, 34, 35, 37, 39, 44, 46, 47, 52, 53, 56, 58, 60, 62, 63, 65, 66, 73.
 - **Built, unchecked by truth:** 30, 31, 32, 68, 74. **Waiting for data:** 4, 13, 22, 29. **User's decision:** 7.
 - **Tested, not adopted:** 3, 40, 67, 75 ([below](#tested-not-adopted)). **Closed:** 11, 12, 17-21, 23-26, 33, 36, 59, 64, 69
@@ -73,9 +78,11 @@ Grouped by area below; each entry opens with its status.
 
 Partly done. One allotetraploid has CENH3 truth on its own assembly, *Ae. geniculata* (Yunusbaev 2026, Table S2, Mb
 resolution): 0.15 placed 0 of 14 from the FASTA (all `low`) and 13 of 14 with `tes/`, 1 confidently wrong (chr05U, #45).
-**Settle:** more allopolyploids, chosen to settle #1, #4 and #10 (wheat T2T, *Avena*, *Fragaria × ananassa*: #35); truth carried
-from a progenitor by unique flanks (13 of 14 per subgenome in a *Cryptococcus* hybrid, v6 `bench/flank_truth.py`), valid only
-where centromeres did not move after polyploidization.
+- **Genomes added in 0.17** ([benchmark.md](benchmark.md#genomes-added-in-017)): four panel allotetraploids now have CENH3 ChIP
+  on their own assembly. Cotton ZM113: 24 of 26 right from the FASTA (all `low`), 25 of 26 with `tes/` (1 confidently wrong,
+  #78). *Brachypodium hybridum* and *Erianthus rockii*: 15 of 15 each, from the FASTA and with `tes/`. *N. benthamiana*: 10 of
+  18, with 6 confidently wrong from the FASTA and 8 with `tes/`, on chromosomes whose centromere sits away from the genome's
+  main satellite (#78), not from polyploidy.
 
 ### 34. The benchmark cannot be rerun from the repository
 
@@ -89,13 +96,18 @@ counts or lists each difference.
 
 ### 35. Truth on disk or public, not yet used
 
-Partly done (*Ae. geniculata*, *S. verrucosum* and 13 tomatoes scored since 0.14). Confirm each antibody and target first (the
+Partly done (*Ae. geniculata*, *S. verrucosum* and 13 tomatoes scored since 0.14; 22 genomes added in 0.17,
+`benchmark/truth_017.tsv`). Confirm each antibody and target first (the
 horse CUT&Tag target and the pig antibody are unconfirmed); score with the frozen ChIP rule (#37). Sheep and goat CENP-A ChIP
 gives no truth ([Tried and set aside](#tried-and-set-aside-not-in-designmd)).
 
 | data | what it would test |
 |---|---|
-| tobacco, eggplant CENH3 (accessions to find) | CRM that is not centromeric (#46) |
+| tobacco (*N. tabacum*), eggplant CENH3 (accessions to find; *N. benthamiana* was added in 0.17) | CRM that is not centromeric (#46) |
+| Grevy's zebra mEquGre1 (GCA_057876975.1; CENP-A ChIP SRR17956804, input SRR17956803, other animals; Cappelletti et al. 2022, 10.1093/molbev/msac162) | 13 of 23 centromeres satellite-free, several beside inactivated satellite centromeres: #78 in a mammal |
+| Malayan tapir mTapInd1 (GCA_031878655.1; CENP-A ChIP SRR35264170, input SRR35264171, the assembled animal; Biundo et al. 2026, 10.1038/s42003-026-10612-2) | 2-3 repositioned satellite-free centromeres (#50) |
+| *N. benthamiana* NbT2T Hi-C (GSA only, 180-250 GB) | the 8 chromosomes whose centromere sits away from the main satellite (#78) |
+| *Leishmania major* KKT1 ChIP (ERR2030267, input ERR2030268) | no truth at 4-fold (1.5-2.7-fold at best, 10 M reads): kinetoplastid kinetochores need their own rule |
 | wheat Chinese Spring (T2T GCA_040256815.2; ChIP SRR9089557/8, DRR821424/5) | a hexaploid; CRM plateaus (#45) |
 | *Avena sterilis* (GWHERDU00000000; CRR1339975/6); *A. maroccana*, *A. atlantica*, *A. eriantha*, 'Starter' (CRA007177) | oat's non-centromeric satellite on every chromosome (#42); allopolyploids |
 | 6 accessions of Shi et al. 2026, Supp Table 8, published without deposited ChIP | Solanaceae LTR rules (#46, #72), once how their centromeres were found is confirmed |
@@ -107,7 +119,7 @@ gives no truth ([Tried and set aside](#tried-and-set-aside-not-in-designmd)).
 | pig CENP-A ChIP and input of the assembly's breed, Duroc liver (DRR1139646-9; GSA PRJCA032804; antibody not stated) | pig's 3 confident misses (#37) |
 | the repaired ape assemblies (56 centromeres misassembled in v2.1, with repair BEDs), both haplotypes | about twice the ape truth; misassembly as a positive control (#43) |
 | HGSVC3 CDRs (67 genomes, 2,156 centromeres; Gao 2026; figshare 10.6084/m9.figshare.29921990) | the CpG line (#55) |
-| holocentric CENH3: *R. breviuscula* ChIP (SRR27965399/8), *Chionographis japonica* (GSM7120336), *Luzula sylvatica* (358 domains) | the satellite line on satellite holocentromeres (#44) |
+| holocentric CENH3: *R. breviuscula* ChIP (SRR27965399/8), *Chionographis japonica* (GSM7120336), *Luzula sylvatica* (358 domains); the last two added in 0.17 as controls, their domains not yet used | the satellite line on satellite holocentromeres (#44) |
 | same-plant CHG with CENH3: *S. verrucosum* CPC54, potato DM FAST5 (about 625 GB), rice T2T-NIP modBAMs | the CHG line (#16) |
 | Hi-C: *Chlorella* NS4-2 (CRR559578), the primary Bd21 library (CRR611509, 289 M pairs), deeper libraries for the shallow controls (#37) | Hi-C on LTR cores in an alga; the Rabl axis in a grass (#14) |
 
@@ -130,6 +142,10 @@ Partly done (0.14: call and domain widths and midpoint distances reported, `benc
   M), *R. breviuscula* SRR17429201 (863 M), soybean SRR37686999 (415 M), *B. rapa* CC1 SRR8633037 (368 M), Col-0 SRR2626163 (143 M).
 - **Attribution** (user's decision): benchmark.md credits the ape CDRs to Logsdon et al. 2024; the development notes record an
   unpublished curated set (v1.3, "contact the lab before publication"), and the ape DiMeLo-seq and CUT&RUN tracks as unpublished.
+- **Small genomes added in 0.17** are scored within 25 kb (fixed before any of their runs was scored); the development fungi
+  stay at 250 kb so that releases compare. **Wide calls.** A call is right however wide it is: *Populus euphratica*'s FASTA
+  calls span 5-12 Mb (19 of 19 right, a chance of 44% per chromosome), donkey chr1's 52.7 Mb (26%). Report width and chance
+  beside each outcome, not only pooled.
 - **Settle:** each scorer change reported beside the old numbers for one release; no README claim rests on overlap alone (an animal
   call is about ten times its CENP-A domain).
 
@@ -141,6 +157,30 @@ of 1,103 pairs agree over 105 species (0.14: 657). It stopped a 0.15 rule that l
 *Arachis* (11.6-fold seed, 1.5-fold cores; agreement on the changed pairs 11 → 2 of 14), and three 0.16 candidates (#45, #74,
 #76). A disagreement can be a right call on an evolutionarily new centromere. **Settle:** agreement calibrated against CENH3 on
 one panel species (#9).
+
+### 79. How far confidence holds on genomes cenfuse was not developed on
+
+Open (0.17). 0.16.1's rules were fixed before the 22 genomes added in 0.17 were scored
+([benchmark.md](benchmark.md#genomes-added-in-017)). On the 17 with truth, each with its run with the most inputs, 0.16.1's
+`high` calls were right 104 of 110 times (95%), `medium` 23 of 31 (74%) and `low` 57 of 83 (69%), against 453 of 459, 137 of 155
+and 149 of 197 on the development genomes. Most confident misses come from centromeres away from the genome's main satellite
+(#78) and from `medium` calls on an LTR core alone.
+- **An LTR core alone** (`support` te, always `medium`): right on 107 of 126 such calls in the 0.16.1 release (Tekay 81 of 99,
+  CRM 21 of 22, Osser 5 of 5; 112 of the 126 in *Solanum*) and on 19 of 29 on the new genomes, all CRM (pepper 14 of 22,
+  *Populus euphratica* 3 of 3, *O. australiensis* 2 of 2, *Sesbania* 0 of 2). Registered beforehand: below 80% across at least 3
+  lineages held out from it (5 of 7; pepper was its basis), the property that best separated right from wrong calls in the
+  development genomes was to be checked on the new ones. That property, a satellite array elsewhere on the chromosome
+  (`satellite_away_from_core`: 32 of 41 right against 75 of 85), does not hold there (13 of 20 against 6 of 9; pepper reversed).
+  No rule. CRM's standing (#46) is the clearest suspect: 21 of 22 in development, 19 of 29 here; but holding CRM to the other
+  lineages' 10-fold would also send pepper's 14 right core calls back to its wrong satellite calls (1 of 12 right from the
+  FASTA).
+- **Approach.** A calibration that does not come from the genomes the rules were made with: leave one lineage out over the
+  development benchmark and report it beside each level. The CRM core's own enrichment does not separate right from wrong core
+  calls (pepper: wrong cores 4.0-18.1-fold on their chromosomes, right ones 3.5-12.4; *O. australiensis*'s two right cores 2.9
+  and 4.4), so weighing CRM by its core fold (#46) would not fix pepper; Hi-C does (pepper with `tes/` and Hi-C: 11 and 12 of
+  12). A second line, not a stricter LTR rule, is what the data point to.
+- **Settle:** `medium` on the added genomes as reliable as on the development genomes (88%), with no right confident call lost
+  on either. **Code:** `sat/signature.py`, `sat/centromere.py`, `fuse.py` (`_confidence`).
 
 ## Satellites
 
@@ -216,6 +256,11 @@ Open. The test passes on any family that happens to lie once per chromosome (des
 - **Approach.** Report the test's P beside each call that depends on it; measure how the outcome moves with the family set (with and
   without the gene veto; families pooled by kind). **Settle:** no confident error in potato with `genes/`; oat's FASTA-only calls
   against CENH3. **Code:** `sat/karyotype.py`, `sat/genomes.py` (the gene veto).
+- **Six chromosomes** (*Sesbania bispinosa*, 0.17): one 139-bp family lies on every chromosome and is centromeric on all 6, but
+  two chromosomes hold a second large array, so the 6 largest clusters fall on 4 chromosomes (null 4, P 0.71) and every call is
+  capped `low` (6 of 6 right in both lines). With 6 chromosomes even 5 of 6 gives P of about 0.2: the test cannot pass a small
+  karyotype unless every chromosome is perfect. With `tes/`, weak CRM cores then replace 3 right `low` calls (SbTA02 chr1 and
+  chr5, SbSA44 chr1; #46).
 
 ### 43. Assemblies that lack or misassemble the centromeric array
 
@@ -236,7 +281,28 @@ holocentromeres (*R. breviuscula*, *Chionographis japonica*, *Luzula sylvatica*:
 breviuscula*: Athila, 5.8-fold, cores within 1 Mb of an end on 4 of 5): a non-CRM signature above 10-fold or a CRM seed would place
 calls at the ends from `tes/` alone. **Approach.** Several independent signs, each tested on the three genomes with CENH3: no
 dominant satellite, a failed one-per-chromosome test, Hi-C's holocentric signature, CENH3-domain-like arrays along the chromosome.
-**Settle:** the four holocentric controls flagged, no monocentric genome flagged. **Code:** `sat/signature.py`, `interpret.py`.
+- **Five more holocentric controls** (0.17, [benchmark.md](benchmark.md#genomes-added-in-017)): *Chionographis japonica*, whose
+  CENH3 sits on Mb-scale satellite arrays, *Luzula sylvatica*, on satellite arrays of about 100-200 kb and satellite-free
+  domains, *Leptidea sinapis*, *Ascaris suum* (germline) and *Cuscuta epithymum*: no confident call on 97 chromosome-runs. The
+  satellite line on *Chionographis* and *Luzula* stays `low` (12 and 6 calls). The repeat-family test passes in *Leptidea* (the
+  16 calls it places are `low`), so a pass does not rule out holocentry.
+
+### 78. Centromeres away from the genome's main satellite
+
+Open (0.17). In *N. benthamiana* (NbT2T, CENH3 ChIP of the assembled line; [benchmark.md](benchmark.md#genomes-added-in-017))
+CENH3 sits on arrays of the 43-bp satellite, the genome's main centromeric family, on 8 of 18 chromosomes. On the other 10 it
+sits on other satellites (a 181-bp array on chr4, 143 kb inside the CENH3 domain; a 1-kb-unit array on chr11, 93 kb; a 31-bp
+array on chr15, 39 kb) or on at most 5 kb of any satellite (chr6, 7, 10, 12, 13, 14, 19). cenfuse calls arrays of the main
+families, right on chr7 and chr14 (an array within 1 Mb) and wrong on the other 8: confidently on 6 chromosomes from the FASTA
+and on 8 with `tes/`, 14 of the 29 confident misses on the genomes added in 0.17. On 5 of the 8 (chr4, 6, 10, 11, 19) the called
+arrays are of the 43-bp satellite, and the CRM signature (55-fold) sits with them, so the two lines agree on the wrong place
+(#46); on 3 (chr12, 13, 15) they are of 164- and 87-bp families. A rule that prefers the genome's dominant family cannot see a
+centromere on a minor one or on none. Cotton CM104175.1 is a related case: satellite, CRM core and both Hi-C readouts place it
+4.2 Mb from the line's CENH3 domain (86.8-fold), `high` with Hi-C.
+- **Approach.** A line that reads function rather than sequence: Hi-C where its tests pass (NbT2T's Hi-C is in GSA only, 180-250
+  GB), or CpG or CHG methylation of the same plant (#16).
+- **Settle:** no confident call on those 8 *N. benthamiana* chromosomes, and no right satellite call of the development
+  benchmark lost. **Code:** `sat/centromere.py`, `fuse.py`.
 
 ## LTR retrotransposons
 
@@ -317,6 +383,10 @@ least 3 times wider than the call, 11 right and 4 wrong; otherwise 114 and 1 (ex
   apart (67 pairs: 26 closer, 40 farther), also when restricted to arrays overlapping the core.
 - **Ties.** Most core profiles have tied maxima, so a core's position can depend on which equal maximum comes first (#75).
 - **Approach.** Judge agreement by chance, not by gap (`linetests.py` computes each chromosome's chance of agreement).
+- **Genomes added in 0.17.** *O. australiensis* chr2 is `high` from the FASTA and with `tes/`, 1.5 Mb off: a satellite array 1
+  Mb outside the LTR core that holds CENH3 (the authors' neocentromere). Not acted on: where a call lies beside a decisive core
+  (disjoint, within tolerance), the call is right more often than the core in the 0.16.1 release (13 against 10 of 15); the new
+  genomes have too few such cases to say (2 against 3 of 3).
 - **Settle:** the five calls fall to `low` or move onto CENH3; none of the 125 right calls drops below `medium`; CRM-plateau genomes
   not used to make the rule (wheat, the soybean lines: #35). **Code:** `sat/centromere.py` (`te_concordant`), `sat/te.py`
   (`agrees`), `linetests.py`.
@@ -332,6 +402,13 @@ beside), eggplant, soybean chr13 (#27); LTRquest labels 14 CHM13 ERVs CRM. The 3
 test for CRM as for other lineages (a fold level, or the decisive test measured per genome), or CRM's standing only where its cores
 pass the one-per-chromosome test. **Settle:** no right call lost in the CRM-decisive genomes; no tobacco or eggplant CENH3 domain
 overruled by CRM (#35). **Code:** `sat/signature.py` (`seed_of`, `TE_SEED_MIN_CORES`).
+- **Weak CRM cores** (0.17, *Sesbania bispinosa*): a CRM signature (11- and 21.5-fold in the two lines, decisive by its name)
+  replaced right `low` satellite calls with cores 22 and 9.7 Mb away (SbTA02 chr1, chr5; SbSA44 chr1 likewise), `medium`; those
+  cores are 2.8-, 3.2- and 2.9-fold on their chromosomes. Holding such cores to the 10-fold of other lineages was measured after
+  this result and not adopted: cores under 10-fold that replaced a satellite were right 10 of 10 in the 0.16.1 release and 39
+  against 8 for the replaced arrays in the new genomes. In *N. benthamiana* the CRM signature (55-fold) sits with the 43-bp
+  arrays cenfuse calls on 5 of the 8 chromosomes whose centromere sits away from that satellite, and none of its copies lies
+  inside CENH3 on any of the 8 (#78).
 
 ### 47. Centromeric retroelements the LTR line cannot read
 
@@ -452,6 +529,9 @@ gaps?) reached P ≤ 0.01 in horse (9 of 11), pig (8/11) and rhesus (13/16), whe
 never adopted. **Settle:** the same-animal horse set and the multi-horse CENP-A union (#35), then the gap-rank test with a stated
 role (a `low` call where there is no sequence call); other mammals and controls unchanged. **Code:** `fuse.py`, `hicfuse.py`
 (`gate`).
+- **Donkey** (0.17, T2T, CENP-A of two other donkeys, [benchmark.md](benchmark.md#genomes-added-in-017)): 14 of 31 right from
+  the FASTA, all `low`, no confident error. The satellite calls on its satellite-free centromeres are wrong, but
+  `no_dominant_satellite` and the failed one-per-chromosome test keep them `low`.
 
 ### 51. Hi-C tests at their threshold
 
@@ -514,6 +594,11 @@ and mouse, on 3.9% of 3,336 GC-shuffled genomes and on no holocentric genome. Wh
 - **Rightly failed**: *Z. tritici* (P 0.69; 0 of 21 troughs on the centromere), *C. tropicalis* (P 0.15; 0 of 7).
 - ***Chlamydomonas*** no longer passes (P 0.09): its ends make two deep troughs per chromosome (21 of the 30 deepest in a terminal 5%).
 - **Latent false passes**: *B. rapa* TC1 (P 0.002), tomato LA0426 (P 0.04); the line acts there only on a chromosome without a call.
+- **Genomes added in 0.17**, scored within 25 kb ([benchmark.md](benchmark.md#genomes-added-in-017)): *C. deuterogattii* 14 of
+  14 from troughs (the test passes). *P. carinii* passes and its troughs were right on 9 of 17 until `at_interior` (0.17)
+  stopped troughs in a terminal 5% placing calls alone: 14 of 17. In *P. murina*, *K. pini*, *C. albicans* and *Toxoplasma* the
+  test fails and their troughs lie on the centromere on 6 of 17, 0 of 11, 0 of 8 and 2 of 13 chromosomes, so cenfuse rightly
+  places nothing; Hi-C places *C. albicans* 8 of 8 and *Toxoplasma* 12 of 13 (`low`).
 - **Settle:** a second feature beside the trough (a gene desert; without `genes/`, low k-mer complexity) so that *Z. tritici*, *C.
   tropicalis*, *Chlamydomonas*, holocentric and shuffled genomes fail while the passing fungi still pass. **Code:** `atline.py`.
 
@@ -561,7 +646,8 @@ since 0.16.1 it places only `low` calls and flags (`fam_pair` removed); the move
   chromosome passes wherever it clusters (tomato: the 1-Mb peak on 7 of 12 chromosomes is one family of 365 linked 31-mers).
   With each genome's own copies and every repeat unit moved as a whole to a random place on its chromosome, it passes at its
   1% level in 13-52% of draws in each of 11 monocentric genomes (133 of 400); synthetic genomes whose planted families
-  cluster at independent random places pass in 1-10% (3 settings of 100). Holocentric genomes do not pass.
+  cluster at independent random places pass in 1-10% (3 settings of 100). Holocentric genomes did not pass until 0.17's
+  *Leptidea sinapis*, which passes (its calls stay `low`).
 - **A family-level null, tried in 0.16.1, not adopted.** 31-mers were grouped into families by linkage (copies side by side
   at the same distance in at least 3 places) and moved as units, against criteria set beforehand (holocentric genomes fail;
   planted controls pass at most 2% at 0.01; seeded; no choice by truth). Moving each 31-mer alone passed 199 of 200 planted
@@ -569,6 +655,16 @@ since 0.16.1 it places only `low` calls and flags (`fam_pair` removed); the move
   chromosome (four linkage versions) passed none of 20 planted nulls and none of 10 planted positives, but 64% of semi-real
   *N. crassa* draws, where one ~7-kb unit split into several families. The grouping is the problem: a diverged family splits
   into parts that seem to coincide, and a looser linkage merges neighbors and leaves no power.
+- **Tested on the genomes added in 0.17, not adopted.** The move (`fam_over_low`: the `low` call moves to the window and stays
+  `low`) was registered with its criterion before any new truth was examined: in at least 3 lineages not used to make it, the
+  moved calls right at least twice as often as the calls they replace. Held out, the line contradicts `low` calls in two
+  lineages only: *Gossypium* (window right 1, call 0, of 1) and *Populus euphratica* (window 2, calls 3, of 3). Pepper, whose
+  windows were part of the rule's basis, gives 10 against 0 of 17. On the development benchmark, replayed with the move, 153
+  `low` calls became right and 8 wrong (all *Solanum*), no confident call changed, and the panel's homoeolog agreement stayed at
+  665 of 1,119 pairs. Why *Populus* differs: its satellite calls are 5-12 Mb wide and right on 19 of 19 chromosomes (chance 44%
+  each), while the 200-kb family window is right on 18 of 19; of the three windows the move would take, two lie 270-350 kb
+  outside their wide right calls and are right, the third 3.6 Mb past its call and wrong. The window is the more precise readout
+  where both are right; the move waits for lineages where calls are narrow and the line passes.
 - **Settle:** more truth where the line passes and the calls are `low` (#35: oat, wheat, other Solanaceae with ChIP). For the
   test: a null that deals each family's clusters among chromosomes by length, which tests the line's own claim (the old test
   passes 8 of 100 such planted genomes); or family membership from `tes/` annotations, which removes the grouping problem.
