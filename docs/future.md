@@ -1018,7 +1018,7 @@ Thus, with related species, we could potentially report other helpful comparativ
 All of this would need tested. 
 
 ## Tested, not adopted
-
+## Note
 Reopen only with new evidence.
 
 - **3. Satellites specific to subgenomes vs the honesty cap.** Dominance judged within subgenomes (design.md, Choices tested and
