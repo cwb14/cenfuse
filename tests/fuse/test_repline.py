@@ -85,8 +85,11 @@ def test_random_sequence_and_end_clusters_do_not_pass(tmp_path):
     assert r["status"] != "pass"                                             # the terminal eighths are not read
 
 
-def test_satellite_arrays_are_left_out(tmp_path):
-    """A tandem array is the satellite line's: its positions are not read (its copies still count genome-wide)."""
+def test_satellite_arrays_are_left_out(tmp_path, monkeypatch):
+    """A tandem array is the satellite line's: its positions are not read (its copies still count genome-wide). The genome is
+    drawn from its own seed: from the module's shared generator it depended on which tests ran before it (under pytest -n the
+    order changes), and a test at 1% passes on 1% of random genomes."""
+    monkeypatch.setitem(globals(), "RNG", np.random.default_rng(5))
     arrays = {f"c{i}": (300_000, 300_000 + 50 * 170) for i in range(N_CHROMS)}
     f, chroms = genome(tmp_path, planted=False, arrays_at=arrays)
     with_mask = repline.repeat_bins(f, chroms, chroms, {c: [v] for c, v in arrays.items()})
@@ -255,3 +258,39 @@ def test_with_hic_tests_the_peaks_at_the_repeat_test_window():
     r = repline.on_chromosome(out, "c2")
     assert r["validated"] and r["agrees"] and r["start"] == 102_000
     assert repline.with_hic(res, None, lengths) is res
+
+
+def test_with_hic_takes_chance_over_the_span_the_repeat_windows_can_occupy():
+    """0.19: the repeat lines' windows skip the terminal eighths (END_ZONE), so a window placed at random agrees with a Hi-C peak
+    with chance (peak + window + 2 bins) / ((1 - 2 END_ZONE) L): over the whole length it is a quarter too small, and the test
+    too easy to pass (the correction famline.with_repeats makes). The same test serves the repeat-family line (fam_hic)."""
+    import pandas as pd
+    from cenfuse.hicfuse import END_ZONE
+    from cenfuse.util import poisson_binomial_sf
+    calls = {f"c{i}": dict(start=400_000 + i * 1000, end=420_000 + i * 1000, gc=6.0, first=True) for i in range(6)}
+    res = dict(scales={20_000: dict(calls=calls, p=0.001)}, best=20_000, p=0.002, status="pass")
+    lengths = {f"c{i}": 1_000_000 for i in range(6)}
+    tab = pd.DataFrame([dict(chrom=c, callable=True, denovo_peak_start=v["start"] + 5000, denovo_peak_end=v["start"] + 15000,
+                             bin_size=HB) for c, v in calls.items()])
+    out = repline.with_hic(res, dict(table=tab), lengths)
+    span = [min(1.0, (10_000 + 20_000 + 2 * HB) / ((1 - 2 * END_ZONE) * 1_000_000))] * 6
+    assert out["hic"]["k"] == out["hic"]["n"] == 6
+    assert out["hic"]["p"] == pytest.approx(poisson_binomial_sf(6, span), rel=1e-9)
+    assert out["hic"]["p"] > poisson_binomial_sf(6, [x * (1 - 2 * END_ZONE) for x in span]) * 5    # (4/3)^6 = 5.6 times larger
+
+
+def test_with_hic_takes_the_same_span_against_the_cis_extremes():
+    """Where the prior-free peaks say nothing and the cis line acts, the peaks are tested against the cis extremes with chance
+    over the same span as against the prior-free peaks."""
+    import pandas as pd
+    from cenfuse.hicfuse import END_ZONE
+    from cenfuse.util import poisson_binomial_sf
+    calls = {f"c{i}": dict(start=400_000 + i * 1000, end=420_000 + i * 1000, gc=6.0, first=True) for i in range(6)}
+    res = dict(scales={20_000: dict(calls=calls, p=0.001)}, best=20_000, p=0.002, status="pass")
+    lengths = {f"c{i}": 1_000_000 for i in range(6)}
+    tab = pd.DataFrame([dict(chrom=c, callable=True, denovo_peak_start=-1, denovo_peak_end=-1, bin_size=HB) for c in calls])
+    cis = dict(status="pass", tested_by="trans", peaks={c: (v["start"] + 5000, v["start"] + 15000) for c, v in calls.items()})
+    out = repline.with_hic(res, dict(table=tab, cis=cis), lengths)
+    assert out["hic"]["status"] == "untested" and out["cis"]["k"] == out["cis"]["n"] == 6
+    span = [min(1.0, (10_000 + 20_000 + 2 * HB) / ((1 - 2 * END_ZONE) * 1_000_000))] * 6
+    assert out["cis"]["p"] == pytest.approx(poisson_binomial_sf(6, span), rel=1e-9)

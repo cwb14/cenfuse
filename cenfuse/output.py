@@ -192,6 +192,8 @@ def summary_row(genome: str, g, t: pd.DataFrame, hic: dict | None, meth: dict | 
              fam_p=(f"{fam['p']:.3g}" if fam else "."),
              fam_hic=("; ".join(f"{w} {v['k']}/{v['n']} {v['status']}" for w, v in (("prior-free", (fam or {}).get("hic")),
                                                                                   ("cis", (fam or {}).get("cis"))) if v) or "."),
+             fam_rep=(f"{fam['rep']['k']}/{fam['rep']['n']} {fam['rep']['status']}" if fam and fam.get("rep") else "."),
+             fam_rep_acts=(len(fam["rep"].get("acting", [])) if fam and fam.get("rep") else "."),
              telomere_unit=(telo or {}).get("unit") or ".", telomere_ends=len((telo or {}).get("ends", [])),
              telomere_interstitial=len((telo or {}).get("interstitial", [])),
              left_out_telomeric=",".join(c for c, _ in (telo or {}).get("left_out", [])) or ".",

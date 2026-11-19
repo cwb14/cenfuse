@@ -787,7 +787,7 @@ class Run:
                                                                     rejected_end=int(r.rejected_end)),
                                      te, h, meth, sat_bp(r.chrom), f, a, atline.on_chromosome(at, r.chrom),
                                      age=(ages or {}).get(r.chrom), rep=repline.on_chromosome(rep, r.chrom),
-                                     fam=repline.on_chromosome(fam, r.chrom)))
+                                     fam=famline.on_chromosome(fam, r.chrom)))
         return out
 
     def provenance_of(self, g, seq, sat_dir: Path, tel: dict, telo: dict):
@@ -953,7 +953,8 @@ class Run:
                                 " (cenfuse_summary.tsv: hic_sequence_conflict, hic_axis)")
             at = atline.with_hic(at, hic, g.chroms)
             rep = repline.with_hic(rep, hic, g.chroms)
-            fam = repline.with_hic(fam, hic, g.chroms, "repeat families")
+            fam = famline.with_hic(fam, hic, g.chroms)
+            fam = famline.with_repeats(fam, rep, g.chroms)     # 0.19: the family windows tested against the repeat peaks
             ages = ageline.for_genome(g.tes, g.chroms, tel.get("signature"), hic["table"] if hic is not None else None,
                                       seq.calls) if g.tes else {}
             evs = self.evidences(g, seq, tel, hic, nors=self._nors.get(g.name, []), at=at, ages=ages, rep=rep, fam=fam)

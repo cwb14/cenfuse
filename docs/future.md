@@ -1,9 +1,9 @@
 # Future development
 
-Open problems after cenfuse 0.18.0, for developers. Each entry gives the problem, its evidence, what would settle it
+Open problems after cenfuse 0.19.0, for developers. Each entry gives the problem, its evidence, what would settle it
 (**Settle**) and where to start (**Code**). Entry numbers are stable (the code, tests and docs cite `future.md #N`); a closed
 entry keeps its number as one line under [Closed entries](#closed-entries). Release history: [CHANGELOG.md](../CHANGELOG.md).
-The next new entry is 80.
+The next new entry is 82.
 
 **Status.** *open*; *partly done*; *built, unchecked* (in the code, untested by truth); *waiting for data*; *user's decision*.
 Ideas measured and not adopted: [Tested, not adopted](#tested-not-adopted) and [Tried and set aside](#tried-and-set-aside-not-in-designmd).
@@ -17,7 +17,7 @@ every arm rerun for a release, most replaying a stored satellite search (`--sate
 `benchmark/release.sh` that writes docs/benchmark.md). docs/constants.md is generated from the code (`python -m cenfuse.consts`):
 edit the code. Truth files, stored runs and analysis scripts live outside the repo under `$CENFUSE_BENCH_DATA`, one nested
 folder per release (v2-v7 = 0.1.0 development, v8 = 0.8, v9 = 0.9, v10 = 0.10.0, v10.1-v10.3 = 0.10.1, v10.4 = 0.11, v11 = 0.12,
-v12 = 0.13, v13 = 0.14, v14 = 0.15, v15 = the 0.16 CpG line, v16 = 0.16, v17-v18 = 0.17); scripts are cited as `v14 bench/x.py`.
+v12 = 0.13, v13 = 0.14, v14 = 0.15, v15 = the 0.16 CpG line, v16 = 0.16, v17-v18 = 0.17, v19 = 0.18, v20 = 0.19); scripts are cited as `v14 bench/x.py`.
 
 ## Rules for any change
 
@@ -43,6 +43,16 @@ An entry is done only when these hold (design.md, Principles).
 
 ## Where to start
 
+0.19: a census of the 0.18.0 release runs found that the integration already uses nearly everything its tested lines offer:
+of the 599 development chromosome-runs without a right call, a line is right in 439, but a line whose own test passed in few
+(the repeat-family window 147 times, 70 of them on calls in a terminal eighth, where it cannot see, and 66 within both
+readouts' resolution; repeat density 13, and 2 in *S. pombe* where only Hi-C validated it; Hi-C 10; the AT trough and the
+Rabl axis about none). What remains needs a better
+line or more truth, not another rule over the same readouts: a calibrated family test (#76; 0.19 lets the family line act
+where it agrees with repeat density on most chromosomes, `fam_rep_pair`), a second line for LTR cores alone (#79) and
+for centromeres away from the main satellite (#78), and the leads of #45 (an array inside a core holding few of its
+elements: tested in 0.19, two criteria missed), #80 and #81.
+
 0.17: on the 22 genomes added in 0.17, scored after 0.16.1's rules were fixed, `medium` calls were right 74% of the time against
 88% on the development genomes; their confident misses come from centromeres away from the genome's main satellite (#78) and
 from CRM cores (#79, #46). 0.16.0: 2,309 of 2,624 chromosome-runs with truth right in the real arms (88.0%), 35 confidently
@@ -61,17 +71,20 @@ clusters (40 chromosome-runs where the second array is right) and yeasts' AT tro
 3. **#35**: the public truth sets.
 4. **#32, #27**: `cis_end_pair` and `cis_trans_pair` are right on 4 of 4 in two genomes each (tomato, TS-60); a third genome
    with the case would let them make confident calls.
-5. **#45**: which locus holds CENH3 where an array sits at the edge of a wide LTR core.
+5. **#45**: which locus holds CENH3 where an array sits at the edge of a wide LTR core (0.19 tested a form that lowers such
+   calls: 8 confident errors and 4 right calls lowered on the development genomes, one right call on the added ones; it missed
+   two of its four criteria, and the numbers are in #45).
 6. **#37, #38, #50**: the mammal misses (6 scored against other animals' ChIP or another caller).
 7. **#74, #76**: the repeat lines' genome-wide sort after reading runs on one thread (the reading is parallel since 0.18).
 8. **#63, #60, #65**: the remaining large functions; CI's first result.
+9. **#80** (the user's decision) and **#81**: confidence for a composition line alone; the family line tested against Hi-C.
 
 ## All entries
 
 Grouped by area below; each entry opens with its status.
-- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 77, 78, 79.
+- **Open:** 2, 6, 16, 27, 28, 38, 41, 42, 43, 45, 48, 49, 50, 51, 54, 55, 57, 61, 70, 71, 72, 77, 78, 79, 81.
 - **Partly done:** 1, 5, 8, 9, 10, 14, 15, 34, 35, 37, 39, 44, 46, 47, 52, 53, 56, 58, 60, 62, 63, 65, 66, 73, 76.
-- **Built, unchecked by truth:** 30, 31, 32, 68, 74. **Waiting for data:** 4, 13, 22, 29. **User's decision:** 7.
+- **Built, unchecked by truth:** 30, 31, 32, 68, 74. **Waiting for data:** 4, 13, 22, 29. **User's decision:** 7, 80.
 - **Tested, not adopted:** 3, 40, 67, 75 ([below](#tested-not-adopted)). **Closed:** 11, 12, 17-21, 23-26, 33, 36, 59, 64, 69
   ([below](#closed-entries)).
 
@@ -182,6 +195,14 @@ and 149 of 197 on the development genomes. Most confident misses come from centr
   calls (pepper: wrong cores 4.0-18.1-fold on their chromosomes, right ones 3.5-12.4; *O. australiensis*'s two right cores 2.9
   and 4.4), so weighing CRM by its core fold (#46) would not fix pepper; Hi-C does (pepper with `tes/` and Hi-C: 11 and 12 of
   12). A second line, not a stricter LTR rule, is what the data point to.
+- **Checked in 0.19, no rule.** *Core age:* the signature's copies inside each core against the same families' copies elsewhere
+  on its chromosome (one-sided Mann-Whitney, P ≤ 0.01): where young copies concentrate in the cores genome-wide (the premise
+  of `ageline`), CRM cores were right 167 of 174 times when young and 62 of 73 otherwise, but pepper's wrong cores are as
+  young as its right ones (CRM LTR-core-alone calls where the premise holds, one per chromosome from its `tes/`-only run:
+  young 14 of 18 right, not young 4 of 9). *The FASTA's family window* (the
+  same genome's FASTA-only run): where it lies beyond both readouts' resolution from an LTR-core-alone call, the core was wrong
+  4 of 4 times (*Capsicum* Zunla-1 Chr08, LA1777, both *Sesbania*); where it agrees, 90 of 107 right. A lead: the family line
+  does not run where calls are confident, and its test may not oppose a call.
 - **Settle:** `medium` on the added genomes as reliable as on the development genomes (88%), with no right confident call lost
   on either. **Code:** `sat/signature.py`, `sat/centromere.py`, `fuse.py` (`_confidence`).
 
@@ -303,7 +324,10 @@ arrays are of the 43-bp satellite, and the CRM signature (55-fold) sits with the
 centromere on a minor one or on none. Cotton CM104175.1 is a related case: satellite, CRM core and both Hi-C readouts place it
 4.2 Mb from the line's CENH3 domain (86.8-fold), `high` with Hi-C.
 - **Approach.** A line that reads function rather than sequence: Hi-C where its tests pass (NbT2T's Hi-C is in GSA only, 180-250
-  GB), or CpG or CHG methylation of the same plant (#16).
+  GB), or CpG or CHG methylation of the same plant (#16). Checked in 0.19 from the FASTA: nothing in the satellite summary
+  separates the right calls from the wrong ones (main-family bp, cluster size, monomer identity to the family model 0.835-0.925,
+  HOR fraction, spacing); chr4 and chr10 carry 1.9-Mb arrays of the 43-bp family like the right chr8, chr14 and chr17, and
+  the most model-like array of each chromosome lies within 1 Mb of CENH3 no more often than the largest (8 of 13 each).
 - **Settle:** no confident call on those 8 *N. benthamiana* chromosomes, and no right satellite call of the development
   benchmark lost. **Code:** `sat/centromere.py`, `fuse.py`.
 
@@ -397,6 +421,28 @@ least 3 times wider than the call, 11 right and 4 wrong; otherwise 114 and 1 (ex
   agreement by chance does not either (chance of agreement 0.02-1 for every such call; above 0.2 right 203 of 204), so no
   principled cut is in hand; the rule would sit in the satellite engine (`finalize`), which the stored FASTA-only replays
   read as is. A lead, not a rule.
+- **A cut without a width: the call's share of the core's elements (0.19).** Over the 0.18.0 release runs, `te_concordant` calls
+  holding more than half of their core's elements were right 322 of 329 times (development) and 118 of 125 (added genomes);
+  those holding fewer, 92 of 115 and 24 of 30: the split replicates out of sample. Registered as `te_core_elsewhere` with
+  criteria before its replay: the head-to-head test the engine already applies to an array beside a core (te.overrules:
+  decisive, core ≥ 10-fold on its chromosome, the signature's elements significantly more in the rest of the core than in
+  the array, binomial at 1/2, P ≤ 0.01) also judging an array inside or overlapping the core; where it contradicts, the array
+  keeps its place and the confidence the satellite line gives it alone. Replayed (v20 c12c): on the development genomes it
+  lowered 8 confident errors (*Ae. tauschii* Chr5 and Chr7, with and without Hi-C; LA2093 CM175086.1 twice; tomato
+  CM175074.1; TS-60 CM175038.1) and 4 right confident calls (*Ae. geniculata* chr02M, chr03U; LA0426 CM175098.1 twice) to
+  `low`, none to wrong, and a fifth right call went from `high` to `medium` through a changed Hi-C reference (LA0426
+  CM175091.1 with Hi-C); on the added genomes only pepper G1-36576 Chr07, a right call (`medium` to `low` without Hi-C, `high`
+  to `medium` with it): every other added genome's cores are under 10-fold; on the panel it lowered 16 confident calls in 10
+  species (4 `high`, 12 `medium`), moving none. Two of its four criteria were missed as written, so it was not adopted: the
+  share right among the calls it took out of the confident class had to fall below the confident class's in both sets
+  (development 4 of 12 chromosome-runs; added genomes 1 of 1), and no call was to move, but a lowered call becomes movable by a
+  tested Hi-C line (*Ae. tauschii* Chr5 with Hi-C, wrong to wrong) and changed Hi-C references moved 2 right pepper calls by a
+  bin. Maize Mo17 chr5 is untouched either way (its satellite passes its own tests). A form that also judged long-unit arrays
+  was replayed (v20 c12b) and narrowed after its results were read, for a reason of mechanism: without the core's support a
+  long-unit array is no call, which left its chromosome without one beside its own decisive core (LA1982 CM175142.1 and
+  LA2093 CM175082.1, with and without Hi-C: right `medium` calls became no call; with Hi-C, LA0103 CM175169.1 went from right
+  `medium` to wrong `low` when the dropped call left Hi-C's references). The code is kept outside the repository (the v20
+  development folder, patches/c2_engine.diff).
 - **Settle:** the five calls fall to `low` or move onto CENH3; none of the 125 right calls drops below `medium`; CRM-plateau genomes
   not used to make the rule (wheat, the soybean lines: #35). **Code:** `sat/centromere.py` (`te_concordant`), `sat/te.py`
   (`agrees`), `linetests.py`.
@@ -677,6 +723,16 @@ is not calibrated, so since 0.16.1 it places only `low` calls (`fam_pair` remove
   (+3, -4 on the `low` calls it would reach, from 0.17's F-arm windows) and narrowing a wide call (at least twice the window's
   width) to a window inside it (both right in 64 of 65, but the window's midpoint closer to truth only in *Populus*, 16 of 16;
   farther in *N. crassa*, 24 of 24).
+- **The pair test (0.19, `fam_rep_pair`).** The family windows that hold a cluster are tested against the repeat-density peaks
+  (`famline.with_repeats`: overlap, chance over the span both lines read, P ≤ 0.01, most chromosomes, each left out in turn);
+  where that passes, the line acts as where its own test passed. Registered with criteria after the counterfactual on the
+  stored 0.18.0 runs; replayed: 21 `low` calls wrong to right (*Ae. tauschii* 12, LA2134 8, moss 1), none right to wrong, no
+  confident call changed, panel agreement 666 to 667 of 1,110 pairs, no change on the genomes added in 0.17. A code review
+  found the first form's chance spread over the whole chromosome (a quarter too small, since neither line reads a terminal
+  eighth) and empty windows counted as agreements; fixed, which undid its one move in the holocentric *Luzula sylvatica*.
+  Still: both lines read K-mer copy number, so the pair cannot tell a centromere from any repeat cluster the two share; it
+  passes genome-wide in *Luzula* (acting nowhere) and on siamang's 4 clustered windows of 25. A test of the family line
+  against an independent input (Hi-C: #81) is the stronger route.
 - **The move not made (0.16-0.17).** Of the `low` calls it contradicts (outside the terminal eighths), its window is right on 89 of 110
   in the release (15 genomes: 13 *Solanum*, *Ae. geniculata*, *Chlamydomonas*) against 8 for the calls, but on the panel the
   homoeologous pairs touched came no closer (64 pairs: 24 closer, 27 farther; agreeing 20 → 17). Such calls are flagged
@@ -718,6 +774,37 @@ signature tests, where a chromosome's own peak counts toward the pass that then 
 reruns the 10,000-deal null per window size per chromosome (up to 200 x 9). Choices made on the whole genome also stay: the AT and
 repeat window size, the methylation scan direction, the Hi-C engine's partner windows. First measure how many passes depend on one
 chromosome. **Code:** `loo.py`, `atline.scan_profiles`, `sat/karyotype.py`.
+
+### 80. A composition line alone stays `low` however often it is right
+
+User's decision (0.19). A trough or a repeat-density peak that places a chromosome nothing else places is `low` by design (design.md,
+AT troughs: AT-rich stretches of other kinds exist in every genome; `medium` only where Hi-C validated the troughs), though its
+genome's one-per-chromosome test passed at a calibrated level (AT: 3.9% of 3,336 GC-shuffled genomes at 0.05; repeat density
+1.3% of block shuffles at 0.01). In the 0.18.0 release runs `at_only` calls left `low` were right 79 of 83 times (*M. sympodialis*,
+*N. crassa*, *P. falciparum*, *V. dahliae*; added in 0.17: *C. deuterogattii* 14 of 14, *P. carinii* 14 of 17) and `rep_only`
+calls 67 of 67 (*C. neoformans*, *Chlorella*): better than the `medium` class (92% on the
+development genomes, 83% on the added ones). An LTR core alone is `medium` on a weaker record (#79). Raising them where the
+test passes at P ≤ 0.01 (the gate's level, at which repeat density already acts) would give *M. sympodialis*, *P. falciparum*,
+*C. deuterogattii*, both *C. neoformans* and *Chlorella* confident calls from the FASTA alone (1 more confident error, in
+*P. falciparum*); *V. dahliae* (P 0.0104) sits at that level. It rests on 8 genomes, 2 of them not seen while the lines were
+made, and changes what `low` means for a whole class of genomes, so it waits for the user. **Code:** `fuse.py`
+(`_confidence`), `atline.py`, `repline.py`.
+
+### 81. The repeat-family line tested against Hi-C
+
+Open (0.19, a lead). The family windows are tested against Hi-C's prior-free peaks and cis extremes in every run with Hi-C
+(`fam_hic`, reported only: the line never pairs; since 0.19 only windows that hold a cluster, with chance over the span the
+windows can occupy). In the 0.19.0 release runs the test passes on most chromosomes in barley (prior-free 6 of 7, P 3.7e-9;
+the family test alone fails, P 0.20), *C. neoformans* (prior-free 9 of 9; cis 9 of 9 in G1), *N. crassa* (3 of 4),
+*V. dahliae* (8 of 8), *S. pombe* (3 of 3), and in tomato, TS-60 and LA0458 (cis 9 of 12, 8 of 12, 7 of 12). Two lines from two inputs validating each other
+is principle 2, the standard by which a trough pairs with a Hi-C call (`at_pair`, which needs no passing trough test); 0.16.1
+removed `fam_pair` because the family test alone is not calibrated, a reason that does not touch this test. A pairing at
+`pass` (the Hi-C call takes the window's agreement as a second line, one level up) would raise 19 right `low` calls in the
+0.18.0 and 0.19.0 release runs alike (21 counting `cis_end_pair`, which stays `low` by its own rule; tomato and TS-60 with
+and without `tes/`, *S. pombe*) and make 2 confident errors (a *C. neoformans* G1 cis
+call 1 bin off, in two arms). **Settle:** a pairing rule registered with its criteria; *C. neoformans*' two cis near-misses
+(design.md: cis and trans as `medium` would make them confident errors) kept `low` by a reason of their own, or the rule
+dropped. **Code:** `famline.py`, `repline.with_hic`, `fuse._refine`.
 
 ## Methylation
 
@@ -1010,6 +1097,11 @@ folder (see Where things live; cenrep, cenhic: the engines' own projects).
 | 5S from the satellite families' Rfam tags | misses units over 2 kb (mammals, birds) | v6 |
 | sheep and goat CENP-A ChIP as truth | the antibody (CST #2187) recognizes phospho-Ser7 of CENP-A, absent in those species: at most 1.1-1.7× | v2 (#35) |
 | loci split into dense runs; sparse clusters dropped | chimpanzee +5,757 loci; barley lost 108 of 156 subtelomeric loci | v8 |
+| the family window and the repeat-density peak together over any `low` call they agree against | interior +44/-10, in a terminal eighth +29/-10 (0.18.0 runs): siamang loses 6 right calls, mouse and *Z. tritici* their right end calls; adopted only as a test (`fam_rep_pair`: on most chromosomes, windows that hold a cluster, interior calls), under which siamang's 6 are spared because their windows hold under 3 family K-mers | v20 (#76) |
+| `hic_disagrees_weak` (a validated peak elsewhere, too weak to move) as a contest | such calls right 37 of 39 `high`, 7 of 10 `medium` | v20 |
+| AT and repeat-density calls only where the chromosome's window ranks among the genome's N deepest (`first`) | calls off the deepest class right 30 of 32 | v20 (#77) |
+| a right call narrowed to its overlap with the lines that support it | the domain stays in the narrowed call: LTR core 87%, Hi-C 75% (plants) and 44% (animals, beside the arrays) | v20 (#37) |
+| the array closest to its family model as the active one | *N. benthamiana*: 8 of 13 within 1 Mb of CENH3, as for the largest | v20 (#78) |
 
 ## Closed entries
 

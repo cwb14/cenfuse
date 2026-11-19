@@ -437,3 +437,88 @@ def test_a_hic_call_with_a_second_line_is_not_said_to_stand_alone(placed, pair, 
         lone = it.caveat(row(confidence="low", flags="cis_only", support="hic", **kw), ctx(tes=False))
         assert lone == ("rests on the 3D lines alone: no sequence or LTR evidence at this place; a cis Hi-C signal alone -> "
                         "CENP-A/CENH3 data would decide")
+
+
+def test_a_call_through_the_family_repeat_pair_says_both_readouts():
+    """0.19 (fam_rep_pair): the family line acted through its test against the repeat-density line; basis and caveat say that
+    the densest repeats lie there too, and that both read repeat copy number (the call stays low)."""
+    r = row(call_source="composition", relation="sequence_only", confidence="low", support="families,repeats",
+            flags="fam_over_low,fam_rep_pair", rule="fam_over_low", start=70_000_001, end=72_000_000, seq_start=40_000_001,
+            seq_end=41_000_000, fam_votes=16)
+    assert "these windows and the densest repeats coincide on most chromosomes, as here" in it.basis(r, ctx(hic=False))
+    cav = it.caveat(r, ctx(hic=False))
+    assert cav.startswith("a repeat-family cluster where the densest repeats lie too (two readouts of repeat copy number), "
+                          "in place of the unsure satellite call at 40.00-41.00 Mb")
+    r = row(call_source="composition", relation="sequence_only", confidence="low", support="families,repeats",
+            flags="fam_only,fam_rep_pair", rule="fam_only", start=70_000_001, end=72_000_000, fam_votes=16)
+    assert it.caveat(r, ctx(hic=False)).startswith("a repeat-family cluster where the densest repeats lie too")
+
+
+@pytest.mark.parametrize("fam_rep, acts, gate, said", [
+    ("7/7 pass", "7", "fail", "coincide on 7 of 7 chromosomes beyond chance, on most, so on the 7 where they meet the clusters "
+                              "count as if their own test had passed"),
+    ("3/3 pass", "0", "untested", "coincide on 3 of 3 chromosomes beyond chance, on most, but with any one of those chromosomes "
+                                  "left out the test no longer passes, so the line acts on none"),
+    ("12/12 pass", "12", "pass", "coincide on 12 of 12 chromosomes beyond chance, on most"),
+    ("9/25 support", "0", "fail", "coincide on 9 of 25 chromosomes beyond chance, on a minority"),
+    ("2/3 fail", "0", "fail", "coincide on 2 of 3 chromosomes, too few to count"),
+    ("4/12 fail", "0", "fail", "coincide on 4 of 12 chromosomes, not beyond chance"),
+    ("0/0 untested", "0", "fail", "too few chromosomes hold both a family cluster and a repeat-density peak to test the two"),
+    (".", ".", "fail", None)])
+def test_the_genome_section_says_what_the_family_repeat_pair_test_found(fam_rep, acts, gate, said):
+    """0.19 (famline.with_repeats): the clause follows the pair test's status, and says the line acts only where the test,
+    each chromosome left out in turn, lets it act (fam_rep_acts)."""
+    text = it._fam_rep_text(dict(fam_rep=fam_rep, fam_rep_acts=acts, fam_gate=gate))
+    assert (text == "") if said is None else (said in text), text
+    if gate == "pass":
+        assert "count as if" not in text
+
+
+def test_the_caveat_of_a_flagged_call_names_the_cluster_the_densest_repeats_share():
+    """0.19: fam_elsewhere through the pair test speaks of the cluster that the densest repeats share, not of families that
+    cluster once per chromosome (their own test did not pass)."""
+    r = row(confidence="low", seq_confidence="low", flags="fam_elsewhere,fam_rep_pair", against="families",
+            fam_start=70_000_001, fam_end=72_000_000)
+    cav = it.caveat(r, ctx(hic=False))
+    assert "the repeat-family cluster that the densest repeats share (the two coincide on most chromosomes of this genome) " \
+           "lies elsewhere on this one (70.00-72.00 Mb)" in cav
+    assert "cluster at one locus per chromosome in this genome" not in cav
+
+
+def test_the_genome_verdict_names_the_tests_that_passed_but_cannot_make_a_call_confident():
+    """0.19: with no confident call and no test passed that can make one (passed_lines), the verdict names what did pass: the
+    repeat families' own test (not calibrated), their clusters against the densest repeats (two readouts of copy number; also
+    where the pair moved no call, Luzula sylvatica), and either repeat line against Hi-C where the line's own test did not pass
+    (C. tropicalis; S. pombe). It then counts the clusters among the possibilities; with nothing passed, the verdict is as before,
+    also for malformed or missing summary values."""
+    f = dict(high=0, medium=0, called=6)
+    base = dict(fam_gate="fail", fam_rep="0/6 fail", rep_hic=".", fam_hic=".")
+    ask = lambda **kw: it.verdict(f, dict(base, **kw), ctx(hic=False, tes=False))
+    head = ("- **No call is confident, and no test that can make a call confident passed in this genome**: the calls are best "
+            "candidates. Tests that passed here, but cannot make a call confident: ")
+    tail = ("Either the repeat clusters these tests found are the centromeres, or the centromeres leave no mark in these "
+            "inputs, or the chromosomes have no single centromere (holocentric")
+    v = ask(fam_gate="pass")
+    assert v.startswith(head + "the repeat families cluster once per chromosome (a test that also passes in many genomes with "
+                        "their repeat units moved to random places).") and tail in v
+    for fam_rep, acts in (("4/6 pass", "2"), ("4/6 pass", "0")):
+        v = ask(fam_rep=fam_rep, fam_rep_acts=acts)
+        assert v.startswith(head + "the repeat-family clusters meet the densest repeats on 4 of 6 chromosomes beyond chance (both "
+                            "read repeat copy number).") and tail in v
+    assert "on 6 of 12 chromosomes beyond chance, a minority (both" in ask(fam_rep="6/12 support")
+    v = ask(rep_hic="prior-free 4/6 pass")
+    assert "the densest repeats meet Hi-C's prior-free peaks on 4 of 6 chromosomes beyond chance (their own test did not pass)" in v
+    v = ask(fam_hic="prior-free 0/6 fail; cis 9/12 pass")
+    assert ("the repeat-family clusters meet Hi-C's cis extremes on 9 of 12 chromosomes beyond chance (the families never "
+            "pair with Hi-C: their own test is not calibrated)") in v and "prior-free" not in v
+    v = ask(fam_gate="pass", fam_rep="7/12 pass")
+    assert "moved to random places); the repeat-family clusters meet the densest repeats on 7 of 12" in v
+    old = ("- **No call is confident, and no line of evidence passed a test in this genome**: each call is one untested line's "
+           "best candidate. Either the centromeres leave no mark")
+    for kw in (dict(), dict(fam_rep="."), dict(fam_rep="None"), dict(fam_rep=float("nan")), dict(fam_rep="0/0 untested"),
+               dict(fam_rep="2/12 fail", rep_hic="prior-free 1/7 fail", fam_hic="prior-free 0/0 untested"),
+               dict(fam_gate="untested", fam_rep=None), dict(rep_hic="prior-free x/7 pass")):
+        assert ask(**kw).startswith(old), kw
+    assert it.verdict(f, dict(high=0), ctx(hic=False, tes=False)).startswith(old)                       # fields absent
+    for kw in (dict(), dict(fam_gate="pass")):                                    # each sentence opens with a capital
+        assert "). An LTR annotation (tes/; plants) could test them; CENP-A/CENH3" in it.verdict(f, dict(base, **kw), ctx(hic=True, tes=False))

@@ -36,3 +36,24 @@ def test_an_overruled_array_is_the_satellite_line():
     r = pd.DataFrame([dict(_row((1, 10), (500, 600), evidence="te_core"), seq_overruled_start="101", seq_overruled_end="200")])
     d = linetests.line_calls(next(r.itertuples(index=False)))
     assert d["satellite"] == (100, 200) and d["ltr"] == (500, 600)
+
+
+def test_the_repeat_lines_take_chance_over_their_span_and_drop_empty_family_windows():
+    """0.19: the repeat-density and repeat-family windows skip the terminal eighths, so a pair with either takes chance over
+    the chromosome outside them, as their own tests do (repline.with_hic, famline.with_repeats); a family window holding fewer
+    than famline.MIN_COPIES family K-mers is no readout. Other pairs keep the whole length."""
+    from cenfuse.famline import MIN_COPIES
+    from cenfuse.hicfuse import END_ZONE
+    rows = [dict(_row((k * 1_000_000, k * 1_000_000 + 500_000), (k * 1_000_000 + 100_000, k * 1_000_000 + 300_000)),
+                 rep_start=str(k * 1_000_000 + 1), rep_end=str(k * 1_000_000 + 400_000),
+                 fam_start=str(k * 1_000_000 + 1), fam_end=str(k * 1_000_000 + 400_000),
+                 fam_votes=str(MIN_COPIES if k < 16 else MIN_COPIES - 1)) for k in range(10, 20)]
+    t = linetests.table(pd.DataFrame(rows), None).set_index(["line_a", "line_b"])
+    whole = (500_000 + 200_000) / L
+    assert t.loc[("ltr", "satellite"), "expected"] == round(10 * whole, 2)
+    assert t.loc[("repeats", "satellite"), "expected"] == round(10 * (500_000 + 400_000) / ((1 - 2 * END_ZONE) * L), 2)
+    assert t.loc[("families", "satellite"), "chromosomes"] == 6 and t.loc[("families", "repeats"), "chromosomes"] == 6
+    d = linetests.line_calls(next(pd.DataFrame([dict(rows[0], fam_votes=".")]).itertuples(index=False)))
+    assert "families" not in d and "repeats" in d
+    d = linetests.line_calls(next(pd.DataFrame([{k: v for k, v in rows[0].items() if k != "fam_votes"}]).itertuples(index=False)))
+    assert "families" in d                                     # a table without the column: every window, as before

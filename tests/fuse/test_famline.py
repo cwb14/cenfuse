@@ -303,3 +303,110 @@ def test_the_family_line_speaks_only_where_its_window_holds_a_cluster():
     d = _ev(seq=(150_000, 250_000), fam=dict(thin, start=300_000, end=500_000), flags=nop)
     assert not {"fam_over_low", "fam_elsewhere"} & set(d["flags"])
     assert _ev(seq=(150_000, 250_000), fam=dict(FAM, start=600_000, end=800_000, density=3.0), flags=nop)["rule"] == "fam_over_low"
+
+
+# ---------------------------------------------------------------- 0.19: the family line tested against the repeat-density line
+def _scan(calls: dict, window=100_000, status="fail", p=0.2) -> dict:
+    """A scan result as atline.scan_profiles writes it: one window size, calls {chrom: (start, end)}."""
+    return dict(scales={window: dict(calls={c: dict(start=s, end=e, gc=5.0) for c, (s, e) in calls.items()})}, best=window,
+                p=p, status=status)
+
+
+def test_family_windows_agreeing_with_the_repeat_peaks_on_most_chromosomes_pass_the_pair_test():
+    """famline.with_repeats (0.19, future.md #76): the family windows tested against the repeat-density peaks as troughs are
+    tested against Hi-C (atline.validate): overlap on most chromosomes beyond each chromosome's geometric chance passes; one
+    chromosome left out (status_by_chrom); a minority, or overlaps no likelier than chance, does not."""
+    chroms = {f"c{i}": 10_000_000 for i in range(8)}
+    fam = _scan({c: (4_000_000 + 100_000 * i, 4_300_000 + 100_000 * i) for i, c in enumerate(chroms)})
+    rep = _scan({c: (4_100_000 + 100_000 * i, 4_200_000 + 100_000 * i) for i, c in enumerate(chroms)}, window=50_000)
+    out = famline.with_repeats(fam, rep, chroms)
+    v = out["rep"]
+    assert v["k"] == 8 and v["n"] == 8 and v["status"] == "pass" and v["p"] < 1e-6
+    x = famline.on_chromosome(out, "c3")
+    assert x["status"] == "fail" and x["pair"] == "pass" and x["pair_agrees"] and x["start"] == 4_300_000
+    far = _scan({c: (8_000_000, 8_100_000) for c in chroms}, window=50_000)       # peaks elsewhere: no agreement
+    assert famline.with_repeats(fam, far, chroms)["rep"]["status"] == "fail"
+    half = _scan({c: ((4_100_000 + 100_000 * i, 4_200_000 + 100_000 * i) if i < 3 else (8_000_000, 8_100_000))
+                  for i, c in enumerate(chroms)}, window=50_000)                  # 3 of 8 agree: beyond chance, a minority
+    assert famline.with_repeats(fam, half, chroms)["rep"]["status"] == "support"
+    assert famline.with_repeats(fam, None, chroms) is fam and famline.with_repeats(None, rep, chroms) is None
+    assert famline.on_chromosome(fam, "c3")["pair"] is None                       # no test: no pair
+
+
+def test_the_family_line_acts_through_the_pair_test_only_where_window_and_peak_meet():
+    """fuse._fam_pair (0.19): where the family line's own test did not pass but it passed its test against the repeat-density line,
+    a chromosome whose window and peak overlap lets it act as where its own test passed (fam_only, fam_over_low, fam_elsewhere,
+    with every guard), flagged fam_rep_pair, and the call stays low; where the two do not overlap here, or the pair test is only
+    at support, it does nothing."""
+    nop = "not_one_per_chromosome"
+    paired = dict(FAM, status="fail", pair="pass", pair_agrees=True)
+    d = _ev(fam=paired)
+    assert d["rule"] == "fam_only" and "fam_rep_pair" in d["flags"] and d["confidence"] == "low"
+    assert {"families", "repeats"} <= set(d["support"])
+    d = _ev(seq=(150_000, 250_000), fam=dict(paired, start=600_000, end=800_000), flags=nop)
+    assert d["rule"] == "fam_over_low" and d["call"] == (600_000, 800_000) and d["confidence"] == "low"
+    assert "fam_rep_pair" in d["flags"]
+    d = _ev(seq=(150_000, 250_000), fam=dict(paired, start=300_000, end=500_000), flags=nop)   # within resolution: flagged
+    assert d["call"] == (150_000, 250_000) and {"fam_elsewhere", "fam_rep_pair"} <= set(d["flags"])
+    for fam in (dict(paired, pair_agrees=False), dict(paired, pair="support"), dict(paired, pair="fail"),
+                dict(paired, pair=None), dict(paired, density=2.0)):
+        assert _ev(fam=fam)["call"] is None, fam
+        d = _ev(seq=(150_000, 250_000), fam=dict(fam, start=600_000, end=800_000), flags=nop)
+        assert d["call"] == (150_000, 250_000) and not {"fam_over_low", "fam_elsewhere", "fam_rep_pair"} & set(d["flags"]), fam
+    d = _ev(seq=(150_000, 250_000), fam=dict(paired, status="pass", start=600_000, end=800_000), flags=nop)
+    assert d["rule"] == "fam_over_low" and "fam_rep_pair" not in d["flags"]       # its own test passed: the pair is not needed
+    d = _ev(seq=(150_000, 250_000), fam=dict(paired, start=600_000, end=800_000), flags=".")   # the satellite's tests passed
+    assert d["call"] == (150_000, 250_000) and "fam_over_low" not in d["flags"]
+
+
+def test_the_pair_test_reads_chance_over_the_span_both_lines_read_and_skips_empty_windows():
+    """Neither line places a window whose midpoint lies in a terminal eighth, so chance is taken over the chromosome outside
+    them: 6 of 8 overlaps that pass when chance is spread over the whole length (as for a Hi-C peak) need not pass here. A window
+    holding fewer than MIN_COPIES family K-mers is no readout and takes no part in the test, agreeing or not. `acting` lists the
+    chromosomes where the line may act: the test passes with the chromosome left out and the two overlap there."""
+    from cenfuse.atline import validate
+    chroms = {f"c{i}": 100_000_000 for i in range(8)}
+    fam = _scan({c: (40_000_000, 55_000_000) for c in chroms})
+    rep = _scan({c: ((50_000_000, 55_000_000) if i < 6 else (80_000_000, 85_000_000)) for i, c in enumerate(chroms)},
+                window=1_000_000)
+    whole = validate(dict(fam), {c: (int(x["start"]), int(x["end"])) for c, x in rep["scales"][1_000_000]["calls"].items()},
+                     {c: 0 for c in chroms}, chroms)
+    v = famline.with_repeats(fam, rep, chroms)["rep"]
+    assert v["k"] == whole["k"] == 6 and v["p"] > whole["p"]                     # chance over 3/4 of each chromosome
+    assert set(whole["status_by_chrom"].values()) == {"pass"} and v["acting"] == []   # leaving one out: fails here
+    thin = dict(fam, scales={100_000: dict(calls={c: dict(x, gc=(2.0 if i >= 4 else 5.0)) for i, (c, x) in
+                                                   enumerate(fam["scales"][100_000]["calls"].items())})})
+    v = famline.with_repeats(thin, rep, chroms)["rep"]
+    assert v["n"] == 4 and v["k"] == 4                                          # the 4 empty windows are not counted
+    assert famline.on_chromosome(famline.with_repeats(thin, rep, chroms), "c5")["pair_agrees"] is False
+
+
+def test_a_genome_pass_that_leaving_one_out_undoes_lets_the_line_act_nowhere():
+    """3 of 3 agreements pass genome-wide, but with any agreeing chromosome left out 2 remain, under the 3 agreements a test
+    needs: the line acts on none (S. pombe's case), and the summary says so (acting empty)."""
+    chroms = {f"c{i}": 10_000_000 for i in range(3)}
+    fam = _scan({c: (4_000_000, 4_300_000) for c in chroms})
+    rep = _scan({c: (4_100_000, 4_200_000) for c in chroms}, window=50_000)
+    out = famline.with_repeats(fam, rep, chroms)
+    assert out["rep"]["status"] == "pass" and out["rep"]["acting"] == []
+    x = famline.on_chromosome(out, "c1")
+    assert x["pair"] != "pass" and x["pair_agrees"]
+    assert _ev(fam=dict(FAM, status="fail", pair=x["pair"], pair_agrees=True))["call"] is None
+
+
+def test_the_family_line_meets_hic_only_with_windows_that_hold_a_cluster():
+    """0.19: the family windows' test against Hi-C (reported only: the line never pairs with Hi-C) reads only the windows that
+    hold a cluster, as their test against the densest repeats does (an empty window is no readout); the family result keeps
+    every window."""
+    import pandas as pd
+    chroms = {f"c{i}": 10_000_000 for i in range(8)}
+    fam = _scan({c: (4_000_000 + 100_000 * i, 4_300_000 + 100_000 * i) for i, c in enumerate(chroms)})
+    thin = dict(fam, scales={100_000: dict(calls={c: dict(x, gc=(2.0 if i >= 4 else 5.0)) for i, (c, x) in
+                                                   enumerate(fam["scales"][100_000]["calls"].items())})})
+    tab = pd.DataFrame([dict(chrom=c, callable=True, denovo_peak_start=x["start"] + 100_000, denovo_peak_end=x["start"] + 110_000,
+                             bin_size=HB) for c, x in fam["scales"][100_000]["calls"].items()])
+    out = famline.with_hic(thin, dict(table=tab), chroms)
+    assert out["hic"]["n"] == out["hic"]["k"] == 4 and out["cis"] is None
+    assert out["scales"] == thin["scales"] and out["status"] == thin["status"]
+    assert famline.with_hic(fam, dict(table=tab), chroms)["hic"]["n"] == 8
+    assert famline.with_hic(thin, None, chroms) is thin and famline.with_hic(None, dict(table=tab), chroms) is None

@@ -4,6 +4,51 @@ What changed for users in each release, newest first, with the benchmark headlin
 [docs/benchmark.md](docs/benchmark.md). A *chromosome-run* is one chromosome in one benchmark run; *confident* = `high`
 or `medium`.
 
+## 0.19.0 (2026-11-18)
+
+- **The repeat-family line is tested against the repeat-density line.** The family windows and the densest-repeat peaks of
+  the FASTA are compared chromosome by chromosome, as the AT troughs are compared with Hi-C: where they overlap on most
+  chromosomes, more often than each chromosome's own geometry gives by chance (P ≤ 0.01; a chromosome's own agreement never
+  counts toward the test that lets the line act on it), the family line acts on a chromosome whose window and peak overlap
+  as it acts where its own one-per-chromosome test passed (flag `fam_rep_pair`, with `repeats` added to the call's support;
+  summary columns `fam_rep` and `fam_rep_acts`). The family line's own test can fail where its windows are right: in
+  *Ae. tauschii* from the FASTA it gives P 0.015 (level 0.01) with the windows on CENH3 on 7 of 7 chromosomes, while the pair
+  test passes there at P 1.9e-12. Only windows that hold a cluster take part, and chance is taken over the span both lines
+  read (neither reads a terminal eighth). Benchmark: 21 `low` calls went from wrong to right
+  (*Ae. tauschii* 12, *S. juglandifolium* LA2134 8, moss 1), none from right to wrong, and no confident call changed; no call
+  changed on the genomes added in 0.17 (the holocentric *Luzula sylvatica* passes the pair test genome-wide but on no
+  chromosome with itself left out); the polyploid panel's homoeologous calls agree once more (666 to 667 of 1,110 pairs). Both
+  lines read repeat copy number, so a pass says where a centromere made of repeats would sit, not that one sits there: the
+  line still makes only `low` calls and never pairs with Hi-C; where a window lies off a `low` call but within both
+  readouts' resolution of it, or another line speaks to the call, the call only gains a flag (`fam_elsewhere`; LA2134, moss,
+  siamang, and on the panel *O. schlechteri*) (future.md #76).
+- **Fixed: the repeat lines' tests against Hi-C took chance over the whole chromosome**, though their windows skip the
+  terminal eighths, so for a Hi-C peak in the interior chance was a quarter too small and the test too easy to pass (in
+  simulation, 1.3-1.6% false passes at the 0.01 level; 0.2-0.4% now). The repeat-density test is what lets a Hi-C call with
+  an agreeing peak rise to `medium` (`rep_pair`). Chance is now taken over the span the windows can occupy, as in the family
+  line's test against repeat density; the family line's test against Hi-C (reported only) reads only windows that hold a
+  cluster; `line_tests.tsv` does both for pairs with a repeat line. No call changed: `rep_pair` acts only in
+  *C. neoformans*, where both tests still pass (P ≤ 1e-13). *C. tropicalis*' repeat density no longer agrees with Hi-C beyond
+  chance (4 of 6, P 0.022; it moved no call before), two weak family agreements with Hi-C no longer pass (siamang, LA1982),
+  and where no family window holds a cluster (*Bombyx*, *Z. tritici*, *P. falciparum*, mouse, horse and others) the
+  family test against Hi-C is now untested.
+- **The report's verdict for a genome without a confident call names the tests that passed but cannot make a call
+  confident**: the repeat families' own test, their agreement with the densest repeats, and either repeat line's agreement
+  with Hi-C, each with how many chromosomes agree, and it counts the repeat clusters among the possibilities. Before, it said
+  no test had passed where one of these had (the tomatoes, *S. verrucosum*, *S. pombe*).
+- **Tested and not adopted:** an LTR core no longer vouching for an array inside it whose elements lie significantly more in
+  the rest of the core (a binomial test; the edge-of-core errors, future.md #45). On the development genomes it lowered 8
+  confident errors and 4 right confident calls to `low` and made none wrong (a fifth right call went from `high` to `medium`
+  through a changed Hi-C reference); on the genomes added in 0.17 it lowered only one call, a right one (pepper G1-36576
+  Chr07); on the polyploid panel it lowered 16 confident calls. It missed two of its four registered criteria: the calls it
+  lowered were not less reliable than confident calls on the added genomes, and three calls moved as side effects (*Ae.
+  tauschii* Chr5 with Hi-C, lowered and then moved by the cis Hi-C line, wrong to wrong; two pepper calls with Hi-C, right
+  to right, when Hi-C's references changed). The numbers and the code's place are in future.md #45.
+- Docs: future.md's "Where to start" opens with where the integration stands (it uses nearly everything its tested lines
+  offer; what remains needs a better line or more truth) and adds two entries, #80 (a passing AT trough or repeat-density
+  peak alone stays `low` though its calls were right 146 of 150 times; a decision left open) and #81 (the repeat-family line
+  tested against Hi-C).
+
 ## 0.18.0 (2026-11-18)
 
 - **A repeat-family window now takes the place of an unsure satellite call it contradicts.** Where the repeat-family line

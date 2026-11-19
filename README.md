@@ -71,13 +71,13 @@ the call was made.*
 
 ## How good it is
 
-Numbers are from cenfuse 0.18.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
+Numbers are from cenfuse 0.19.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
 same assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq; the genomes added in 0.17 have their own bullet.
 
 - **Satellite centromeres** (mammals, birds, most crops): from the FASTA alone, right on 425 of 450 chromosomes in 32
   genomes, 2 of them confidently wrong.
 - **Retrotransposon or satellite-free centromeres** (barley, *Aegilops*, potato, 14 tomato genomes, moss, green
-  algae): the FASTA alone finds 114 of 272; with `tes/` 213 of 272 (22 genomes), with `tes/` and Hi-C 189 of 231 (19
+  algae): the FASTA alone finds 125 of 272; with `tes/` 213 of 272 (22 genomes), with `tes/` and Hi-C 189 of 231 (19
   genomes). Most confident errors are here (21 with `tes/`): treat a `medium` call that rests on an LTR core alone
   with caution.
 - **Fungi and *Plasmodium*** (9 genomes): 50 of 98 chromosomes from the FASTA alone (AT-rich and transposon-rich

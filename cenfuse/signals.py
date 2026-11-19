@@ -217,8 +217,8 @@ def _status(key: str, s: dict) -> str | None:
         x = _s(s, f"{key}_gate")
         return None if x == "." else x
     if key == "fam":
-        x = _s(s, "fam_gate")
-        return None if x == "." else "lead" if x == "pass" else x
+        x = _s(s, "fam_gate")         # 0.19: or its windows passed the test against the repeat-density peaks where they act
+        return None if x == "." else "lead" if x == "pass" or (_num(s.get("fam_rep_acts"), int) or 0) > 0 else x
     if key == "at":                                     # the troughs pass alone or where Hi-C validated them (fuse at_ok)
         x = _s(s, "at_gate")
         return None if x == "." else "pass" if x == "pass" or _s(s, "at_hic").endswith(" pass") else x
@@ -295,6 +295,10 @@ def signal_tests(summary: dict | None, n_chrom: int, clade: str) -> list[TestRow
         elif key == "cpg":
             k, n, per_chrom = _num(s.get("cpg_gate_pass"), int), n_chrom, True
             q = "CpG dips at the other centromeres"
+        elif key == "fam" and st == "lead" and _s(s, "fam_gate") != "pass":
+            # 0.19: the lead stands on the windows' test against the repeat-density peaks, not on the failed test of their own
+            k, n = _kn(_s(s, "fam_rep"))
+            q = "Repeat-family clusters lie where the densest repeats do, both read repeat copy number"
         else:
             p = _num(s.get(f"{key}_p"))
             q = {"at": "The deepest AT-rich trough falls one per chromosome",
@@ -484,6 +488,8 @@ def verdict(rec: dict, row: Row, clade: str = "LTR") -> str:
                     f"{_join(x)} {'agrees' if len(x) == 1 else 'agree'}, on a {kind}" if x else f"{kind} alone")
     elif src == "composition":
         head = ("Placed by repeat density alone (a lead)" if "rep_only" in tags else
+                "Repeat-family cluster and densest repeats agree (a lead)" if {"fam_only", "fam_over_low"} & tags and
+                "fam_rep_pair" in tags else
                 "Placed by a repeat-family cluster alone (a lead)" if {"fam_only", "fam_over_low"} & tags else
                 "AT-rich trough and Hi-C hub agree" if "at_denovo_pair" in tags else
                 "Placed by the AT-rich trough alone")

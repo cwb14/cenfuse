@@ -21,7 +21,8 @@ kept, so its count is exact; a 1-kb bin then holds about 1000/SAMPLE kept positi
 Calls: the densest window at the chosen size, widened to its half-height run. Like the AT line, it places only chromosomes
 nothing else places, `low` (fuse._at_places: rep_only). Where its peaks agree beyond chance with the Hi-C readout that placed a
 call (with_hic: Hi-C's prior-free peaks, or the cis extremes), a peak at a Hi-C call on a chromosome without a sequence call
-gives that call its interval and raises it one level (fuse._refine: rep_pair). It never moves or opposes a sequence call.
+gives that call its interval and raises it one level (fuse._refine: rep_pair). It never moves or opposes a sequence call
+itself; since 0.19 its peaks test the repeat-family windows (famline.with_repeats), which can let the family line move one.
 Development (rules fixed before computing): C. neoformans P 0.0004, 14 of 14 peaks on CENP-A; V. dahliae, Chlorella and
 soybean pass, all right; 2,100 block shuffles of 8 genomes passed 6.5% of the time at the nominal 0.05, so the line is held
 at 0.01 (REP_ALPHA).
@@ -244,24 +245,28 @@ def with_hic(res: dict | None, hic: dict | None, chroms: dict, name: str = "repe
     library's Hi-C readouts, at the window the line's test chose
     (atline.validate, one Hi-C bin): against the prior-free peaks (res['hic']) and, where the cis line acts and the prior-free
     peaks say nothing, against the cis extremes (res['cis']), as atline.with_hic tests the troughs. A Hi-C call that a peak
-    tested this way agrees with holds two lines at one locus (fuse: rep_pair)."""
+    tested this way agrees with holds two lines at one locus (fuse: rep_pair). 0.19: this line's windows (and the family
+    line's) skip the terminal eighths (END_ZONE), so a window placed at random meets a peak with chance (width + width + 2
+    bins) / ((1 - 2 END_ZONE) L), not over the whole length, where it is a quarter too small (as famline.with_repeats); the
+    troughs, which may lie anywhere, keep the whole length (atline.with_hic)."""
     if res is None or not res.get("scales") or res.get("best") is None or hic is None:
         return res
     one = dict(res, scales={res["best"]: res["scales"][res["best"]]})
+    span = {c: (1 - 2 * END_ZONE) * L for c, L in chroms.items()}
     pk, tol, bins = {}, {}, {}
     for r in hic["table"].itertuples(index=False):
         if r.callable:
             bins[r.chrom] = int(r.bin_size)
             if r.denovo_peak_start >= 0:
                 pk[r.chrom], tol[r.chrom] = (int(r.denovo_peak_start), int(r.denovo_peak_end)), int(r.bin_size)
-    out = dict(res, hic=atline.validate(one, pk, tol, chroms), cis=None)
+    out = dict(res, hic=atline.validate(one, pk, tol, span), cis=None)
     log.info(f"{name} vs Hi-C's prior-free peaks: {out['hic']['k']}/{out['hic']['n']} (P {out['hic']['p']:.2g}): "
              f"{out['hic']['status']}")
     from .hicfuse import cis_acts                       # here: hicfuse imports much of the Hi-C engine
     cis = hic.get("cis")
     if out["hic"]["status"] not in ("pass", "support") and cis_acts(cis):
         cpk = {c: (int(a), int(b)) for c, (a, b) in (cis.get("peaks") or {}).items() if c in bins}
-        out["cis"] = atline.validate(one, cpk, {c: bins[c] for c in cpk}, chroms)
+        out["cis"] = atline.validate(one, cpk, {c: bins[c] for c in cpk}, span)
         log.info(f"{name} vs Hi-C's cis extremes: {out['cis']['k']}/{out['cis']['n']} (P {out['cis']['p']:.2g}): "
                  f"{out['cis']['status']}")
     return out

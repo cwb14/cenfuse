@@ -135,7 +135,8 @@ def basis(r, ctx: dict) -> str:
     elif r.call_source == "composition" and {"fam_only", "fam_over_low"} & flags:
         out.append(f"the window where repeat families concentrated at one locus on most chromosomes cluster here "
                    f"({float(getattr(r, 'fam_votes', 'nan')):.0f} family K-mers), satellite arrays left out, in a genome where "
-                   f"such families exist")
+                   + ("these windows and the densest repeats coincide on most chromosomes, as here" if "fam_rep_pair" in flags
+                      else "such families exist"))
     elif r.call_source == "composition" and "at_interior" in flags:
         out.append(f"the deepest AT trough of this chromosome away from its ends (GC {float(r.at_gc):.0%}; a deeper one lies in a "
                    f"terminal 5%, where subtelomeres are AT-rich), " +
@@ -369,15 +370,19 @@ def caveat(r, ctx: dict) -> str:
         out.append("a repeat-density peak alone")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if "fam_elsewhere" in flags:
-        out.append(f"the repeat families that cluster at one locus per chromosome in this genome cluster elsewhere on this one "
-                   f"({interval(r.fam_start, r.fam_end)})")
+        out.append((f"the repeat-family cluster that the densest repeats share (the two coincide on most chromosomes of this "
+                    f"genome) lies elsewhere on this one ({interval(r.fam_start, r.fam_end)})") if "fam_rep_pair" in flags else
+                   (f"the repeat families that cluster at one locus per chromosome in this genome cluster elsewhere on this one "
+                    f"({interval(r.fam_start, r.fam_end)})"))
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if "fam_only" in flags:
-        out.append("a repeat-family cluster alone, from a test that is not calibrated")
+        out.append("a repeat-family cluster where the densest repeats lie too, two readouts of repeat copy number"
+                   if "fam_rep_pair" in flags else "a repeat-family cluster alone, from a test that is not calibrated")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if "fam_over_low" in flags:
-        out.append(f"a repeat-family cluster, from a test that is not calibrated, in place of the unsure satellite call at "
-                   f"{interval(r.seq_start, r.seq_end)}")
+        out.append(("a repeat-family cluster where the densest repeats lie too (two readouts of repeat copy number)"
+                    if "fam_rep_pair" in flags else "a repeat-family cluster, from a test that is not calibrated")
+                   + f", in place of the unsure satellite call at {interval(r.seq_start, r.seq_end)}")
         hint = hint or ("Hi-C or CENP-A/CENH3 data would decide" if not ctx.get("hic") else "CENP-A/CENH3 data would decide")
     if {"cis_trans_pair", "cis_end_pair"} & flags:
         out.append("one library's two readouts (cis and trans), by a rule shaped on one genome (tomato), so the call stays low")
@@ -420,6 +425,30 @@ def _n(x) -> int:
     return v if v is not None else 0
 
 
+def _fam_rep_text(summ: dict) -> str:
+    """The genome section's clause on the repeat-family line tested against the repeat-density line (summary fam_rep, 'k/n
+    status', and fam_rep_acts; famline.with_repeats), or ''."""
+    x = str(summ.get("fam_rep", "."))
+    if x in (".", "", "None") or "/" not in x:
+        return ""
+    kn, status = x.split()[0], x.split()[-1]
+    k, n = (int(v) for v in kn.split("/"))
+    if status == "untested":
+        return "; too few chromosomes hold both a family cluster and a repeat-density peak to test the two against each other"
+    out = f"; their windows and the densest repeats coincide on {k} of {n} chromosomes"
+    if status == "support":
+        return out + " beyond chance, on a minority"
+    if status != "pass":
+        return out + (", too few to count" if k < 3 else ", not beyond chance")
+    out += " beyond chance, on most"
+    if summ.get("fam_gate") == "pass":
+        return out
+    acts = _n(summ.get("fam_rep_acts"))
+    return out + (f", so on the {acts} where they meet the clusters count as if their own test had passed (still leads: both "
+                  f"read repeat copy number)" if acts else
+                  ", but with any one of those chromosomes left out the test no longer passes, so the line acts on none")
+
+
 def passed_lines(summ: dict) -> list:
     """The lines that passed a genome-level test in this run, read from its summary row: what makes any call more than one
     line's untested best candidate. The satellites' one-per-chromosome test, a decisive LTR signature, the AT troughs, the
@@ -447,11 +476,44 @@ def passed_lines(summ: dict) -> list:
     return out
 
 
+def _passing(x) -> list:
+    """The passing parts (pass or support) of a summary field written 'k/n status' (fam_rep) or '<readout> k/n status[; ...]'
+    (fam_hic, rep_hic): [(readout, k, n, status)]. Anything else ('.', None, NaN, 'untested', a malformed part) gives none."""
+    out = []
+    for part in str(x).split(";"):
+        w = part.split()
+        if len(w) < 2 or w[-1] not in ("pass", "support") or w[-2].count("/") != 1:
+            continue
+        k, n = w[-2].split("/")
+        if k.isdigit() and n.isdigit():
+            out.append((" ".join(w[:-2]), int(k), int(n), w[-1]))
+    return out
+
+
+def _passed_uncounted(summ: dict) -> list:
+    """The tests that passed in this run but cannot make a call confident (0.19), for the verdict, which runs only where no
+    test in passed_lines did: the repeat families' own test (not calibrated), their clusters against the densest repeats (two
+    readouts of repeat copy number: famline.with_repeats), and either repeat line against Hi-C (a repeat-density peak pairs
+    with a Hi-C call only where its own test passed, fuse rep_pair; the families never pair)."""
+    hic = {"prior-free": "Hi-C's prior-free peaks", "cis": "Hi-C's cis extremes"}
+    on = lambda k, n, st: f"on {k} of {n} chromosomes beyond chance" + (", a minority" if st == "support" else "")
+    out = ["the repeat families cluster once per chromosome (a test that also passes in many genomes with their repeat "
+           "units moved to random places)"] if summ.get("fam_gate") == "pass" else []
+    out += [f"the repeat-family clusters meet the densest repeats {on(k, n, st)} (both read repeat copy number)"
+            for _, k, n, st in _passing(summ.get("fam_rep"))]
+    out += [f"the densest repeats meet {hic.get(w, w)} {on(k, n, st)} (their own test did not pass)"
+            for w, k, n, st in _passing(summ.get("rep_hic"))]
+    out += [f"the repeat-family clusters meet {hic.get(w, w)} {on(k, n, st)} (the families never pair with Hi-C: their own "
+            "test is not calibrated)" for w, k, n, st in _passing(summ.get("fam_hic"))]
+    return out
+
+
 def verdict(f: dict, summ: dict, ctx: dict) -> str | None:
     """The genome-level statement when nothing in the run is confident (None otherwise): no call at all, or only `low` calls
-    while no line passed a genome-level test. Each such call is one untested line's best candidate; holocentric genomes
-    (0 confident calls in 196 chromosome-runs of the benchmark's four) and satellite-free genomes from the FASTA alone look
-    like this. Nothing here changes a call."""
+    while no test passed that can make a call confident (passed_lines). Each such call is a best candidate; holocentric
+    genomes (0 confident calls in 196 chromosome-runs of the benchmark's four) and satellite-free genomes from the FASTA alone
+    look like this. 0.19: the tests that did pass but cannot make a call confident are named (_passed_uncounted), and the
+    repeat clusters they found are counted among the possibilities. Nothing here changes a call."""
     if f["high"] or f["medium"]:
         return None
     need = [x for x, ok in (("Hi-C", ctx.get("hic")), ("an LTR annotation (tes/; plants)", ctx.get("tes"))) if not ok]
@@ -461,9 +523,15 @@ def verdict(f: dict, summ: dict, ctx: dict) -> str | None:
                 "(yeasts, other fungi) leave little in the FASTA; " + then)
     if passed_lines(summ):
         return None
-    return ("- **No call is confident, and no line of evidence passed a test in this genome**: each call is one untested line's "
-            "best candidate. Either the centromeres leave no mark in these inputs, or the chromosomes have no single "
-            "centromere (holocentric: nematodes, butterflies and moths, *Rhynchospora*, *Luzula*). " + then)
+    rest = ("the centromeres leave no mark in these inputs, or the chromosomes have no single centromere (holocentric: "
+            "nematodes, butterflies and moths, *Rhynchospora*, *Luzula*). " + then[:1].upper() + then[1:])
+    also = _passed_uncounted(summ)
+    if not also:
+        return ("- **No call is confident, and no line of evidence passed a test in this genome**: each call is one untested "
+                "line's best candidate. Either " + rest)
+    return ("- **No call is confident, and no test that can make a call confident passed in this genome**: the calls are best "
+            "candidates. Tests that passed here, but cannot make a call confident: " + "; ".join(also) + ". Either the repeat "
+            "clusters these tests found are the centromeres, or " + rest)
 
 
 def _list(items, k: int = 8) -> str:
@@ -705,6 +773,7 @@ def genome_section(name: str, g, t: pd.DataFrame, summ: dict, lt: pd.DataFrame, 
                     "do not show one cluster per chromosome" if summ.get("fam_gate") == "fail" else
                     "cannot be tested (too few chromosomes long enough)")
                  + f" (P {summ.get('fam_p')}, windows of {summ.get('fam_window')} bp)"
+                 + _fam_rep_text(summ)
                  + (f"; they placed {f['fam_calls']} calls nothing else placed" if f.get("fam_calls") else "")
                  + (f"; they took the place of {f['fam_moved']} unsure satellite calls far from their clusters"
                     if f.get("fam_moved") else "") + ".")

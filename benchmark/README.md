@@ -1,20 +1,20 @@
 # benchmark/
 
-For developers: every scored result of the 0.18.0 release, the truth manifests, the frozen scorer, and the chain that
+For developers: every scored result of the 0.19.0 release, the truth manifests, the frozen scorer, and the chain that
 scores a release's runs and refills [docs/benchmark.md](../docs/benchmark.md), which presents the results.
 
 ## Files
 
 | file | what |
 |---|---|
-| `results.tsv` | one row per scored chromosome-run of the 0.18.0 release (every benchmark run of 0.17.0 replayed with 0.18.0; 316 have truth): call, confidence, rule, outcome, truth, the repeat-family window and the CpG kinetochore; 1-based inclusive coordinates throughout (truth start = BED start + 1); its header lines give the counts and define the columns |
+| `results.tsv` | one row per scored chromosome-run of the 0.19.0 release (every benchmark run of 0.18.0 replayed with 0.19.0; 316 have truth): call, confidence, rule, outcome, truth, the repeat-family window and the CpG kinetochore; 1-based inclusive coordinates throughout (truth start = BED start + 1); its header lines give the counts and define the columns |
 | `summary.py` | summaries of `results.tsv`: right, wrong and no call per input set and centromere class, confidence calibration, and the controls (`python -m benchmark.summary`) |
 | `truth.tsv` | the manifest, one row per genome: `kind`, `rule`, `tol_bp`, `hic_bins`, `truth` (files under the data root, `;`-separated; `.` for holocentric), `source` (assembly, accessions, paper, how the BED was made), `notes` |
 | `truth_017.tsv` | the 22 genomes added in 0.17, same columns: scored apart, so that 0.16.1's results on them (its rules fixed before any of them was scored) show how cenfuse does on genomes it was not developed on, and so that the tables of the development genomes stay comparable across releases |
-| `results_017.tsv` | one row per scored chromosome-run of those genomes (0.18.0, every input set they have: FASTA, `tes/`, Hi-C, all), same coordinates as `results.tsv` |
+| `results_017.tsv` | one row per scored chromosome-run of those genomes (0.19.0, every input set they have: FASTA, `tes/`, Hi-C, all), same coordinates as `results.tsv` |
 | `score.py` | the frozen scorer, reading a manifest (`--manifest truth_017.tsv` for the added genomes) |
 | `canonical.tsv` | genome labels, lineages and the arm each doc table shows |
-| `paths.py` | every input of the chain, under the data root; defaults to the 0.18.0 release (`python -m benchmark.paths` lists them) |
+| `paths.py` | every input of the chain, under the data root; defaults to the 0.19.0 release (`python -m benchmark.paths` lists them) |
 | `release.sh` | the chain for one release: scores, every computed table, the filled docs/benchmark.md |
 | `fill_docs.py`, `docs_src/benchmark.template.md` | the template of docs/benchmark.md and its filler: edit the template, never docs/benchmark.md |
 | `md_tables.py`, `md_013.py`, `rabl_table.py`, `precision.py` | the computed tables of docs/benchmark.md |
@@ -30,7 +30,7 @@ it imports cenfuse from anywhere else. Point `CENFUSE_BENCH_DATA` at the data ro
 
 ```bash
 export CENFUSE_BENCH_DATA=/path/to/centromere_benchmark
-PYTHONPATH=$PWD python -m benchmark.paths                       # every input and its default (the 0.18.0 release)
+PYTHONPATH=$PWD python -m benchmark.paths                       # every input and its default (the 0.19.0 release)
 RUNS=/path/to/runs PREV=/path/to/release18 PY=python bash benchmark/release.sh OUT 19
 ```
 
@@ -45,7 +45,7 @@ Hi-C, and the genomes added in 0.17) come from scripts kept with the runs.
 After editing the template, refill from a release's stored tables (seconds), then run the tests:
 
 ```bash
-T=$(PYTHONPATH=$PWD python -m benchmark.paths | awk '$1 == "TABLES" {print $2}')     # the 0.18.0 tables
+T=$(PYTHONPATH=$PWD python -m benchmark.paths | awk '$1 == "TABLES" {print $2}')     # the 0.19.0 tables
 PYTHONPATH=$PWD python -m benchmark.fill_docs "$T" .          # rewrites docs/benchmark.md; prints any unfilled name
 PYTHONPATH=$PWD python -m pytest -q tests/benchmark -p no:cacheprovider
 ```
@@ -120,11 +120,11 @@ To add a genome: append a row to `truth.tsv`, with its rule fixed before its run
 
 ## Outside the repository
 
-The runs and their inputs stayed on the server where cenfuse was built, in one nested folder per release (`v2` to `v19`,
+The runs and their inputs stayed on the server where cenfuse was built, in one nested folder per release (`v2` to `v20`,
 as `paths.py` spells out); `CENFUSE_BENCH_DATA` points the scripts at a copy. They stay out because of size and rights:
 
 - **Too large for git:** the assemblies, Hi-C pairs, methylation tracks, LTR annotations and truth BEDs, and the runs
-  themselves (424 for 0.18.0, 106 of them the panel's, and 40 of the added genomes, with their checkpoints and the
+  themselves (424 for 0.19.0, 106 of them the panel's, and 40 of the added genomes, with their checkpoints and the
   stored satellite searches they replay).
 - **Unpublished:** the five great apes' CDRs are the Logsdon lab's curated set (v1.3), "contact the lab before
   publication" (docs/benchmark.md credits Logsdon et al. 2024). `results.tsv` keeps their outcomes and leaves their

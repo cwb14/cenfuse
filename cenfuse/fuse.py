@@ -89,7 +89,9 @@ The integrated call is the sequence call unless a validated functional line move
   one-per-chromosome test or of which none dominates, or the weak-satellite fallback), the window lies beyond the resolution of both
   readouts (gap wider than the wider interval, sat/te.agrees) and no other line speaks to the call there (_fam_alone_against:
   Hi-C, LTR core, methylation, AT trough, repeat-density peak, CpG); otherwise a window off the call is only flagged
-  (fam_elsewhere). The line never pairs, raises or opposes: its test is not calibrated.
+  (fam_elsewhere). The line never pairs, raises or opposes: its test is not calibrated. 0.19: where that test does not pass but
+  the family windows and the repeat-density peaks overlap on most chromosomes beyond chance (famline.with_repeats, one
+  chromosome left out), the line acts the same way on a chromosome whose window and peak overlap (flag fam_rep_pair), still low.
 - Leave one chromosome out (0.16.1, cenfuse.loo): every status above with which a tested line acts on a chromosome (Hi-C on the
   LTR cores, the cis signal, the arm fold and alignment and the fold's lean, the troughs and repeat peaks tested against Hi-C) is
   the stricter of the genome's and the one the same test reaches on the other chromosomes alone, as the gate's: a chromosome's
@@ -162,8 +164,8 @@ class Evidence:
                               # contests a call there (cdr.Chrom.elsewhere where the CpG gate passes), else None
     rep: dict | None = None   # the repeat-density line on this chromosome (repline.on_chromosome): start, end, density,
                               # status (the genome's test), window; or None
-    fam: dict | None = None   # the repeat-family line on this chromosome (famline.py, read by repline.on_chromosome: density
-                              # holds the window's family votes), or None
+    fam: dict | None = None   # the repeat-family line on this chromosome (famline.on_chromosome: density holds the
+                              # window's family votes; pair, pair_agrees: its test against the repeat-density peaks), or None
 
 
 def _iv(d, s="start", e="end"):
@@ -649,10 +651,11 @@ def _at_places(c: _Ctx, s: _Call) -> None:
         s.call, s.relation, s.source, s.rule = (ev.rep["start"], ev.rep["end"]), "sequence_only", "composition", "rep_only"
         s.flags.append("rep_only")
     elif s.call is None and _fam_speaks(ev):
-        # the repeat-family line (famline.py), likewise low: its pass says only that a family clustering once per chromosome
-        # exists (the test is not calibrated), so its peak is the chromosome's untested best candidate
+        # the repeat-family line (famline.py), likewise low: its pass (or, 0.19, its pass against the repeat-density peaks,
+        # _fam_pair) says only where families that cluster once per chromosome sit (neither test is a test of centromeres),
+        # so its peak is the chromosome's untested best candidate
         s.call, s.relation, s.source, s.rule = (ev.fam["start"], ev.fam["end"]), "sequence_only", "composition", "fam_only"
-        s.flags.append("fam_only")
+        s.flags += ["fam_only"] + (["fam_rep_pair"] if _fam_pair(ev) else [])
     elif c.at_ok and c.sconf == "low" and c.alt_iv and s.rule == "sequence" and (c.amb or not (c.valid and c.peak)):
         lo, hi = ev.at.get("trough_start", ev.at["start"]), ev.at.get("trough_end", ev.at["end"])    # the deepest window itself
         if gap(lo, hi, *c.alt_iv) == 0 and gap(lo, hi, *s.call) > 0:
@@ -665,14 +668,15 @@ def _at_places(c: _Ctx, s: _Call) -> None:
             # 0.18 (fam_over_low, future.md #76): the window names another locus, beyond the resolution of both readouts (the
             # gap exceeds the wider of the two: the satellite engine's agreement rule, sat/te.agrees), and nothing else speaks to
             # the call here, so the low call moves there and stays low: of two unsure candidates, the one from the line whose
-            # own test passed, where the satellite line holds its own call at low. Never a confident call, never paired (the
-            # test is not calibrated)
+            # test passed (its own, or 0.19 its test against the repeat-density peaks), where the satellite line holds its own
+            # call at low. Never a confident call, never paired (neither test is calibrated as a test of centromeres)
             s.call, s.relation, s.source, s.rule = fam_iv, "sequence_only", "composition", "fam_over_low"
-            s.flags.append("fam_over_low")
+            s.flags += ["fam_over_low"] + (["fam_rep_pair"] if _fam_pair(ev) else [])
         else:
-            # 0.16: said in the caveat, the call stays: the families that cluster at one locus per chromosome in this genome
-            # cluster off it (within the two readouts' resolution, or where another line speaks to the call)
-            s.flags.append("fam_elsewhere")
+            # 0.16: said in the caveat, the call stays: the families that cluster at one locus per chromosome in this genome (or,
+            # 0.19, the clusters the densest repeats share) cluster off it (within the two readouts' resolution, or where another
+            # line speaks to the call)
+            s.flags += ["fam_elsewhere"] + (["fam_rep_pair"] if _fam_pair(ev) else [])
 
 
 def _fam_speaks(ev: Evidence) -> bool:
@@ -680,8 +684,19 @@ def _fam_speaks(ev: Evidence) -> bool:
     holds a cluster, at least FAM_MIN_VOTES family K-mers (famline.MIN_COPIES, the fewest that can show a cluster beyond a pair).
     Every chromosome gets a best window, also where no family clusters at all (the holocentric Leptidea sinapis, whose test
     passes: 0-2 family K-mers in the window of every chromosome that window placed or moved a call on), and the line neither
-    places, moves nor flags a call there."""
-    return bool(ev.fam and ev.fam.get("status") == "pass" and float(ev.fam.get("density", 0)) >= FAM_MIN_VOTES)
+    places, moves nor flags a call there. 0.19: its own test passed, or the line passed its test against the repeat-density line
+    and the two overlap here (_fam_pair)."""
+    return bool(ev.fam and float(ev.fam.get("density", 0)) >= FAM_MIN_VOTES and (ev.fam.get("status") == "pass" or _fam_pair(ev)))
+
+
+def _fam_pair(ev: Evidence) -> bool:
+    """The repeat-family line speaks here through its test against the repeat-density line, not its own (0.19, future.md #76):
+    its own one-per-chromosome test did not pass, but its windows and the repeat-density peaks overlap on most chromosomes beyond
+    chance (famline.with_repeats; the status on this chromosome is the stricter of the genome's and the one without it, loo) and
+    overlap on this chromosome. Two readouts of K-mer copy number that place the repeats of most chromosomes at one locus: the
+    densest repeats lie where the once-per-chromosome families cluster (Ae. tauschii from the FASTA: 7 of 7, P 1.9e-12, its
+    family test alone P 0.015). The line still acts only as where its own test passed: low calls, never paired or raised."""
+    return bool(ev.fam and ev.fam.get("status") != "pass" and ev.fam.get("pair") == "pass" and ev.fam.get("pair_agrees"))
 
 
 def _fam_alone_against(c: _Ctx, s: _Call) -> bool:
@@ -770,6 +785,8 @@ def _support(c: _Ctx, s: _Call, m_call: dict) -> list:
         support.append("repeats")
     if {"fam_only", "fam_over_low"} & set(flags):
         support.append("families")
+        if "fam_rep_pair" in flags and "repeats" not in support:
+            support.append("repeats")            # the repeat-density peak overlaps the window (0.19)
     if ev.sat_bp and ev.sat_bp(*s.call) >= SAT_SUPPORT_BP:
         support.append("satellite")
     if (s.source == "sequence" and _te_agrees(ev, s.call)) or (s.source == "hic" and "te" in s.second) or "te_hic_pair" in flags:

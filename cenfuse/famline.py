@@ -28,14 +28,22 @@ vouch for, that its window contradicts beyond the resolution of both readouts an
 fuse._fam_alone_against); any other window off a `low` call is flagged (fam_elsewhere). It acts only on a chromosome whose
 window holds a cluster, at least MIN_COPIES family K-mers (fuse._fam_speaks): every chromosome gets a best window, also where
 no family clusters. It never pairs with Hi-C (an uncalibrated test cannot be one of two tested lines) and never opposes or
-raises a call."""
+raises a call.
+
+The repeat-density line tests it too (0.19, with_repeats): the family windows against the densest-repeat peaks, as the troughs
+and peaks are tested against Hi-C (atline.validate: overlap, chance over the span both lines read, P <= 0.01, on most
+chromosomes, one chromosome left out; only windows that hold a cluster). Where the two agree so, a chromosome whose window and peak overlap lets the line act
+as where its own test passed (fuse._fam_speaks; flag fam_rep_pair), still `low`: both lines read K-mer copy number, so the
+pair says that on most chromosomes the densest repeats lie where the once-per-chromosome families cluster, which is where a
+centromere made of repeats sits, and no more than that. Ae. tauschii from the FASTA: 7 of 7 agree (P 1.9e-12) while the family
+test alone stops at P 0.015."""
 from __future__ import annotations
 
 import math
 
 import numpy as np
 
-from . import atline, repline
+from . import atline, loo, repline
 from .hicfuse import END_ZONE
 from .util import log
 
@@ -197,3 +205,56 @@ def scan(fam: dict, chroms: dict) -> dict:
                  f"chromosomes (null {s['null_median']:.0f}), the strongest {s['m']} fall one per chromosome at P "
                  f"{res['p']:.2g} after {len(res['scales'])} sizes: {res['status']}")
     return res
+
+
+def clustered(fam: dict | None) -> dict | None:
+    """fam at the window its test chose, holding only the windows with a cluster (at least MIN_COPIES family K-mers, the
+    condition under which the line speaks at all, fuse._fam_speaks): a window without one is no readout, so it takes no part
+    in a test against another line (0.19). None where the line has no window."""
+    if not fam or fam.get("best") is None or not fam.get("scales"):
+        return None
+    sc = fam["scales"][fam["best"]]
+    return dict(fam, scales={fam["best"]: dict(sc, calls={c: x for c, x in sc["calls"].items() if x["gc"] >= MIN_COPIES})})
+
+
+def with_hic(fam: dict | None, hic: dict | None, chroms: dict) -> dict | None:
+    """fam with its windows tested against Hi-C's prior-free peaks and cis extremes (repline.with_hic: fam['hic'], fam['cis']),
+    reported only: the line never pairs with Hi-C (fuse). 0.19: only the windows that hold a cluster take part (clustered), as
+    in with_repeats; fam keeps every window."""
+    one = clustered(fam)
+    if one is None or hic is None:
+        return fam
+    t = repline.with_hic(one, hic, chroms, "repeat families")
+    return dict(fam, hic=t.get("hic"), cis=t.get("cis"))
+
+
+def with_repeats(fam: dict | None, rep: dict | None, chroms: dict) -> dict | None:
+    """fam with its windows tested against the repeat-density line's peaks (repline.py), each line at the window its own test
+    chose: fam['rep'] = atline.validate (the windows and peaks overlap; P <= 0.01, at least atline.MIN_AGREE agreements, `pass`
+    on most chromosomes; status_by_chrom: the same test without each chromosome), plus fam['rep']['acting']: the chromosomes
+    where the test passes with that chromosome left out and window and peak overlap (where the family line's own test did not
+    pass, it acts on these: fuse._fam_pair; where it passed, they are reported only). Chance comes from the span both lines
+    read: neither places a window whose midpoint lies in a terminal eighth (END_ZONE), so two independent placements overlap with chance (width + width) / ((1 - 2 END_ZONE) L), not over the
+    whole length (windows they drop for too few called bases or for satellite arrays are not taken out: a little generous
+    where those are many). Only chromosomes whose window holds a cluster take part (clustered).
+    Unchanged where either line has no window."""
+    one = clustered(fam)
+    if one is None or not rep or rep.get("best") is None or not rep.get("scales"):
+        return fam
+    pk = {c: (int(x["start"]), int(x["end"])) for c, x in rep["scales"][rep["best"]]["calls"].items()}
+    v = atline.validate(one, pk, {c: 0 for c in pk}, {c: (1 - 2 * END_ZONE) * L for c, L in chroms.items()})
+    v["acting"] = sorted(c for c, st in (v.get("status_by_chrom") or {}).items() if st == "pass" and (v.get("agrees") or {}).get(c))
+    log.info(f"repeat families vs repeat density: {v['k']}/{v['n']} overlap (P {v['p']:.2g}): {v['status']}; it still passes "
+             f"with the chromosome left out on {len(v['acting'])} of those that overlap")
+    return dict(fam, rep=v)
+
+
+def on_chromosome(res: dict | None, chrom: str) -> dict | None:
+    """repline.on_chromosome for this line, with its test against the repeat-density line (with_repeats) on this chromosome:
+    pair (the status at which it acts here, one chromosome left out; None without the test) and pair_agrees (window and peak
+    overlap here)."""
+    x = repline.on_chromosome(res, chrom)
+    if x is None:
+        return None
+    v = res.get("rep") or {}
+    return dict(x, pair=loo.status_on(v, chrom), pair_agrees=bool((v.get("by_window") or {}).get(res["best"], {}).get(chrom)))

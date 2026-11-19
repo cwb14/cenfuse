@@ -1,10 +1,10 @@
 # Benchmarks
 
-How well cenfuse 0.18.0 finds centromeres, scored against centromeres mapped on the same assembly. Every result table
-comes from one run of the release (2026-11-18): the 318 benchmark runs and 106 panel runs of 0.17.0 replayed with
-0.18.0 (123 `low` calls of the benchmark runs and 29 of the panel moved to a repeat-family window, 10 of the panel's removed,
-no confident call changed: [repeat families](#repeat-centromeres-from-the-fasta)), and the runs of the 22 genomes added in 0.17 ([their own
-section](#genomes-added-in-017)).
+How well cenfuse 0.19.0 finds centromeres, scored against centromeres mapped on the same assembly. Every result table
+comes from one run of the release (2026-11-18): the 318 benchmark runs and 106 panel runs of 0.18.0 replayed with
+0.19.0 (29 `low` calls of the benchmark runs and 1 of the panel moved to a repeat-family window that the repeat-density
+line confirms, no confident call changed: [repeat families](#repeat-centromeres-from-the-fasta)), and the runs of the 22
+genomes added in 0.17 ([their own section](#genomes-added-in-017)).
 Per chromosome-run, every result is in [benchmark/results.tsv](../benchmark/results.tsv), and for the added genomes
 in [benchmark/results_017.tsv](../benchmark/results_017.tsv). A few checks of parts the release did not change come
 from earlier runs, and one table from an early form of the LTR line; each says so: the Hi-C depth series, the CpG
@@ -76,7 +76,8 @@ grape included, each with its run with the most inputs; `python -m benchmark.sum
   every chromosome from the FASTA alone, mostly `high` (11 *B. rapa*: 110 of 110; [T2T mammals](#t2t-mammals)).
 - **Satellites beside the centromere, or none at it** (barley, potato, tomatoes, *Aegilops*): the FASTA alone gives
   `low` calls, mostly wrong, though since 0.18 a repeat-family window takes the place of many wrong ones (13 tomatoes 20
-  → 51 of 156, *Ae. geniculata* 0 → 8 of 14, potato 2 → 5 of 11, barley 0 of 7). `tes/` places most: barley 7 of 7,
+  → 55 of 156 with 0.19, *Ae. geniculata* 0 → 8 of 14, potato 2 → 5 of 11, barley 0 of 7), and since 0.19 also where the
+  family test fails but its windows meet the densest repeats on most chromosomes (*Ae. tauschii* 1 → 7 of 7). `tes/` places most: barley 7 of 7,
   potato 10 of 11, *Ae. geniculata* 13 of 14, 13 tomatoes 115 of 156. Confident calls from an LTR core are less reliable than the table above: in the 13
   tomatoes `medium` is right 54 of 67 times (81%) and `high` 4 of 5.
 - **Point and regional centromeres** (fungi, *Plasmodium*): AT troughs place them from the FASTA in AT-rich genomes
@@ -124,7 +125,7 @@ cenfuse does on a genome it was not developed on. From 0.17 on they are developm
   kb, with or without Hi-C, not the 250 kb of the development fungi, under which most *Pneumocystis* chromosomes
   (0.27-0.64 Mb) would be right by chance; holocentric genomes: any confident call is wrong.
 
-Right / chromosomes with truth (confidently wrong in brackets), cenfuse 0.18.0; for holocentric controls, confident calls /
+Right / chromosomes with truth (confidently wrong in brackets), cenfuse 0.19.0; for holocentric controls, confident calls /
 chromosomes.
 
 {{HELD17_ROWS}}
@@ -160,15 +161,16 @@ chromosomes.
   CENH3 sits largely on satellite arrays, which the satellite line finds (all `low`), and *Leptidea*, where the
   repeat-family test passes on windows of 0-2 family K-mers, too few to show a cluster, so since 0.18 the line places
   nothing there (0.17: 16 `low` calls).
-- **What 0.17 and 0.18 changed.** 0.17, against 0.16.1 on the same genomes and inputs: only *P. carinii*, whose AT
-  troughs at chromosome ends no longer place calls (`at_interior`, the case that prompted the rule). 0.18, against 0.17.0
-  (table below): 18 `low` calls of the FASTA alone moved to a repeat-family window (`fam_over_low`), 11 from wrong to
-  right (pepper 10, cotton 1) and none the other way; in the holocentric *Leptidea* the line, whose windows there hold 0-2
-  family K-mers, no longer places its 16 `low` calls.
+- **What 0.17, 0.18 and 0.19 changed.** 0.17, against 0.16.1 on the same genomes and inputs: only *P. carinii*, whose AT
+  troughs at chromosome ends no longer place calls (`at_interior`, the case that prompted the rule). 0.18, against 0.17.0:
+  18 `low` calls of the FASTA alone moved to a repeat-family window (`fam_over_low`), 11 from wrong to right (pepper 10,
+  cotton 1) and none the other way; in the holocentric *Leptidea* the line, whose windows there hold 0-2 family K-mers, no
+  longer places its 16 `low` calls. 0.19, against 0.18.0 (below): no call changes; the repeat-family line's test against
+  repeat density passes genome-wide in *Luzula sylvatica* (4 of 6) but, each chromosome left out in turn, on none.
 
 {{HELD17_CHANGES}}
 
-Every confident miss on the added genomes (0.18.0; the same with 0.16.1 and 0.17.0):
+Every confident miss on the added genomes (0.19.0; the same with 0.16.1, 0.17.0 and 0.18.0):
 
 {{HELD17_MISSES}}
 
@@ -321,8 +323,8 @@ lineages. The LTR rules were made with these genomes in view.
 Pooled, {{TOM14_POOLED}}.
 
 - **From the FASTA, no confident call.** The CENH3 domains hold a median of 4.5 kb of annotated satellite, and cenfuse
-  says it is unsure: 51 of 156 right against 12.3 by chance, all `low` (20 in 0.17: since 0.18 a repeat-family window
-  takes the place of an unsure satellite call it contradicts, [repeat families](#repeat-centromeres-from-the-fasta)). In *S. chilense* the one-per-chromosome test
+  says it is unsure: 55 of 156 right against 12.6 by chance, all `low` (20 in 0.17, 51 in 0.18: since 0.18 a repeat-family
+  window takes the place of an unsure satellite call it contradicts, [repeat families](#repeat-centromeres-from-the-fasta)). In *S. chilense* the one-per-chromosome test
   passes on arrays that are mostly not centromeric (P 0.045), and the calls stay `low` only because no satellite
   dominates: the two safeguards are not redundant.
 - **With `tes/`, more than twice as many right, with confident errors.** A Tekay signature decides in all 13 (18- to
@@ -418,13 +420,27 @@ where the repeat-density line ran in 41 genomes and the repeat-family line in 39
   families failed the one-per-chromosome test or none dominates, or the weak-satellite fallback) moves to the window and
   stays `low` (`fam_over_low`) when the window holds a cluster (at least 3 family K-mers), lies farther from the call than
   the wider of the two (the resolution of the two readouts), and no other line speaks to the call there; any other window
-  off a `low` call only flags it (`fam_elsewhere`). Over the release runs, 122 calls with truth moved: 94 from wrong to
+  off a `low` call only flags it (`fam_elsewhere`). Over 0.18.0's release runs, 122 calls with truth moved: 94 from wrong to
   right, 2 from right to wrong (one tomato chromosome, LA0111 CM175153.1, with and without Hi-C), 2 stayed right and 24
   wrong; with the added genomes, the 140 moved calls are right 107 times where about 11 would be right by chance, and the
   calls they replaced were right 4 times against about 8 by chance. On the polyploid panel the homoeologous calls agree
   a little more often (666 of 1,110 pairs against 665 of 1,119). Of the 77 calls still flagged beside their window,
   within the readouts' resolution, the window is right on 64 and the call on 13
   ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)).
+- **The two tested against each other** (0.19): the family windows that hold a cluster against the repeat-density peaks,
+  overlap on most such chromosomes beyond chance over the span both lines read (the chromosome outside its terminal
+  eighths; P ≤ 0.01, each chromosome left out in turn), as the troughs are tested against Hi-C. Where that passes, the
+  family line acts on a chromosome whose window and peak overlap as where its own test passed (`fam_rep_pair`). It passes
+  where the family test alone does not in *Ae. tauschii* (7 of 7, P 1.9e-12; family test P 0.015), LA2134 (9 of 12), moss
+  (14 of 25), *C. neoformans* (9 of 9; its chromosomes are placed by repeat density first) and siamang (4 of 4: only 4 of
+  its 25 family windows hold a cluster; one chromosome flagged in each of its 6 runs, none moved), and on the panel in *Oryza schlechteri* (15 of 22).
+  In the holocentric *Luzula sylvatica* (4 of 6) and in *S. pombe* (3 of 3) it passes genome-wide but, each chromosome left
+  out in turn, nowhere. The other holocentric genomes fail or hold no family cluster to test. Over 0.19.0's release runs 21
+  `low` calls move from wrong to right (*Ae. tauschii* 12, LA2134 8, moss 1) and none the other way; no confident call
+  changes; on the panel 1 call moves (agreement 666 to 667 of 1,110 pairs). Where a window lies off a `low` call but
+  within both readouts' resolution of it, or another line speaks to the call, the call only gains a flag (`fam_elsewhere`;
+  LA2134, moss, siamang, and on the panel *O. schlechteri*). Both
+  lines read repeat copy number, so the calls stay `low`.
 
 ## Hi-C
 
@@ -765,15 +781,22 @@ the FASTA (GNU time; its memory maximum counts the largest process):
   then one plan per release), with dated amendments, kept with the runs (outside the repository).
 - **Development data.** Every genome was in view while rules were made. Each rule changed after a result was seen is
   listed below, with its reason and a recheck on other cases. A panel of 106 allotetraploids (4 of them with CENH3
-  truth since 0.17) checks rule changes by whether homoeologous chromosomes place their calls alike (666 of 1,110
-  pairs in 105 species with 0.18, 665 of 1,119 with 0.17, within 5% of chromosome length). The 22 genomes added in 0.17 were scored only after 0.16.1's
+  truth since 0.17) checks rule changes by whether homoeologous chromosomes place their calls alike (667 of 1,110
+  pairs in 105 species with 0.19, 666 of 1,110 with 0.18, within 5% of chromosome length). The 22 genomes added in 0.17 were scored only after 0.16.1's
   rules were fixed; two candidate rules were registered with their criteria before their truth was examined
   (pepper's, part of their basis, excepted), and one rule (`at_interior`) was made on one of them afterwards (below).
   0.18's rule (`fam_over_low`) was registered with its criteria before its replay but after its effect on the stored
   release runs was computed, so it was not a blind prediction. Its guards were added after the first replays, from the
   rule's own reason, a code review and the aim of working on genomes outside the benchmark; they withdrew 4 moves with
   truth (3 that had made a call right, 1 that had made one wrong) and every move in the holocentric *Leptidea*. Every
-  registered criterion held (development, added genomes, controls, panel).
+  registered criterion held (development, added genomes, controls, panel). 0.19's two candidates were registered the same
+  way, after their effect on the stored 0.18.0 runs was computed. After `fam_rep_pair`'s first replay a code review changed
+  its test (chance over the span both lines read, only windows that hold a cluster), which undid its one move, in the
+  holocentric *Luzula*, and added a flag in siamang; the release replay met every criterion. The other candidate was
+  narrowed after its replay had been read (a form that also judged long-unit arrays left two chromosomes without a call),
+  then missed two criteria (below) and was not adopted. The same correction of chance in the repeat lines' tests against
+  Hi-C (and the family line's test against Hi-C read only on windows that hold a cluster) was registered before its replay
+  as changing no call, and changed none.
 - **Criteria that failed as written** (reported, not reworded):
   - Hi-C peaks within 4 bins of CENP-A wherever the test passes: in four apes they sit beside the unmappable array.
   - `high` right more often than `medium`/`low` at P ≤ 0.01: too few `high` errors to test.
@@ -803,6 +826,11 @@ the FASTA (GNU time; its memory maximum counts the largest process):
   - `medium` calls on an LTR core alone right at least 80% of the time across 3 lineages added in 0.17 (registered
     beforehand): 5 of 7. The property that separated wrong such calls in the development genomes (a satellite array
     elsewhere on the chromosome) was then checked on the added genomes and did not hold, so no rule.
+  - An LTR core no longer lifting an array inside it whose elements lie significantly more in the rest of the core (0.19;
+    [future.md #45](future.md#45-confident-calls-at-the-edge-of-a-wide-ltr-core)), adopted only if the calls it lowered
+    were right less often than confident calls in both sets and no call moved: development 4 of the 12 chromosome-runs it
+    took out of the confident class were right, added genomes 1 of 1, and 3 calls moved as side effects (one lowered call
+    then moved by the cis Hi-C line; two pepper calls when Hi-C's references changed), so it was not adopted.
 
 **Rules changed after a result was seen** (grouped by line):
 
@@ -839,4 +867,5 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 | the cis line at its support tier raises the calls it agrees with and moves none | *S. verrucosum*'s own Omni-C: at support it moved 3 `low` calls, none right | no benchmark call changes: every acting cis line there passes |
 | the repeat-density line: satellite arrays masked, a level of 0.01; `rep_pair` only where the line passed its own test | *C. elegans* near a pass (P 0.052) with the arrays in; shuffled genomes passed 6.5% of the time at 0.05; *C. tropicalis*: 4 pairs from an untested line, 1 confidently wrong | the holocentric genomes fail; *C. neoformans*, *V. dahliae*, *Chlorella* and *Chlamydomonas* still pass |
 | an AT trough centred in the terminal 5% of its chromosome places no call alone: the deepest interior trough does, or none (`at_interior`, 0.17) | *P. carinii* (added in 0.17): its troughs passed the test, and the 5 calls on terminal troughs were all wrong | from the FASTA, outside the acrocentric mouse, troughs in a terminal 5% lay on the centromere on 3 of 22 chromosomes; the 424 development runs replayed: no call changed |
+| the repeat-family line acts where its windows and the repeat-density peaks overlap on most chromosomes beyond chance, though its own test did not pass (`fam_rep_pair`, 0.19) | the census of the 0.18.0 runs: the family test failing where its windows are right (*Ae. tauschii* P 0.015, windows right on 7 of 7; LA1028, LA1777, LA2134, P 0.023-0.12) | the holocentric genomes: it passes genome-wide in 1 of 9 (*Luzula sylvatica*, 4 of 6) and acts in none; the panel: 1 call moves, agreement 666 -> 667 of 1,110 pairs; siamang and *C. neoformans* pass and no call changes; a code review then took chance over the span both lines read and left out windows without a cluster (the first form had moved 1 `low` call in *Luzula*) |
 | a passing repeat-family window holding a cluster replaces a `low` satellite call it contradicts beyond the wider of the two intervals, still `low` (`fam_over_low`, 0.18), only where the satellite could not vouch for the call and no other line speaks to it | 0.17's form moved a call on any gap and failed its registered test in *Populus euphratica*, whose right 5-12-Mb satellite calls had windows 0.3-3.6 Mb outside them; a code review; the holocentric *Leptidea*, whose windows hold 0-2 family K-mers | the panel: agreement 665 of 1,119 -> 666 of 1,110 pairs (the development and added-genome effects, 94 wrong -> right and 2 right -> wrong, 11 -> right and 0 lost, were computed before the rule was registered) |

@@ -4,16 +4,21 @@ Each line calls on its own, so two lines that place the centromere at one locus 
 each other without any truth; two that do not mean at least one of them is wrong in this genome. The rules test specific
 pairs for themselves (the Hi-C gate, the arm fold, atline.validate). This table reports every pair the same way, with
 agreement strictly defined (the intervals overlap, or lie within one Hi-C bin when one of them is a Hi-C readout) and chance
-from each chromosome's own geometry: the share of placements of the two widths that would agree. It changes no call."""
+from each chromosome's own geometry: the share of placements of the two widths that would agree, over the chromosome outside
+its terminal eighths when either line is a repeat line (0.19: their windows skip them, as their own tests take it), and with
+a repeat-family window only where it holds a cluster (famline.clustered). It changes no call."""
 from __future__ import annotations
 
 import pandas as pd
 
+from .famline import MIN_COPIES
+from .hicfuse import END_ZONE
 from .params import GATE_MIN_REF, GATE_P
 from .util import gap, poisson_binomial_sf
 
 COLS = ["line_a", "line_b", "chromosomes", "agree", "expected", "p", "verdict"]
 HIC_LINES = {"hic_anchored", "hic_prior_free", "fold", "alignment", "cis"}
+INTERIOR_LINES = {"repeats", "families"}          # windows whose midpoint lies in a terminal eighth are left out (END_ZONE)
 
 
 def _iv(a, b):
@@ -21,6 +26,17 @@ def _iv(a, b):
         return int(a) - 1, int(b)
     except (TypeError, ValueError):
         return None
+
+
+def _cluster(r) -> bool:
+    """The family window holds a cluster (fam_votes at least MIN_COPIES); a table without the column keeps every window."""
+    v = getattr(r, "fam_votes", None)
+    if v is None:
+        return True
+    try:
+        return float(v) >= MIN_COPIES
+    except (TypeError, ValueError):
+        return False
 
 
 def line_calls(r) -> dict:
@@ -33,7 +49,7 @@ def line_calls(r) -> dict:
                fold=_iv(r.fold_core_start, r.fold_core_end), alignment=_iv(r.align_core_start, r.align_core_end),
                at_trough=_iv(getattr(r, "at_start", "."), getattr(r, "at_end", ".")),
                repeats=_iv(getattr(r, "rep_start", "."), getattr(r, "rep_end", ".")),
-               families=_iv(getattr(r, "fam_start", "."), getattr(r, "fam_end", ".")),
+               families=_iv(getattr(r, "fam_start", "."), getattr(r, "fam_end", ".")) if _cluster(r) else None,
                cis=_iv(getattr(r, "cis_peak_start", "."), getattr(r, "cis_peak_end", ".")))
     return {k: v for k, v in out.items() if v is not None}
 
@@ -49,12 +65,13 @@ def table(t: pd.DataFrame, hic_bin: int | None) -> pd.DataFrame:
             if {a, b} == {"cis", "ltr"}:     # the LTR cores chose the cis signal's sign, and hicfuse.cis_line tested the two
                 continue
             tol = (hic_bin or 0) if {a, b} & HIC_LINES else 0
+            span = 1 - 2 * END_ZONE if {a, b} & INTERIOR_LINES else 1.0
             k, ch = 0, []
             for L, d in calls:
                 if a in d and b in d:
                     (s0, e0), (s1, e1) = d[a], d[b]
                     k += gap(s0, e0, s1, e1) <= tol
-                    ch.append(min(1.0, ((e0 - s0) + (e1 - s1) + 2 * tol) / L))
+                    ch.append(min(1.0, ((e0 - s0) + (e1 - s1) + 2 * tol) / (span * L)))
             if not ch:
                 continue
             n, p = len(ch), poisson_binomial_sf(k, ch)

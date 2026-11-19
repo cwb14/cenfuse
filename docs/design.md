@@ -240,8 +240,11 @@ are silent once the arrays are left out.
 **What it may change.** Like a trough, it places only a chromosome nothing else places, `low` (`rep_only`). Where the line
 passed its own test and its peaks agree beyond chance (`pass` or `support`) with Hi-C's prior-free peaks, or with the cis
 extremes for a `cis_only` call, it is the second line of a Hi-C call on a chromosome without a sequence call that it agrees
-with: the call takes its interval and rises a level (`rep_pair`). It never moves, opposes or raises a sequence call. Wherever
-the AT trough may place or pair, it does so first.
+with: the call takes its interval and rises a level (`rep_pair`). Since 0.19 that test takes chance over the span its
+windows can occupy, outside the terminal eighths (over the whole length, as before, chance was a quarter too small for a peak
+in the interior and the test too easy to pass); the troughs, which may lie anywhere, keep the whole length. It never moves,
+opposes or raises a sequence call itself; since 0.19 its peaks test the repeat-family windows, and where that test passes the
+family line may move a `low` call (`fam_rep_pair`). Wherever the AT trough may place or pair, it does so first.
 
 ## Repeat families (`famline.py`)
 
@@ -268,11 +271,25 @@ parts then seem to coincide, or merges neighbors and leaves no power ([future.md
 
 **Calls.** The strongest window at the chosen size, widened to its half-height run.
 
+**Tested by the repeat-density line** (0.19, `famline.with_repeats`). The family windows are tested against the repeat-density
+peaks the way the troughs and peaks are tested against Hi-C (`atline.validate`, each line at the window its own test chose):
+the two overlap on more chromosomes than chance gives (Poisson-binomial, P ≤ 0.01, at least 3 agreements), on most of them for
+`pass`; the verdict on a chromosome leaves it out (`loo.py`). Chance is each chromosome's share of overlapping placements over
+the span both lines read, the chromosome outside its terminal eighths (over the whole length it would be a quarter too small),
+and only chromosomes whose family window holds a cluster (at least 3 family K-mers) take part: an empty window is no readout. Where the pair passes, a
+chromosome whose window and peak overlap lets the family line act as it does where its own test passed (`fam_rep_pair`, below),
+whatever that test said: it sits at its level in genomes whose windows are right (*Ae. tauschii* from the FASTA: P 0.015, its
+windows on CENH3 on 7 of 7 chromosomes; LA1028, LA1777 and LA2134 P 0.023-0.12, 10 of 12 each), and passes by chance elsewhere.
+Both lines read K-mer copy number, so the pair says that the densest repeats of most chromosomes lie where the families that
+concentrate once per chromosome cluster, the place a centromere made of repeats occupies, and not more: genome-wide it passes
+in the holocentric *Luzula sylvatica* (4 of 6), though with each chromosome left out in turn it acts on none. So the line still
+makes no confident call, never pairs with Hi-C and never opposes.
+
 **What it may change.** It acts only on a chromosome whose window holds a cluster, at least 3 family K-mers (0.18;
 `famline.MIN_COPIES`, the fewest that can show a cluster beyond a pair): every chromosome gets a best window, also where no
 family clusters (the holocentric *Leptidea sinapis*, whose test passes on windows of 0-2 family K-mers). There it places a
 chromosome nothing else places, `low` (`fam_only`), after the AT trough and the repeat-density peak; the caveat says the
-test is not calibrated. Since 0.18 a `low` satellite call that no other rule
+test is not calibrated (or, through the pair test, that two readouts of repeat copy number agree there). Since 0.18 a `low` satellite call that no other rule
 changed, outside the terminal eighths, moves to its chromosome's family window and stays `low` (`fam_over_low`) where the two
 are the only readouts of that centromere and the window names another locus: the satellite could not vouch for its own call
 in this genome (its families failed the one-per-chromosome test or none dominates, or the call is the weak-satellite fallback);
@@ -280,7 +297,7 @@ the window lies beyond the resolution of both readouts, farther from the call th
 satellite engine's agreement rule for an array and an LTR core, `sat/te.agrees`); and no other line speaks to the call there
 (no Hi-C reading acting on the chromosome, no agreeing LTR core, tested AT trough or repeat-density peak, no centromere-like
 methylation, no CpG line): a tested reading outranks an untested one. Of two unsure candidates it then takes the one from the
-line whose own test passed, the principle by which `minority_core` and `weak_core` take an LTR core over a call the satellite
+line whose test passed (its own, or since 0.19 its test against the repeat-density peaks), the principle by which `minority_core` and `weak_core` take an LTR core over a call the satellite
 line holds at `low`. Otherwise a window off the call only flags it (`fam_elsewhere`, in the caveat; `families` is listed
 `against`): beside the call, within the two readouts' resolution, the window may still be the better place (on the
 development genomes it was right on 64 of 77 such calls, the call on 13), but nothing the line can measure says so. 0.17 tested the move on any gap and did not adopt it: on the genomes added in 0.17 it held in one of the two
@@ -288,7 +305,9 @@ lineages it touched, failing in *Populus euphratica*, whose right satellite call
 outside them. The resolution rule is that miss's reason, so it sits in benchmark.md's table of rules changed after a result
 was seen; it makes no confident call ([future.md #76](future.md#76-the-repeat-family-line-and-low-calls-it-contradicts)). The
 line never pairs with Hi-C: a line whose test is not calibrated cannot be one of the two tested lines that raise a call, so
-0.16.1 removed 0.16.0's `fam_pair` (it had raised no call in the release runs). It never contests or raises a call.
+0.16.1 removed 0.16.0's `fam_pair` (it had raised no call in the release runs). Its windows are still tested against Hi-C and
+the result reported (`fam_hic`; since 0.19 only windows that hold a cluster, with chance over the span the windows can
+occupy, as against the repeat-density peaks). It never contests or raises a call.
 
 **Results** (every number of this section; rules fixed before computing). The 0.16.0 release runs the line where it runs in
 cenfuse; the development scan ran its test on all 71 FASTA-only benchmark genomes.
@@ -307,6 +326,23 @@ cenfuse; the development scan ran its test on all 71 FASTA-only benchmark genome
   chance. Panel: 29 calls move and 10 `fam_only` calls on windows without a cluster go; homoeolog agreement 665 of 1,119
   pairs to 666 of 1,110. Calls left flagged beside their window, within the readouts' resolution: window right on 64 of 77
   development calls, the call on 13.
+- *0.19, the pair test* (`fam_rep_pair`; 0.18.0's release runs replayed, the panel and the added genomes included): it passes
+  where the family test alone does not in *Ae. tauschii* (7 of 7, P 1.9e-12), LA2134 (9 of 12, P 6.7e-6), moss (14 of 25),
+  *C. neoformans* (9 of 9), siamang (4 of 4: 4 of its 25 family windows hold a cluster) and *Oryza schlechteri* (panel, 15 of
+  22); genome-wide in *S. pombe* (3 of 3) and the holocentric *Luzula sylvatica* (4 of 6) too, but there no chromosome passes
+  with itself left out. 21 `low` calls go from wrong to right (*Ae. tauschii* 12, LA2134 8, moss 1) and none the other way;
+  no confident call changes; siamang gains one flag (one chromosome in each of its 6 runs, a window within both readouts'
+  resolution of its call), LA2134 and moss a few more, and *C. neoformans* nothing (repeat density places its chromosomes
+  first); on the panel one call moves, three are flagged and homoeolog agreement goes from 666 to 667 of 1,110 pairs; no
+  genome added in 0.17 changes. The other holocentric genomes fail or hold no family
+  cluster to test. A code review set the test as it stands: chance over the span both lines read, the chromosome outside its
+  terminal eighths (over the whole length it was a quarter too small, and that alone had let the line move a call in
+  *Luzula*), and only windows that hold a cluster. The line acts only
+  at `pass`, on most chromosomes (the standard the troughs and Hi-C are held to). Measured on the stored runs beforehand,
+  letting any overlap of the two readouts move a `low` call it contradicted, with no test and no cluster required, would have
+  moved 10 interior siamang chromosome-runs, 6 of them right before and none after; under the test those 6 are spared because
+  their windows hold under 3 family K-mers (siamang's pair passes on its 4 clustered windows and moves nothing) (future.md,
+  Tried and set aside).
 - *Development scan* (all 71): passes in 32 (also in the 10 *B. rapa* lines, soybean, maize, rice and sorghum, whose
   confident satellite calls keep the line from running), peaks right on 323 of 363 chromosomes. It fails in every mammal and
   chicken (their satellite arrays left out), in the four holocentric genomes (P 0.34-0.71) and in barley (P 0.20, though its
@@ -533,10 +569,10 @@ repeat peak alone `low`.
 | `cis_end_pair`; flag `cis_blind` | the cis signal tested by trans contacts; a call in a terminal eighth, the extreme elsewhere | a `low` call moves to the interior extreme where its own trans peak lies, `low` (a named heuristic); else kept, flagged |
 | `at_only`, `at_denovo_pair`; flags `at_interior`, `at_terminal` | no call yet; AT troughs passed (or validated by Hi-C's prior-free peaks); or a trough and a clean prior-free peak that placed no call agree, in a genome where the two agree beyond chance | the trough, `low` (`at_only` with validated troughs: `medium`); a deepest trough centred in a terminal 5% gives way to the deepest trough clear of the ends (`at_interior`) or places nothing (`at_terminal`), unless Hi-C tested against the troughs agrees with it on this chromosome |
 | `rep_only` | no call yet; the repeat-density test passed | the densest repeat stretch, `low` |
-| `fam_only` | no call yet; the repeat-family test passed and this chromosome's window holds at least 3 family K-mers | the strongest family window, `low` |
-| `fam_over_low` | the repeat-family test passed and this chromosome's window holds at least 3 family K-mers; a `low` satellite call no other rule changed, outside the terminal eighths, whose satellite failed the one-per-chromosome test or has no dominant family (or the weak-satellite fallback); the family window farther from it than the wider of the two; no other line speaking to the call (Hi-C reading, agreeing LTR core, tested AT trough or repeat-density peak, centromere-like methylation, CpG line) | the family window, `low` |
+| `fam_only` | no call yet; the repeat-family test passed (or, flag `fam_rep_pair`, its windows passed the test against the repeat-density peaks and overlap the peak here) and this chromosome's window holds at least 3 family K-mers | the strongest family window, `low` |
+| `fam_over_low` | the repeat-family test passed (or the pair test with the repeat-density line, as for `fam_only`: flag `fam_rep_pair`) and this chromosome's window holds at least 3 family K-mers; a `low` satellite call no other rule changed, outside the terminal eighths, whose satellite failed the one-per-chromosome test or has no dominant family (or the weak-satellite fallback); the family window farther from it than the wider of the two; no other line speaking to the call (Hi-C reading, agreeing LTR core, tested AT trough or repeat-density peak, centromere-like methylation, CpG line) | the family window, `low` |
 | `at_chose_alt` | AT troughs passed; a `low` call with a competing cluster; the deepest trough window on the cluster, not on the call; not where validated Hi-C can tell the two apart | that cluster, `low` unless another line agrees there (a named heuristic) |
-| flag `fam_elsewhere` | the repeat-family test passed and this chromosome's window holds at least 3 family K-mers; a `low` sequence call left as it is, outside the terminal eighths; the family window off the call where `fam_over_low` does not apply | the call stays; the caveat names the window |
+| flag `fam_elsewhere` | the repeat-family test passed (or the pair test, as for `fam_only`) and this chromosome's window holds at least 3 family K-mers; a `low` sequence call left as it is, outside the terminal eighths; the family window off the call where `fam_over_low` does not apply | the call stays; the caveat names the window |
 | **`_refine`, `_cpg`** | | |
 | `at_pair`; flag `at_elsewhere` | a Hi-C call on a chromosome without a sequence call; a tested trough agrees (tested against the prior-free peaks, or against the cis extremes for a `cis_only` call) | the trough's interval, one level up; a validated trough elsewhere is flagged |
 | `rep_pair` | the same, no agreeing trough; a tested repeat-density peak agrees (the repeat-family window never pairs) | its interval, one level up |
@@ -670,8 +706,10 @@ Every threshold is fixed, with its reason. cenfuse's are in `cenfuse/params.py`;
   level.
 - **The repeat-family line**'s test is not calibrated: with each genome's repeat units moved to random places it still passes
   13-52% of the time at its 1% level, because one family that clusters once per chromosome passes wherever it clusters
-  (Repeat families, Results). Its peaks are leads: alone it places only `low` calls, it never pairs with Hi-C, and the `low`
-  calls it contradicts stay, flagged.
+  (Repeat families, Results). Its peaks are leads: alone it places only `low` calls and it never pairs with Hi-C; it moves a
+  `low` call it contradicts only where the satellite could not vouch for that call and nothing else speaks to it
+  (`fam_over_low`), and otherwise flags it. Since 0.19 it may also act where its windows pass a test against the
+  repeat-density peaks, which shows where each chromosome's main repeat cluster lies, not where its centromere is.
 - **The CpG line** was designed on the primate tracks it is benchmarked on; its depth measures were chosen on the paired
   tracks without truth, and the truth genomes test it; the width joined them after a review that had seen the truth, on
   grounds without it (gate passes and agreement on the paired tracks, calibration). Wide calls weaken its test: gorilla's

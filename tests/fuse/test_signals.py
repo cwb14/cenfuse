@@ -331,3 +331,22 @@ def test_placed_by_names_the_signal_that_placed_the_call():
     assert one(T067, TOMATO, 250_000).placed == frozenset()
     assert sg.rows(calls(T067, FAM_ONLY), TOMATO, 250_000)[1].placed == {"fam"}
     assert one(NO_CALL, {}).placed == frozenset()
+
+
+def test_the_family_line_is_a_lead_through_its_pair_test_only_where_that_test_acts():
+    """0.19: where the family test failed but its windows passed the test against the repeat-density peaks, the figure shows
+    the family line as a lead, with the pair test's question and count, only where that test lets the line act on some
+    chromosome (fam_rep_acts); a genome-wide pass that leaving one chromosome out undoes everywhere (S. pombe) stays as the
+    family test said. A call placed through the pair is headed as two readouts agreeing, not as a cluster alone."""
+    base = dict(lines="satellite", fam_gate="fail", fam_p="0.0149")
+    assert sg._status("fam", dict(base, fam_rep="7/7 pass", fam_rep_acts="7")) == "lead"
+    assert sg._status("fam", dict(base, fam_rep="3/3 pass", fam_rep_acts="0")) == "fail"
+    assert sg._status("fam", dict(base, fam_rep="9/25 support", fam_rep_acts="0")) == "fail"
+    assert sg._status("fam", dict(base, fam_gate="pass")) == "lead"
+    row = next(r for r in sg.signal_tests(dict(base, fam_rep="7/7 pass", fam_rep_acts="7"), 7, "CRM") if r.key == "fam")
+    assert row.verdict == "a lead only" and "densest repeats" in row.question and (row.k, row.n) == (7, 7)
+    rec = dict(call_source="composition", relation="sequence_only", confidence="low", support="families,repeats",
+               flags="fam_over_low,fam_rep_pair", rule="fam_over_low", fam_start="10000001", fam_end="16000000",
+               rep_start="12000001", rep_end="13000000", start="10000001", end="16000000")
+    r = one(rec, dict(base, fam_rep="7/7 pass", fam_rep_acts="7"))
+    assert sg.verdict(rec, r).startswith("Repeat-family cluster and densest repeats agree (a lead)")
