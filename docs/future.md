@@ -1009,6 +1009,14 @@ release's outputs; docstrings citing benchmark sections, not numbers); figures n
 them; potato's dips on CENH3 count 8 of 11 in the cis survey and 9 of 11 in the cis-trans text; `sat/families.py` on BLAST hits at
 any thread count (#6).
 
+### 67. Inference from ethology of related species. 
+
+Cenfuse may take related genomes and infer orthologous centromeres etc. 
+If centromere call is weak or missing in one ortholog but strong in the other, maybe we could use the strong to place the weak or missing. 
+We could also potentially report other weird biology, like centromere positional/composition shifts OR centromere replacement (activation of a new and deactivation of an old). 
+Thus, with related species, we could potentially report other helpful comparative centromere features and/or use them to piggyback placement and confidence off each other. 
+All of this would need tested. 
+
 ## Tested, not adopted
 
 Reopen only with new evidence.
