@@ -449,8 +449,8 @@ def test_gc_shuffle_needs_an_indexed_fasta(tmp_path):
 SEQS = {"chr1": 200_000, "chr2": 150_000, "chr3": 100_000}
 
 
-def ltrquest_gff(path, n=40, seed=5, extra=()):
-    """An LTRquest-like annotation: elements with clade, family and age; their LTRs and a domain under them; a gene
+def ltr_peel_gff(path, n=40, seed=5, extra=()):
+    """An LTR_peel-like annotation: elements with clade, family and age; their LTRs and a domain under them; a gene
     that is no LTR retrotransposon; '###' between elements."""
     rng = np.random.default_rng(seed)
     lines = ["##gff-version 3"] + [f"##sequence-region\t{c}\t1\t{L}" for c, L in SEQS.items()]
@@ -461,12 +461,12 @@ def ltrquest_gff(path, n=40, seed=5, extra=()):
         s = int(rng.integers(1, SEQS[c] - w))
         clade, fam = fams[k % 3]
         e, i = f"LTRRT_{k}", s + w // 3
-        lines += [f"{c}\tLTRquest\tLTR_retrotransposon\t{s}\t{s + w - 1}\t.\t+\t.\tID={e};Name={c}:{s}-{s + w - 1};"
+        lines += [f"{c}\tLTR_peel\tLTR_retrotransposon\t{s}\t{s + w - 1}\t.\t+\t.\tID={e};Name={c}:{s}-{s + w - 1};"
                   f"clade={clade};family={fam};K2P_T={k * 1000}",
-                  f"{c}\tLTRquest\tlong_terminal_repeat\t{s}\t{s + 499}\t.\t+\t.\tID={e}.lLTR;Parent={e}",
-                  f"{c}\tLTRquest\tprotein_match\t{i}\t{i + 800}\t.\t+\t.\tID={e}.RT.1;Parent={e};Name=RT;"
+                  f"{c}\tLTR_peel\tlong_terminal_repeat\t{s}\t{s + 499}\t.\t+\t.\tID={e}.lLTR;Parent={e}",
+                  f"{c}\tLTR_peel\tprotein_match\t{i}\t{i + 800}\t.\t+\t.\tID={e}.RT.1;Parent={e};Name=RT;"
                   f"clade={clade}",
-                  f"{c}\tLTRquest\tlong_terminal_repeat\t{s + w - 500}\t{s + w - 1}\t.\t+\t.\tID={e}.rLTR;Parent={e}",
+                  f"{c}\tLTR_peel\tlong_terminal_repeat\t{s + w - 500}\t{s + w - 1}\t.\t+\t.\tID={e}.rLTR;Parent={e}",
                   "###"]
     lines += ["chr2\tmaker\tgene\t5000\t9000\t.\t-\t.\tID=g1", "chr2\tmaker\texon\t5000\t6000\t.\t-\t.\tParent=g1",
               *extra]
@@ -486,7 +486,7 @@ def features(path):
 
 
 def test_ltr_shuffle_moves_elements_with_their_parts(tmp_path):
-    gff = ltrquest_gff(tmp_path / "t.gff3")
+    gff = ltr_peel_gff(tmp_path / "t.gff3")
     r = C.shuffle_ltr(gff, tmp_path / "s.gff3", write_fai(tmp_path / "g.fa.fai"), seed=1)
     a, b = features(gff), features(tmp_path / "s.gff3")
     assert r["moved"] == r["trees"] == 40 and r["left"] == 0
@@ -503,7 +503,7 @@ def test_ltr_shuffle_moves_elements_with_their_parts(tmp_path):
 
 
 def test_ltr_shuffle_draws_starts_as_control_te_did(tmp_path):
-    gff = ltrquest_gff(tmp_path / "t.gff3")
+    gff = ltr_peel_gff(tmp_path / "t.gff3")
     C.shuffle_ltr(gff, tmp_path / "s.gff3", write_fai(tmp_path / "g.fa.fai"), seed=3)
     a, b = features(gff), features(tmp_path / "s.gff3")
     el = a.type == "LTR_retrotransposon"
@@ -514,7 +514,7 @@ def test_ltr_shuffle_draws_starts_as_control_te_did(tmp_path):
 
 
 def test_cenfuse_reads_the_shuffled_annotation_as_the_original(tmp_path):
-    gff = ltrquest_gff(tmp_path / "t.gff3")
+    gff = ltr_peel_gff(tmp_path / "t.gff3")
     C.shuffle_ltr(gff, tmp_path / "s.gff3", write_fai(tmp_path / "g.fa.fai"), seed=1)
     t0, t1 = signature.load_table(gff, SEQS), signature.load_table(tmp_path / "s.gff3", SEQS)
     assert (t0.chrom == t1.chrom).all() and (t0.family == t1.family).all() and (t0.lineage == t1.lineage).all()
@@ -542,7 +542,7 @@ def test_ltr_shuffle_moves_a_whole_feature_tree(tmp_path):
 
 
 def test_ltr_shuffle_is_deterministic_and_reads_gzip(tmp_path):
-    gff = ltrquest_gff(tmp_path / "t.gff3")
+    gff = ltr_peel_gff(tmp_path / "t.gff3")
     gz = tmp_path / "t.gff3.gz"
     gz.write_bytes(gzip.compress(gff.read_bytes()))
     fai = write_fai(tmp_path / "g.fa.fai")
@@ -553,15 +553,15 @@ def test_ltr_shuffle_is_deterministic_and_reads_gzip(tmp_path):
 
 
 def test_ltr_shuffle_leaves_unknown_sequences_and_stops_on_mismatches(tmp_path, caplog, monkeypatch):
-    other = ("scaffold_9\tLTRquest\tLTR_retrotransposon\t100\t5000\t.\t+\t.\tID=X1;clade=CRM;family=fam1",)
-    gff = ltrquest_gff(tmp_path / "t.gff3", extra=other)
+    other = ("scaffold_9\tLTR_peel\tLTR_retrotransposon\t100\t5000\t.\t+\t.\tID=X1;clade=CRM;family=fam1",)
+    gff = ltr_peel_gff(tmp_path / "t.gff3", extra=other)
     fai = write_fai(tmp_path / "g.fa.fai")
     monkeypatch.setattr(logging.getLogger("cenfuse"), "propagate", True)
     with caplog.at_level(logging.WARNING, logger="cenfuse"):
         r = C.shuffle_ltr(gff, tmp_path / "s.gff3", fai)
     assert r["left"] == 1 and r["moved"] == 40
     assert any("scaffold_9" in m and "stay in place" in m for m in caplog.messages)
-    assert "scaffold_9\tLTRquest\tLTR_retrotransposon\t100\t5000" in (tmp_path / "s.gff3").read_text()
+    assert "scaffold_9\tLTR_peel\tLTR_retrotransposon\t100\t5000" in (tmp_path / "s.gff3").read_text()
     with pytest.raises(CenfuseError, match="another assembly or naming"):
         C.shuffle_ltr(gff, tmp_path / "s.gff3", write_fai(tmp_path / "x.fai", {"1": 10, "2": 20}))
     with pytest.raises(CenfuseError, match="outside the sequence"):
@@ -574,7 +574,7 @@ def test_ltr_shuffle_leaves_unknown_sequences_and_stops_on_mismatches(tmp_path, 
 # ---------------------------------------------------------------------------------------- command line
 def test_command_line_makes_every_control(pairs, tmp_path):
     fa = write_fasta(tmp_path / "g.fa", genome(GENOME))
-    gff = ltrquest_gff(tmp_path / "t.gff3")
+    gff = ltr_peel_gff(tmp_path / "t.gff3")
     fai = write_fai(tmp_path / "t.fai")
     assert C.main(["hic-repair", str(pairs), str(tmp_path / "rep.pairs.gz"), "--seed", "2"]) == 0
     assert C.main(["hic-relocate", str(pairs), str(tmp_path / "rel.pairs.gz"), "-v"]) == 0

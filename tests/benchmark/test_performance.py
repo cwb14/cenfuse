@@ -70,7 +70,13 @@ def test_example_rule_and_figure(tmp_path):
     assert performance.runs_of("Brassica rapa X1", "plants") == [("B. rapa", "italic"), (" X1", "normal")]
     assert performance.runs_of("Sumatran orangutan", "mammals") == [("Sumatran orangutan", "normal")]
     png, pdf, num = tmp_path / "p.png", tmp_path / "p.pdf", tmp_path / "n.tsv"
+    rows = run("new", "F", F, "", [RIGHT, LOW]) + run("new", "H", H, "", [RIGHT, RIGHT])      # the genomes added later
+    rows += run("nholo", "F", F, "", [WRONG, NONE], control="holocentric", kind="holocentric")
+    added = tmp_path / "results_017.tsv"
+    added.write_text("# a header note\n" + pd.DataFrame(rows).drop(columns=["cen_class", "all_inputs"])
+                     .assign(chance="0.22").to_csv(sep="\t", index=False))
     performance.main(["--table", str(t), "--canonical", str(c), "--truth", str(tmp_path / "none.tsv"),
+                      "--added", str(added), "--added-labels", str(tmp_path / "none.tsv"),
                       "--png", str(png), "--pdf", str(pdf), "--numbers", str(num), "--dpi", "60"])
     assert png.stat().st_size > 0
     assert len(re.findall(rb"/Type\s*/Page\b", pdf.read_bytes())) == 2               # the figure, the legend
@@ -79,6 +85,9 @@ def test_example_rule_and_figure(tmp_path):
     assert v[("A", "example genome", "mid")] == "mid"
     assert v[("B", "chromosomes", "satellite | FASTA")] == "4"            # sat and the ape; 'agr' left out
     assert v[("B", "chance_rows", "satellite | FASTA")] == "2"            # the ape's truth is withheld
-    assert v[("E", "calls changed", "randomized")] == "0" and v[("E", "runs", "real")] == "7"   # SH, TH x 3; cneoA SH
-    assert v[("B", "chromosomes", "point_regional | FASTA")] == "2" and v[("C", "chromosomes", "cneoG1")] == "2"
-    assert v[("D", "genomes", "all inputs")] == "5"                       # sat, mid, te, the ape, cneoA
+    assert v[("C", "calls changed", "randomized")] == "0" and v[("C", "runs", "real")] == "8"   # SH, TH x 3; cneoA SH; new H
+    assert v[("B", "chromosomes", "added | FASTA")] == "2" and v[("B", "genomes", "added | FASTA+Hi-C")] == "1"
+    assert v[("E", "calls", "high | added later")] == "2" and v[("E", "genomes", "added later")] == "1"
+    assert v[("D", "holocentric confident calls", "added later")] == "0"
+    assert v[("B", "chromosomes", "point_regional | FASTA")] == "2" and v[("D", "chromosomes", "cneoG1")] == "2"
+    assert v[("E", "genomes", "all inputs")] == "5"                       # sat, mid, te, the ape, cneoA

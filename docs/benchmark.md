@@ -448,10 +448,12 @@ It passes in 36 genomes (P 0.0001-0.038; chromosomes covered by the N largest cl
 
 Every genome's LTR signature and cores are drawn on its overview page in the [gallery](gallery.md).
 
-`tes/` = LTRquest annotations made with `ltrquest --genome G --max-rounds 1 --threads T --detect-args
-ltr-timeout=300 --run-sdust --reboundary`. cenfuse learns the signature in each genome: the most specific
-centromere-concentrated family or lineage seeds it, and each chromosome's core comes from the families enriched in the
-other chromosomes' cores. Right / chromosomes (confidently wrong):
+`tes/` = [LTR_peel](https://github.com/cwb14/LTR_peel) annotations, made when the tool was still named LTRquest, with
+one round of detection: `ltrquest --genome G --max-rounds 1 --threads T --detect-args ltr-timeout=300 --run-sdust
+--reboundary` (the time cap, the sdust filter and re-boundarying are LTR_peel's defaults today; its default is more
+rounds). cenfuse learns the signature in each genome: the most specific centromere-concentrated family or lineage
+seeds it, and each chromosome's core comes from the families enriched in the other chromosomes' cores. Right /
+chromosomes (confidently wrong):
 
 | genome | signature | fold in its cores | decides? | FASTA only | + `tes/` | + `tes/` + Hi-C |
 |---|---|---|---|---|---|---|
@@ -488,17 +490,17 @@ other chromosomes' cores. Right / chromosomes (confidently wrong):
 
 **The annotation matters.** The decisive test needs a family concentrated on most chromosomes, so it needs a sensitive
 annotation. Measured with an early form of the LTR line that read the lineage, not the family signature (not rerun):
-right calls with each annotator, and with LTRquest's elements thinned at random.
+right calls with each annotator, and with LTR_peel's elements thinned at random.
 
 | genome | annotation | TE line alone: right / cores | calls right (confidently wrong) |
 |---|---|---|---|
-| rice | LTRquest | 8/8 | 12/12 (0) |
+| rice | LTR_peel | 8/8 | 12/12 (0) |
 | rice | EDTA intact + TEsorter; DANTE_LTR | 4/4; 3/8 | 12/12 (0) |
-| rice | LTRquest at 50 / 25 / 10% | 3/3, 1/1, 1/1 | 12/12 (0) |
-| potato | LTRquest | 6/7 | 6/11 (2) |
-| potato | EDTA + TEsorter; DANTE_LTR; LTRquest at 50% | 2/2; 1/1; 3/3 | 2/11 (2) |
-| maize | LTRquest, and at 50 / 25 / 10% | 10/10, 10/10, 10/10, 8/8 | 9/10 (1) |
-| moss | LTRquest; at 50% | 25/25; 22/22 | 16/26 (0) |
+| rice | LTR_peel at 50 / 25 / 10% | 3/3, 1/1, 1/1 | 12/12 (0) |
+| potato | LTR_peel | 6/7 | 6/11 (2) |
+| potato | EDTA + TEsorter; DANTE_LTR; LTR_peel at 50% | 2/2; 1/1; 3/3 | 2/11 (2) |
+| maize | LTR_peel, and at 50 / 25 / 10% | 10/10, 10/10, 10/10, 8/8 | 9/10 (1) |
+| moss | LTR_peel; at 50% | 25/25; 22/22 | 16/26 (0) |
 
 In potato, every less sensitive annotation lost the gain from `tes/`. Every CRM core short of a majority still lay on
 CENH3 (24 of 24 in rice, potato, maize and *Brachypodium*).
@@ -1128,8 +1130,8 @@ the FASTA (GNU time; its memory maximum counts the largest process):
 | *Ae. geniculata* (allotetraploid) | 7.9 Gb | 32 | 64 min | 17.5 GB |
 | T2T mammals (with an earlier, slower search) | 2.6-3.6 Gb | 12 | 1-10 h (median 4.3 h) | up to 74 GB |
 
-- **Adding `tes/` to a finished run:** 1-12 min. Hi-C and the integration take minutes. LTRquest on a tomato, 12
-  threads: 1.8-4.1 h.
+- **Adding `tes/` to a finished run:** 1-12 min. Hi-C and the integration take minutes. The LTR_peel annotation itself, as
+  made for the benchmark, took 1.8-4.1 h on a tomato at 12 threads.
 - **The two repeat lines** (they run only where most chromosomes have no confident sequence call; since 0.18 on the
   run's threads, with the same output at any number): on *E. rockii* (2.0 Gb), 0.17's single-thread code took 206 s
   (repeat density) and 233 s (repeat families), 0.18 at 16 threads 34-42 s and 42-51 s, at no higher peak memory; the

@@ -1,4 +1,4 @@
-"""Sequence classes. Every cytosine gets one class, first match wins: satellite family > transposon class (LTRquest
+"""Sequence classes. Every cytosine gets one class, first match wins: satellite family > transposon class (LTR_peel
 clade, innermost element by nesting depth; EDTA superfamily) > gene body > other. Overlaps are resolved once per
 chromosome by painting non-overlapping segments, so classifying a cytosine is one binary search."""
 from __future__ import annotations
@@ -68,7 +68,7 @@ def paint(starts: np.ndarray, ends: np.ndarray, rank: np.ndarray, labels: np.nda
 
 
 def build(features: list[pd.DataFrame], chroms) -> ClassMap:
-    """features: DataFrames[chrom, start, end, cls, depth] (io.read_satellites / read_ltrquest / read_edta /
+    """features: DataFrames[chrom, start, end, cls, depth] (io.read_satellites / read_ltr_peel / read_edta /
     read_genes). Rank: tier, then deeper nesting first, then shorter interval first."""
     parts = [x[["chrom", "start", "end", "cls", "depth"]] for x in features if len(x)]
     if not parts:

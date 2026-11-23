@@ -28,7 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "relative to the table's folder allowed")
     r.add_argument("--fai", required=True, help="genome .fai (same assembly as every other input)")
     te = r.add_mutually_exclusive_group(required=True)
-    te.add_argument("--ltrquest", help="LTRquest *_LTRs_all_depth_LTR_cleaned.gff3 (preferred: clades, nesting)")
+    te.add_argument("--ltr_peel", "--ltrquest", dest="ltr_peel",
+                    help="LTR_peel *_LTRs_all_depth_LTR_cleaned.gff3 (preferred: clades, nesting; --ltrquest is the "
+                         "tool's earlier name and still accepted)")
     te.add_argument("--edta", help="EDTA *.TEanno.gff3 (superfamily classes; coarser)")
     r.add_argument("--satellites", required=True,
                    help="cenfuse <genome>_satellite_arrays.gff, or any BED/GFF3 with the family as name")
@@ -80,10 +82,10 @@ def run(a) -> None:
                 raise io.InputError(f"sample {s.name} {ctx}: no analyzed chromosome in {f} (e.g. "
                                     f"{', '.join(ctg[:3])} vs .fai {', '.join(names[:3])}); same assembly?")
     feats = []
-    if a.ltrquest:
-        feats.append(io.read_ltrquest(a.ltrquest))
+    if a.ltr_peel:
+        feats.append(io.read_ltr_peel(a.ltr_peel))
     else:
-        log.warning("EDTA transposon classes (superfamilies) are coarser than LTRquest clades")
+        log.warning("EDTA transposon classes (superfamilies) are coarser than LTR_peel clades")
         feats.append(io.read_edta(a.edta))
     _check_names("transposons", feats[-1].chrom, names, fai)
     feats.append(io.read_satellites(a.satellites))
@@ -115,7 +117,7 @@ def run(a) -> None:
             log.warning("exclusions on sequences absent from the .fai ignored: %s", ", ".join(unknown[:5]))
     cmap = classes.build(feats, names)
     log.info("sequence classes: %d", len(cmap.names))
-    ann = [x for x in (a.ltrquest or a.edta, a.satellites, a.genes) if x]
+    ann = [x for x in (a.ltr_peel or a.edta, a.satellites, a.genes) if x]
     key = bins.fingerprint(ann, "|".join(cmap.names))     # same files, other analyzed chromosomes -> other classes
     raw = bins.collect(samples, chroms, cmap, key, out.parent / "meth_cache" / key, max(1, a.threads))
     filt, dstats = bins.depth_filter(raw, samples, chroms, excl)

@@ -39,7 +39,7 @@ An entry is done only when these hold (design.md, Principles).
 7. **Do no harm**: no right call becomes wrong and no confident error is added, or each change is listed. Right, then unsure
    (`low`), never confidently wrong.
 8. **Report a missed criterion as written**; do not reword it.
-9. **Test every rule** on a small synthetic fixture. Develop the LTR line on LTRquest annotations only.
+9. **Test every rule** on a small synthetic fixture. Develop the LTR line on LTR_peel annotations only.
 
 ## Where to start
 
@@ -453,7 +453,7 @@ Partly done. CRM decides from 3 significant cores with no fold level; other line
 ≥ 10) and, to act on a confident call, a core with most of the signature's elements on its chromosome (`TE_MAJOR_SHARE`). CRM's
 standing rests on every CRM core short of a majority lying on CENH3 (24 of 24), but those come from thinned annotations of genomes
 whose CRM is centromeric (rice, potato, maize, *Brachypodium*). Non-centromeric CRM exists: tobacco (CENH3 binds Tekay; CRM clusters
-beside), eggplant, soybean chr13 (#27); LTRquest labels 14 CHM13 ERVs CRM. The 3-core CRM seed was not retested against the
+beside), eggplant, soybean chr13 (#27); LTR_peel labels 14 CHM13 ERVs CRM. The 3-core CRM seed was not retested against the
 *Arabidopsis* case that sank an earlier form ([Tried and set aside](#tried-and-set-aside-not-in-designmd)). **Approach.** The same
 test for CRM as for other lineages (a fold level, or the decisive test measured per genome), or CRM's standing only where its cores
 pass the one-per-chromosome test. **Settle:** no right call lost in the CRM-decisive genomes; no tobacco or eggplant CENH3 domain
@@ -468,9 +468,9 @@ overruled by CRM (#35). **Code:** `sat/signature.py` (`seed_of`, `TE_SEED_MIN_CO
 
 ### 47. Centromeric retroelements the LTR line cannot read
 
-Partly done. The LTR line reads classified LTR elements only. In *Cryptococcus* 89-94% of LTRquest's elements lie in the CENP-A
+Partly done. The LTR line reads classified LTR elements only. In *Cryptococcus* 89-94% of LTR_peel's elements lie in the CENP-A
 domains but none has a REXdb lineage (unknown, chromo-outgroup); since 0.16 the repeat-density line places *C. neoformans* from
-the FASTA instead (#74). *Chlamydomonas*' centromeres are clusters of ZeppL, a LINE: LTRquest finds 669 elements, 613 without
+the FASTA instead (#74). *Chlamydomonas*' centromeres are clusters of ZeppL, a LINE: LTR_peel finds 669 elements, 613 without
 lineage; 6 of 17 right, all `low` (12 of 17 since 0.18, where the repeat-family window takes the place of 6 wrong satellite
 calls). Pooling unclassified elements qualified in fish genomes without truth (design.md); all LTR
 elements pooled per chromosome (0.15) are right on 6 of 14 *C. neoformans* and 3 of 8 *V. dahliae* but never significant (too few
@@ -483,9 +483,9 @@ unchanged; shuffled positions silent. **Code:** `sat/te.py` (reads `LTR_retrotra
 Open. The decisive test needs significant cores on most chromosomes; potato sits at its threshold (8 of 12 in 0.13; a majority is
 7). benchmark.md's annotation table holds an early lineage line's numbers (half of potato's CRM elements, EDTA or DANTE_LTR each
 lose the gain from `tes/`; rice drops from 8 cores to 3, 1, 1 at 50, 25, 10%); the family signature (0.12 on) was never thinned.
-LTRquest writes no version into its GFF3, so a run records only the `tes/` file's fingerprint. inputs.md marks `--proteins`
-untested. **Settle:** the thinning rerun on current code with LTRquest only (v6 `bench/td_thin.py`), reporting where each signature
-stops deciding; the recipe benchmarked with `--proteins`, or the flag dropped. **Code:** `sat/signature.py`, `teline.py`.
+LTR_peel writes no version into its GFF3, so a run records only the `tes/` file's fingerprint. The benchmark annotations were made with one round of
+detection and no `--proteins`; inputs.md now gives LTR_peel's defaults (more rounds), which are not benchmarked. **Settle:** the thinning rerun on current code with LTR_peel only (v6 `bench/td_thin.py`), reporting where each signature
+stops deciding; the benchmark's `tes/` arms rerun on annotations made with LTR_peel's defaults, with and without `--proteins`. **Code:** `sat/signature.py`, `teline.py`.
 
 ### 71. Age choice and family composition
 

@@ -14,6 +14,7 @@ scores a release's runs and refills [docs/benchmark.md](../docs/benchmark.md), w
 | `results_017.tsv` | one row per scored chromosome-run of those genomes (0.19.0, every input set they have: FASTA, `tes/`, Hi-C, all), same coordinates as `results.tsv` |
 | `score.py` | the frozen scorer, reading a manifest (`--manifest truth_017.tsv` for the added genomes) |
 | `canonical.tsv` | genome labels, lineages and the arm each doc table shows |
+| `performance.py`, `canonical_017.tsv` | the README's figure (docs/img/performance.png and .pdf) from `results.tsv` and `results_017.tsv`; the labels and row order of the added genomes (`python -m benchmark.performance`) |
 | `paths.py` | every input of the chain, under the data root; defaults to the 0.19.0 release (`python -m benchmark.paths` lists them) |
 | `release.sh` | the chain for one release: scores, every computed table, the filled docs/benchmark.md |
 | `fill_docs.py`, `docs_src/benchmark.template.md` | the template of docs/benchmark.md and its filler: edit the template, never docs/benchmark.md |

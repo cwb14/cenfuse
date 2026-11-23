@@ -25,7 +25,7 @@ def write_tes(cdir, truth, crm_at):
                    [("CRM", x) for x in rng.integers(0, L, 15)] + [("Ale", x) for x in rng.integers(0, L, 60)]
             for i, (clade, m) in enumerate(mids):
                 s, e = max(1, int(m) - 2000), min(L, int(m) + 2000)
-                lines.append(f"{c}\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID={c}_{i};clade={clade}")
+                lines.append(f"{c}\tLTR_peel\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID={c}_{i};clade={clade}")
         (cdir / "tes" / f"{g}.gff3").write_text("\n".join(lines) + "\n")
 
 
@@ -87,7 +87,7 @@ def test_decisive_core_replaces_a_satellite_call_far_from_it(tmp_path):
 
 
 def _families(cdir, truth, lineage, at):
-    """A family of `lineage` at (lo, hi) on every chromosome and a dispersed family of the same lineage: LTRquest's family=."""
+    """A family of `lineage` at (lo, hi) on every chromosome and a dispersed family of the same lineage: LTR_peel's family=."""
     (cdir / "tes").mkdir()
     rng = np.random.default_rng(9)
     for g, chroms in truth["genomes"].items():
@@ -96,7 +96,7 @@ def _families(cdir, truth, lineage, at):
             mids = [("cenfam", x) for x in rng.integers(*at, 30)] + [("wide", x) for x in rng.integers(0, L, 40)]
             for i, (fam, m) in enumerate(mids):
                 s, e = max(1, int(m) - 2000), min(L, int(m) + 2000)
-                lines.append(f"{c}\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID={c}_{i};clade={lineage};family={fam}")
+                lines.append(f"{c}\tLTR_peel\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID={c}_{i};clade={lineage};family={fam}")
         (cdir / "tes" / f"{g}.gff3").write_text("\n".join(lines) + "\n")
 
 

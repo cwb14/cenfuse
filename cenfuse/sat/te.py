@@ -25,7 +25,7 @@ def dante_lineage(path: str) -> tuple:
 
 def _clade(ftype: str, attrs: dict) -> str:
     """The clade of one GFF3 feature that is a classified LTR retrotransposon, else ''. Two formats: a type holding
-    'LTR_retrotransposon' with clade= (LTRquest; EDTA + TEsorter), or a DANTE_LTR 'transposable_element' whose
+    'LTR_retrotransposon' with clade= (LTR_peel; EDTA + TEsorter), or a DANTE_LTR 'transposable_element' whose
     Final_Classification is an LTR path (dante_lineage) and whose Rank holds L (LTRs found: a rank-D domain cluster is
     a fragment, not an element; potato: 195 of DANTE_LTR's 223 CRM, with cores up to 15 Mb off CENH3). Keys are
     lower-cased."""

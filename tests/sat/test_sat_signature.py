@@ -13,7 +13,7 @@ CEN = {f"c{i}": 2_000_000 * i for i in range(1, 9)}        # a different place o
 
 def line(c, s, clade, family, age=None):
     a = f"ID=x;clade={clade}" + (f";family={family}" if family else "") + (f";K2P_T={age}" if age is not None else "")
-    return f"{c}\tLTRquest\tLTR_retrotransposon\t{s + 1}\t{s + 5000}\t.\t+\t.\t{a}\n"
+    return f"{c}\tLTR_peel\tLTR_retrotransposon\t{s + 1}\t{s + 5000}\t.\t+\t.\t{a}\n"
 
 
 def clustered(c, n, clade, family, step=20_000, age=None):

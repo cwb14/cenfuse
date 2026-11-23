@@ -1,9 +1,9 @@
 # Gallery: cenfuse's overview page for every benchmark genome
 
 Each image is the first page of `cenfuse_overview.pdf` (also written as `<genome>.overview.png`), unedited (stored with
-a 256-color palette), drawn by the current code from a rerun of the genome's release run with its richest benchmarked
-inputs. The reruns gave the same calls as the release runs (809 of 809 calls checked in 46 runs; *Poa annua* and *P.
-infirma* also identical). The close-up pages (E) are in each PDF and in `<genome>.closeups.png`, not shown here.
+a 256-color palette), for the genome's run with its richest benchmarked inputs. Every page is the one cenfuse
+0.19.0 drew in its benchmark run (all 47 checked against those runs). The close-up pages (E) are in each PDF and in
+`<genome>.closeups.png`, not shown here.
 Counts: right / chromosomes with truth (for mammals without CENP-A data: agreement with an independent satellite
 caller). Every number: [benchmark.md](benchmark.md).
 
@@ -70,7 +70,7 @@ For genomes with many chromosomes, A and B continue on the next page and C and D
 |---|---|---|---|
 | [barley](#barley) | FASTA, `tes/`, Hi-C | 7/7 | satellites fail the one-per-chromosome test; the CRM signature places all 7, and Hi-C's test then passes on 7 |
 | [potato](#potato) | FASTA, `tes/`, genes, Hi-C | 9/11 (1 confidently wrong) | half the centromeres are satellite-free; the CRM signature places them; Hi-C's cis signal, tested against its cores, moves 2 `low` calls |
-| [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/`, Hi-C | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 1/7) |
+| [*Aegilops tauschii*](#aegilops-tauschii) | FASTA, `tes/`, Hi-C | 5/7 (2 confidently wrong) | calls on CRM cores; Chr5 and Chr7 at a core's edge (FASTA alone 7/7, every call `low`) |
 | [moss (*Physcomitrium patens*)](#moss-physcomitrium-patens) | FASTA, `tes/`, Hi-C | 26/26 | Copia (Bryco) cluster centromeres without satellite; the Bryco signature decides |
 | [*Chlorella sorokiniana*](#chlorella-sorokiniana) | FASTA, `tes/` | 9/10 | centromeres of 2-7 Osser (Copia) insertions; the Osser signature decides |
 | [*Chlamydomonas reinhardtii*](#chlamydomonas-reinhardtii) | FASTA, `tes/` | 12/17 | LINE-cluster centromeres; every call `low` (6/17 before 0.18: the repeat-family window now takes the place of 6 wrong satellite calls) |

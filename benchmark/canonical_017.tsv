@@ -1,0 +1,23 @@
+genome	label	lineage
+G1-36576	pepper G1-36576	plants
+Zunla-1	pepper Zunla-1	plants
+peu1	Populus euphratica	plants
+oaus	Oryza australiensis	plants
+sbta	Sesbania bispinosa SbTA02	plants
+sbsa	Sesbania bispinosa SbSA44	plants
+Gossypium_hirsutum.4x.GCA_047301705.1	Gossypium hirsutum	plants
+Nicotiana_benthamiana.4x.GWHFGPU00000000.1	Nicotiana benthamiana	plants
+Brachypodium_hybridum.4x.GCA_036872515.1	Brachypodium hybridum	plants
+Saccharum_longisetosum.4x.GWHFPVA00000000.1	Erianthus rockii	plants
+easi	donkey (T2T)	mammals
+calb	Candida albicans	fungi
+pcar	Pneumocystis carinii	fungi
+pmur	Pneumocystis murina	fungi
+kpin	Kwoniella pini	fungi
+cdeu	Cryptococcus deuterogattii	fungi
+tgon	Toxoplasma gondii	protists
+cjap	Chionographis japonica	holocentric
+lsyl	Luzula sylvatica	holocentric
+lsin	Leptidea sinapis	holocentric
+asuu	Ascaris suum	holocentric
+cepi	Cuscuta epithymum	holocentric

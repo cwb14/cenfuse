@@ -1,5 +1,5 @@
 """Synthetic GENOME_DIR for cenfuse at the engines' real scales (Hi-C bins 250 kb, 100 per chromosome, enough for
-the Hi-C engine's null; methylation D ~ 270 kb): ten 25-Mb chromosomes, satellite-engine-format sequence calls (imported with --satellite-dir), LTRquest-style TEs, genes,
+the Hi-C engine's null; methylation D ~ 270 kb): ten 25-Mb chromosomes, satellite-engine-format sequence calls (imported with --satellite-dir), LTR_peel-style TEs, genes,
 Hi-C pairs from a Rabl nucleus, and CHG bedMethyl for three plants.
 
 Functional centromere F (Hi-C cluster; CRM elements with CHG loss) vs satellite call S:
@@ -144,7 +144,7 @@ def write_tes(path: Path, elems: list) -> None:
     with open(path, "w") as f:
         f.write("##gff-version 3\n")
         for i, (c, s, e, clade) in enumerate(sorted(elems), 1):
-            f.write(f"{c}\tLTRquest\tLTR_retrotransposon\t{s + 1}\t{e}\t.\t+\t.\tID=te{i};clade={clade};"
+            f.write(f"{c}\tLTR_peel\tLTR_retrotransposon\t{s + 1}\t{e}\t.\t+\t.\tID=te{i};clade={clade};"
                     f"superfamily={'Gypsy'};depth=0\n")
 
 

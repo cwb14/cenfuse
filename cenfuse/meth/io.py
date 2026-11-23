@@ -222,7 +222,7 @@ def read_intervals(path) -> pd.DataFrame:
     (past the 9th of a GFF3) are ignored."""
     path = Path(path)
     gff = _is_gff(path)
-    try:  # no comment='#': GFF3 attributes may contain '#' (LTRquest family_rep=chr:1-2#LTR/Gypsy/Reina)
+    try:  # no comment='#': GFF3 attributes may contain '#' (LTR_peel family_rep=chr:1-2#LTR/Gypsy/Reina)
         with warnings.catch_warnings():      # index_col=False: extra columns are dropped, not taken as the index
             warnings.simplefilter("ignore", pd.errors.ParserWarning)
             raw = pd.read_csv(path, sep="\t", header=None, dtype=str, names=range(9 if gff else 12),
@@ -266,11 +266,11 @@ def _need(d: pd.DataFrame, path, what: str) -> pd.DataFrame:
     return d
 
 
-def read_ltrquest(path) -> pd.DataFrame:
-    """LTRquest GFF3 -> DataFrame[chrom, start, end, cls, depth]: one row per LTR_retrotransposon, class 'LTR:<clade>'
+def read_ltr_peel(path) -> pd.DataFrame:
+    """LTR_peel GFF3 -> DataFrame[chrom, start, end, cls, depth]: one row per LTR_retrotransposon, class 'LTR:<clade>'
     (unclassified clades -> 'LTR:<superfamily>_unclassified' or 'LTR:unclassified'), depth = nesting depth."""
     d = read_intervals(path)
-    d = _need(d[d.type == "LTR_retrotransposon"], path, "LTR_retrotransposon features (is this an LTRquest GFF3?)")
+    d = _need(d[d.type == "LTR_retrotransposon"], path, "LTR_retrotransposon features (is this an LTR_peel GFF3?)")
     clade, sf = attr(d["attrs"], "clade"), attr(d["attrs"], "superfamily")
     un, sf_un = clade.str.lower().isin(UNCLASSIFIED), sf.str.lower().isin(UNCLASSIFIED)
     cls = np.where(~un, "LTR:" + clade, np.where(~sf_un, "LTR:" + sf + "_unclassified", "LTR:unclassified"))

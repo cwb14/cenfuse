@@ -97,7 +97,7 @@ def prepare(g, arrays_gff, cache_dir, threads: int) -> MethPrep | None:
 
 
 def read_tes(path) -> pd.DataFrame:
-    """The methylation engine's LTRquest classes (clade, else superfamily_unclassified; nesting depth) from tes/, with the TE line's
+    """The methylation engine's LTR_peel classes (clade, else superfamily_unclassified; nesting depth) from tes/, with the TE line's
     type rule: any feature type containing 'LTR_retrotransposon' (as the satellite engine), so EDTA + TEsorter files work as well.
     DANTE_LTR elements ('transposable_element' with an LTR Final_Classification) take their lineage and superfamily from
     that path (sat.te.dante_lineage) and depth 0 (DANTE_LTR reports no nesting)."""

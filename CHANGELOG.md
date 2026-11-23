@@ -4,6 +4,19 @@ What changed for users in each release, newest first, with the benchmark headlin
 [docs/benchmark.md](docs/benchmark.md). A *chromosome-run* is one chromosome in one benchmark run; *confident* = `high`
 or `medium`.
 
+## Docs update (2026-11-23, no new version)
+
+- **LTRquest is now [LTR_peel](https://github.com/cwb14/LTR_peel).** The `tes/` recipe is LTR_peel at its defaults
+  (`ltr_peel --genome asm.fa --threads 32`); the GFF3 has the same fields, so files made with LTRquest work as before.
+  `python -m cenfuse.meth run` takes `--ltr_peel` (`--ltrquest` still works). The benchmark annotations were made under the old
+  name with one round of detection; cenfuse was not re-benchmarked on annotations made with today's defaults.
+- **The performance figure now shows every benchmark genome**: the 22 genomes added in 0.17 (0.19.0's results,
+  `benchmark/results_017.tsv`) have their own group in B, their own rows in D and their own bars in E; before, the
+  figure drew only `benchmark/results.tsv`. The Hi-C control is now panel C, beside B.
+- No call changed: results and tables are those of 0.19.0. Three gallery pages (siamang, both *C. neoformans*
+  runs) are now the ones 0.19.0 draws, with the repeat-family line's new verdict; the other 44 were already identical.
+  The gallery's note for *Ae. tauschii* gives 0.19.0's FASTA-only result (7 of 7, `low`).
+
 ## 0.19.0 (2026-11-18)
 
 - **The repeat-family line is tested against the repeat-density line.** The family windows and the densest-repeat peaks of

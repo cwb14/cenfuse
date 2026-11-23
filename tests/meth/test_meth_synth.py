@@ -6,7 +6,7 @@ from cenfuse.meth import classes, io
 
 
 def test_files_and_indexes(syn):
-    for k in ("fai", "samples", "ltrquest", "satellites", "genes", "anchors", "anchors_wrong", "exclude"):
+    for k in ("fai", "samples", "ltr_peel", "satellites", "genes", "anchors", "anchors_wrong", "exclude"):
         assert syn[k].exists(), k
     s = io.read_samples(syn["samples"])
     assert [x.name for x in s] == ["S1", "S2", "S3"] and list(s[0].files) == ["CHG", "CG"]
@@ -14,7 +14,7 @@ def test_files_and_indexes(syn):
 
 
 def test_classes_match_truth(syn):
-    cm = classes.build([io.read_satellites(syn["satellites"]), io.read_ltrquest(syn["ltrquest"]),
+    cm = classes.build([io.read_satellites(syn["satellites"]), io.read_ltr_peel(syn["ltr_peel"]),
                         io.read_genes(syn["genes"])], synth.CHROMS)
     pos = np.arange(15_000_000, 25_000_000, 97)
     truth = synth.site_classes(syn["ann"], "chr1", pos)

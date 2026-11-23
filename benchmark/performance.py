@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Draw cenfuse's performance over every benchmark genome from the frozen results table (benchmark/results.tsv).
+"""Draw cenfuse's performance over every benchmark genome from the frozen results tables (benchmark/results.tsv, and
+benchmark/results_017.tsv for the genomes added later, which are scored apart and drawn apart).
 
   python -m benchmark.performance [--png docs/img/performance.png] [--pdf docs/img/performance.pdf] [--numbers N.tsv]
 
@@ -8,9 +9,10 @@ chosen by rule: of the genomes with truth coordinates run with all four, the one
 all-inputs run is nearest the median gain (ties: genome id). B: every chromosome with truth pooled per input set and
 centromere class (one run per genome and input set, the 'agreement' mammals left out, as benchmark/summary.py (a)), each
 genome's share right as a dot, beside the chance of a right call by luck (benchmark/README.md; rows whose truth is
-withheld are left out of it). C: every genome and input set, controls included. D: confidence calibration over each
-genome's all-inputs run. E: calls changed by adding real or randomized Hi-C. The PDF is the figure and its legend
-page; --numbers writes every number it shows."""
+withheld are left out of it), the added genomes as a group of their own. C: calls changed by adding real or randomized
+Hi-C. D: every genome and input set, controls included. E: confidence calibration over each genome's all-inputs run,
+the added genomes beside the others. The PDF is the figure and its legend page; --numbers writes every number it
+shows."""
 import argparse
 import re
 import sys
@@ -38,7 +40,7 @@ COLOR = {"right_high": "#00694C", "right_medium": "#009E73", "right_low": "#9DD9
          "wrong_low": "#F6C3A2", "none": "#DADADA"}
 CHANCE, INK, GRAY, CHROM, HIC = "#8A8A8A", "#222222", "#5A5A5A", "#EDEDED", "#0072B2"
 CLASSES = {"satellite": "satellite arrays", "TE_or_none": "retrotransposons or none",
-           "point_regional": "point or regional"}
+           "point_regional": "point or regional", "added": "added later"}
 TYPES = [("FASTA", "FASTA"), ("tes", "TEs (tes/)"), ("Hi-C", "Hi-C (hic/)"), ("genes", "genes (genes/)"),
          ("meth", "methylation (meth/)")]
 WORD = {"tes": "TEs", "Hi-C": "Hi-C", "genes": "genes", "meth": "methylation"}
@@ -112,9 +114,17 @@ def tables(d):
     return perf, every, agree, holo, all_inputs(perf)
 
 
-def pooled(perf, d):
-    """B: per input set and centromere class, genomes, chromosomes, each outcome and the chance (%); checked against
-    summary.by_inputs."""
+def read_added(path):
+    """The genomes added later (benchmark/results_017.tsv, scored apart with truth_017.tsv) with the main table's
+    columns: one class, 'added', whatever the centromere type, and the table's own chance column."""
+    a = read_table(path)
+    a["cen_class"], a["all_inputs"] = "added", "0"
+    a["chance"] = pd.to_numeric(a.chance, errors="coerce")
+    return a
+
+
+def pool_rows(perf):
+    """Per input set and centromere class: genomes, chromosomes, each outcome and the chance (%)."""
     rows = []
     for (cls, inp), x in perf.groupby(["cen_class", "inputs"]):
         r = dict(cen_class=cls, inputs=inp, genomes=x.genome.nunique(), chromosomes=len(x),
@@ -122,7 +132,26 @@ def pooled(perf, d):
         r.update({o: int((x.outcome == o).sum()) for o in OUTCOMES})
         r["right"] = r["right_high"] + r["right_medium"] + r["right_low"]
         rows.append(r)
-    p = pd.DataFrame(rows).set_index(["inputs", "cen_class"])
+    return pd.DataFrame(rows).set_index(["inputs", "cen_class"])
+
+
+def hic_added(every):
+    """C, the added genomes: per run with Hi-C, the chromosomes whose call differs from the same genome's run with the
+    same inputs but no Hi-C (they have no randomized runs)."""
+    rows = []
+    for (arm, g), x in every[every.inputs.str.contains("Hi-C")].groupby(["arm", "genome"]):
+        p = every[(every.genome == g) & (every.inputs == x.inputs.iloc[0].replace("+Hi-C", ""))]
+        if len(p):
+            m = x.merge(p, on="chrom", suffixes=("", "_p"))
+            changed = (m[CALL].values != m[[c + "_p" for c in CALL]].values).any(axis=1)
+            rows.append(dict(hic="real", arm=arm, genome=g, chromosomes=len(m), changed=int(changed.sum())))
+    return pd.DataFrame(rows, columns=["hic", "arm", "genome", "chromosomes", "changed"])
+
+
+def pooled(perf, d):
+    """B: per input set and centromere class, genomes, chromosomes, each outcome and the chance (%); checked against
+    summary.by_inputs."""
+    p = pool_rows(perf)
     s = by_inputs(d)
     s = s[s.index.get_level_values(1) != "all"]
     chk = p.loc[s.index].assign(wrong=lambda y: y.conf_wrong + y.wrong_low, no_call=lambda y: y.none)
@@ -277,26 +306,29 @@ def glyphs(ax, cols, size=7.0, lw=0.7):
 
 
 # ---------------------------------------------------------------- the figure
-def layout(blocks, lab):
-    """Positions (mm): B and its glyphs on wide columns, C on its own columns after fitted label areas."""
+def layout(blocks, bblocks, lab):
+    """Positions (mm): B (bblocks) and its glyphs on wide columns with C beside them, D (blocks) on its own columns
+    after fitted label areas, E under the second block."""
     fig = plt.figure(figsize=(W * MM, 4))
     for b in blocks:
         ws = [text_mm(fig, runs_of(*lab.get(g, (g, ""))), FR) for k, g, _ in b["rows"] if k == "g"]
         b["lw"] = max(ws + [0]) + 4.8                         # + the chromosome count
     gw = max(text_mm(fig, [(t, "normal")], FR) for t in [n for _, n in TYPES] + ["chromosomes"]) + 2.2
-    hh = max(text_mm(fig, [(short_name(c), "normal")], FS) for b in blocks for c in b["cols"]) + 1.6
+    hh = max(text_mm(fig, [(short_name(c), "normal")], FS) for b in blocks for c in b["ccols"]) + 1.6
     plt.close(fig)
     L = dict(left=1.0, right=W - 1.0, gw=gw, rh=2.15, gh=2.2, hh=hh)
-    ncol = sum(len(b["cols"]) for b in blocks)
-    gb, gc = 4.5, 2.5
-    L["cwb"] = (L["right"] - L["left"] - gw - gb * (len(blocks) - 1)) / ncol
-    L["cwc"] = (L["right"] - L["left"] - sum(b["lw"] for b in blocks) - gc * (len(blocks) - 1)) / ncol
+    gb, gc = 4.0, 2.5
+    L["ew"] = 22.0                                           # C's axes, right of B, after 13 mm for its letter and label
+    L["cwb"] = (L["right"] - L["left"] - gw - gb * (len(bblocks) - 1) - L["ew"] - 13.0) / \
+        sum(len(b["cols"]) for b in bblocks)
+    L["cwc"] = (L["right"] - L["left"] - sum(b["lw"] for b in blocks) - gc * (len(blocks) - 1)) / \
+        sum(len(b["ccols"]) for b in blocks)
     xb, xc = L["left"] + gw, L["left"]
-    for b in blocks:
-        k = len(b["cols"])
-        b["xb"], b["wb"] = xb, k * L["cwb"]
-        b["xc"], b["wc"] = xc + b["lw"], k * L["cwc"]
+    for b in bblocks:
+        b["xb"], b["wb"] = xb, len(b["cols"]) * L["cwb"]
         xb += b["wb"] + gb
+    for b in blocks:
+        b["xc"], b["wc"] = xc + b["lw"], len(b["ccols"]) * L["cwc"]
         xc += b["lw"] + b["wc"] + gc
     L["key"], L["a"], L["a_h"] = 1.0, 7.0, 31.0
     L["b"] = L["a"] + 6.5 + L["a_h"] + 5.0
@@ -305,17 +337,25 @@ def layout(blocks, lab):
     L["c"] = L["g"] + L["gh"] * (len(TYPES) + 2) + 3.0
     L["rows"] = L["c"] + L["hh"]
     n = [len(b["rows"]) for b in blocks]
-    L["d"] = L["rows"] + max(n[1:] + [0]) * L["rh"] + 7.0
-    L["d_h"] = max(L["rows"] + n[0] * L["rh"] - 4.0 - L["d"] - 4.5, 22.0)
-    L["H"] = max(L["rows"] + n[0] * L["rh"], L["d"] + 4.5 + L["d_h"] + 4.0) + 1.0
+    L["d"] = L["rows"] + (n[1] if len(n) > 2 else max(n[1:] + [0])) * L["rh"] + 7.0
+    L["d_h"] = max(L["rows"] + max(n) * L["rh"] - 8.0 - L["d"] - 4.5, 22.0)
+    L["H"] = max(L["rows"] + max(n) * L["rh"], L["d"] + 4.5 + L["d_h"] + 8.0) + 1.0
     return L
 
 
-def draw(d, lab, order, verbose=False):
-    """The figure and the numbers behind it."""
+def draw(d, lab, order, verbose=False, added=None):
+    """The figure and the numbers behind it. added: the genomes added later (read_added), drawn apart."""
     perf, every, agree, holo, alli = tables(d)
     pool = pooled(perf, d)
-    framed = all_inputs(pd.concat([every, agree, holo]))                # each genome's run with the most inputs
+    if added is not None and len(added):
+        every2 = one_run(added[added.control == "none"])
+        holo2 = one_run(added[added.control == "holocentric"])
+        pool = pd.concat([pool, pool_rows(every2)])
+    else:
+        every2 = holo2 = d.iloc[:0]
+    alli2 = all_inputs(every2) if len(every2) else every2
+    pp = pd.concat([perf, every2])
+    framed = all_inputs(pd.concat([every, agree, holo, every2, holo2]))  # each genome's run with the most inputs
     framed = set(zip(framed.genome, framed.arm))
     g_ex, gain, med = pick_example(perf)
     nums = []
@@ -337,7 +377,18 @@ def draw(d, lab, order, verbose=False):
         b["cols"] = sorted(set(b["cols"]) | set(holo.inputs), key=column_key)
         b["rows"] += [("h", "holocentric controls", None)] + [("g", g, holo)
                                                               for g in sorted(holo.genome.unique(), key=order)]
-    L = layout(blocks, lab)
+    for b in blocks:
+        b["ccols"] = list(b["cols"])
+    bblocks = list(blocks)
+    if len(every2) and blocks:                           # the added genomes: a group of their own in B, rows in D
+        b = blocks[-1]
+        b["ccols"] = sorted(set(b["cols"]) | set(every2.inputs) | set(holo2.inputs), key=column_key)
+        b["rows"] += [("h", "added later", None)] + [("g", g, every2) for g in sorted(every2.genome.unique(), key=order)]
+        if len(holo2):
+            b["rows"] += [("h", "added later, holocentric", None)] + [
+                ("g", g, holo2) for g in sorted(holo2.genome.unique(), key=order)]
+        bblocks = blocks + [dict(cls="added", cols=sorted(every2.inputs.unique(), key=column_key))]
+    L = layout(blocks, bblocks, lab)
     H = L["H"]
     fig = plt.figure(figsize=(W * MM, H * MM))
 
@@ -419,7 +470,7 @@ def draw(d, lab, order, verbose=False):
 
     # ---- B: pooled per input set, with every genome as a dot; the glyphs beneath
     letter(0.3, L["b"], "B")
-    for bi, b in enumerate(blocks):
+    for bi, b in enumerate(bblocks):
         cols, k, cls = b["cols"], len(b["cols"]), b["cls"]
         xb = ax_mm(b["xb"], L["bar"], b["wb"], L["bar_h"])
         xb.set_xlim(-0.5, k - 0.5)
@@ -432,12 +483,13 @@ def draw(d, lab, order, verbose=False):
             stacked(xb, j - 0.1, 0.58, p.to_dict(), p.chromosomes)
             if p.chance_rows:
                 xb.add_patch(Rectangle((j + 0.31 - 0.075, 0), 0.15, p.chance_pct, fc=CHANCE, ec="none"))
-            x = perf[(perf.cen_class == cls) & (perf.inputs == inp)]
+            x = pp[(pp.cen_class == cls) & (pp.inputs == inp)]
             s = x.assign(r=x.outcome.isin(RIGHT)).groupby("genome").r.mean()
             swarm(xb, j - 0.1, 100 * s.values, 0.22, 0.8 / L["cwb"], s=4.5, facecolor="white", edgecolor=INK, lw=0.4)
             for o in ["genomes", "chromosomes", "right", "right_high", "right_medium", "right_low", "conf_wrong",
                       "wrong_low", "none", "chance_rows"]:
-                note("B", o, f"{cls} | {inp}", int(p[o]), "results.tsv (counts as summary.by_inputs)")
+                note("B", o, f"{cls} | {inp}", int(p[o]), "results_017.tsv" if cls == "added" else
+                     "results.tsv (counts as summary.by_inputs)")
             note("B", "right (%)", f"{cls} | {inp}", round(100 * p.right / p.chromosomes, 1))
             note("B", "chance (%)", f"{cls} | {inp}", round(float(p.chance_pct), 1))
             note("B", "genome share right, min-median-max (%)", f"{cls} | {inp}",
@@ -459,14 +511,19 @@ def draw(d, lab, order, verbose=False):
                 xg.text(-0.5 - 0.6 / L["cwb"], i, name, ha="right", va="center", size=FR,
                         color=INK if i < len(TYPES) else GRAY)
 
-    # ---- C: every genome and input set
-    letter(0.3, L["c"], "C")
-    note("C", "genomes compared with another caller", "agreement", agree.genome.nunique())
-    note("C", "holocentric genomes", "holocentric", holo.genome.nunique())
-    note("C", "holocentric chromosome-runs", "holocentric", len(holo))
-    note("C", "holocentric confident calls", "holocentric", int(holo.confidence.isin(["high", "medium"]).sum()))
+    # ---- D: every genome and input set
+    letter(0.3, L["c"], "D")
+    note("D", "genomes compared with another caller", "agreement", agree.genome.nunique())
+    note("D", "holocentric genomes", "holocentric", holo.genome.nunique())
+    note("D", "holocentric chromosome-runs", "holocentric", len(holo))
+    note("D", "holocentric confident calls", "holocentric", int(holo.confidence.isin(["high", "medium"]).sum()))
+    if len(holo2):
+        note("D", "holocentric genomes", "added later", holo2.genome.nunique(), "results_017.tsv")
+        note("D", "holocentric chromosome-runs", "added later", len(holo2), "results_017.tsv")
+        note("D", "holocentric confident calls", "added later",
+             int(holo2.confidence.isin(["high", "medium"]).sum()), "results_017.tsv")
     for b in blocks:
-        cols, k = b["cols"], len(b["cols"])
+        cols, k = b["ccols"], len(b["ccols"])
         xc = ax_mm(b["xc"], L["rows"], b["wc"], len(b["rows"]) * L["rh"])
         bare(xc)
         xc.set_xlim(-0.5, k - 0.5)
@@ -483,7 +540,7 @@ def draw(d, lab, order, verbose=False):
             x = src[src.genome == g]
             rich(xc, -0.5 - nw, i, runs_of(*lab.get(g, (g, ""))), FR)
             xc.text(-0.62, i, f"{x.chrom.nunique()}", ha="right", va="center", size=FR, color=GRAY)
-            note("C", "chromosomes", g, x.chrom.nunique())
+            note("D", "chromosomes", g, x.chrom.nunique())
             for j, inp in enumerate(cols):
                 y = x[x.inputs == inp]
                 if not len(y):
@@ -492,50 +549,61 @@ def draw(d, lab, order, verbose=False):
                         horizontal=True, edge="white" if 0.84 * L["cwc"] / len(y) > 0.3 else None)
                 if (g, y.arm.iloc[0]) in framed:
                     xc.add_patch(Rectangle((j - 0.47, i - 0.45), 0.94, 0.9, fill=False, ec=INK, lw=0.6))
-                note("C", "right/chromosomes", f"{g} | {inp}", f"{int(y.outcome.isin(RIGHT).sum())}/{len(y)}")
+                note("D", "right/chromosomes", f"{g} | {inp}", f"{int(y.outcome.isin(RIGHT).sum())}/{len(y)}")
 
-    # ---- D: calibration over each genome's all-inputs run
+    # ---- E: calibration over each genome's all-inputs run, the added genomes beside the others
     bd = blocks[1] if len(blocks) > 1 else blocks[0]
-    dx = bd["xc"] if len(blocks) > 1 else bd["xc"] + bd["wc"] + 12
-    letter(dx - 11.0, L["d"], "D")
-    cal = calibration(alli)
-    xd = ax_mm(dx, L["d"] + 4.5, 34.0, L["d_h"])
-    xd.set_xlim(-0.6, 2.6)
+    dx = bd["xc"] - bd["lw"] + 11.0 if len(blocks) > 1 else bd["xc"] + bd["wc"] + 12
+    dw = max(min(46.0, bd["lw"] + bd["wc"] - 12.0 if len(blocks) > 2 else L["right"] - dx), 20.0)
+    letter(dx - 11.0, L["d"], "E")
+    cal, cal2 = calibration(alli), calibration(alli2)
+    groups = [("", alli, cal, 0.0)] + ([("added later", alli2, cal2, 3.7)] if len(alli2) else [])
+    span = groups[-1][3] + 3.2
+    xd = ax_mm(dx, L["d"] + 4.5, dw, L["d_h"])
+    xd.set_xlim(-0.6, span - 0.6)
     xd.set_ylim(0, 100)
-    xd.text(1, 104, "calls, all inputs", ha="center", va="bottom", size=FL)
-    for j, c in enumerate(["high", "medium", "low"]):
-        y = alli[alli.confidence == c]
-        if not len(y):
-            continue
-        stacked(xd, j - 0.1, 0.58, y.outcome.value_counts().to_dict(), len(y))
-        ch = 100 * y.chance.mean()
-        if y.chance.notna().any():
-            xd.add_patch(Rectangle((j + 0.31 - 0.075, 0), 0.15, ch, fc=CHANCE, ec="none"))
-        s = y.assign(r=y.outcome.isin(RIGHT)).groupby("genome").r.mean()
-        swarm(xd, j - 0.1, 100 * s.values, 0.27, 0.8 * 3.2 / 34.0, s=4.5, facecolor="white", edgecolor=INK, lw=0.4)
-        xd.text(j - 0.1, 2, f"{len(y)}", ha="center", va="bottom", size=FS - 0.5,
-                color="white" if c != "low" else INK)
-        note("D", "calls", c, int(cal.loc[c, "calls"]), "results.tsv via summary.calibration")
-        note("D", "right", c, int(cal.loc[c, "right"]), "results.tsv via summary.calibration")
-        note("D", "right (%)", c, round(100 * cal.loc[c, "right"] / cal.loc[c, "calls"], 1))
-        note("D", "chance (%)", c, round(float(ch), 1))
-    note("D", "no call", "all inputs", int(cal.loc["no call", "calls"]), "results.tsv via summary.calibration")
-    note("D", "genomes", "all inputs", alli.genome.nunique())
+    xd.text(span / 2 - 0.6, 104, "calls, all inputs", ha="center", va="bottom", size=FL)
+    for name, al, cl, off in groups:
+        for j, c in enumerate(["high", "medium", "low"]):
+            y = al[al.confidence == c]
+            if not len(y):
+                continue
+            stacked(xd, off + j - 0.1, 0.58, y.outcome.value_counts().to_dict(), len(y))
+            ch = 100 * y.chance.mean()
+            if y.chance.notna().any():
+                xd.add_patch(Rectangle((off + j + 0.31 - 0.075, 0), 0.15, ch, fc=CHANCE, ec="none"))
+            s = y.assign(r=y.outcome.isin(RIGHT)).groupby("genome").r.mean()
+            swarm(xd, off + j - 0.1, 100 * s.values, 0.27, 0.8 * span / dw, s=4.5, facecolor="white", edgecolor=INK,
+                  lw=0.4)
+            xd.text(off + j - 0.1, 2, f"{len(y)}", ha="center", va="bottom", size=FS - 0.5,
+                    color="white" if c != "low" else INK)
+            grp, src = (c, "results.tsv via summary.calibration") if not name else (f"{c} | {name}", "results_017.tsv")
+            note("E", "calls", grp, int(cl.loc[c, "calls"]), src)
+            note("E", "right", grp, int(cl.loc[c, "right"]), src)
+            note("E", "right (%)", grp, round(100 * cl.loc[c, "right"] / cl.loc[c, "calls"], 1))
+            note("E", "chance (%)", grp, round(float(ch), 1))
+        if len(groups) > 1:
+            xd.text(off + 0.9, -13, name or "development", ha="center", va="top", size=FS, color=GRAY, clip_on=False)
+        grp, src = ("all inputs", "results.tsv via summary.calibration") if not name else (name, "results_017.tsv")
+        note("E", "no call", grp, int(cl.loc["no call", "calls"]), src)
+        note("E", "genomes", grp, al.genome.nunique())
     yaxis(xd, "calls (%)")
-    xd.set_xticks([-0.1, 0.9, 1.9])
-    xd.set_xticklabels(["high", "medium", "low"], size=FS)
+    xd.set_xticks([off + j - 0.1 for _, _, _, off in groups for j in range(3)])
+    xd.set_xticklabels(["high", "medium", "low"] * len(groups), size=FS - (0.8 if len(groups) > 1 else 0))
     xd.tick_params(axis="x", length=0, pad=1.5)
     xd.spines["bottom"].set_linewidth(0.5)
 
-    # ---- E: calls changed by adding Hi-C, real against randomized
+    # ---- C: calls changed by adding Hi-C, real against randomized, beside B
     hic = hic_changes(d)
-    ex_ = dx + 34.0 + 17.0
-    letter(ex_ - 11.0, L["d"], "E")
-    we = min(24.0, L["right"] - ex_)
-    xe = ax_mm(ex_, L["d"] + 4.5, we, L["d_h"])
+    if len(every2):
+        hic = pd.concat([hic, hic_added(every2)], ignore_index=True)
+    we = L["ew"]
+    ex_ = L["right"] - we
+    letter(ex_ - 11.5, L["b"], "C")
+    xe = ax_mm(ex_, L["bar"], we, L["bar_h"])
     xe.set_xlim(-0.6, 1.6)
     xe.set_ylim(0, 100)
-    xe.text(0.5, 104, "adding Hi-C", ha="center", va="bottom", size=FL)
+    xe.text(0.5, 103, "adding Hi-C", ha="center", va="bottom", size=FL)
     for j, kind in enumerate(["real", "randomized"]):
         y = hic[hic.hic == kind]
         if not len(y):
@@ -545,18 +613,18 @@ def draw(d, lab, order, verbose=False):
         per = y.groupby("genome")[["changed", "chromosomes"]].sum()          # one dot per genome, its runs pooled
         swarm(xe, j, 100 * per.changed / per.chromosomes, 0.27, 0.8 * 2.2 / we, s=4.5, facecolor="white",
               edgecolor=INK, lw=0.4)
-        note("E", "runs", kind, len(y))
-        note("E", "genomes", kind, len(per))
-        note("E", "chromosome-runs", kind, int(y.chromosomes.sum()))
-        note("E", "calls changed", kind, int(y.changed.sum()))
-        note("E", "calls changed (%)", kind, round(float(share), 1))
-    yaxis(xe, "calls changed (%)")
+        note("C", "runs", kind, len(y))
+        note("C", "genomes", kind, len(per))
+        note("C", "chromosome-runs", kind, int(y.chromosomes.sum()))
+        note("C", "calls changed", kind, int(y.changed.sum()))
+        note("C", "calls changed (%)", kind, round(float(share), 1))
+    yaxis(xe, "calls changed (%)", ticks=(0, 25, 50, 75, 100))
     xe.set_xticks([0, 1])
     xe.set_xticklabels(["real", "randomized"], size=FS)
     xe.tick_params(axis="x", length=0, pad=1.5)
     xe.spines["bottom"].set_linewidth(0.5)
     return fig, nums, dict(perf=perf, every=every, agree=agree, holo=holo, alli=alli, pool=pool, example=g_ex,
-                           gain=gain, med=med, cal=cal, hic=hic)
+                           gain=gain, med=med, cal=cal, hic=hic, cal2=cal2, alli2=alli2, every2=every2, holo2=holo2)
 
 
 # ---------------------------------------------------------------- legend page
@@ -592,12 +660,25 @@ def legend_runs(d, lab, r):
         lib = re.search(r"\((.+)\)", lb[0])
         if drop in set(r["every"].genome):
             twice += [(runs_of(re.sub(r" \(.*\)", "", lb[0]), lb[1])[0][0], "italic"),
-                      (" appears twice, one assembly with two Hi-C libraries; B, D and E pool only the one with more "
+                      (" appears twice, one assembly with two Hi-C libraries; B, C and E pool only the one with more "
                        f"read pairs{' (' + lib.group(1) + ')' if lib else ''}. ", "normal")]
     hic = r["hic"]
     real, rnd = hic[hic.hic == "real"], hic[hic.hic == "randomized"]
     hi, me, lo = (100 * cal.loc[c, "right"] / max(cal.loc[c, "calls"], 1) for c in ("high", "medium", "low"))
     N = "normal"
+    cal2, alli2, every2, holo2 = r["cal2"], r["alli2"], r["every2"], r["holo2"]
+    n2 = every2.genome.nunique() + holo2.genome.nunique()
+    add_b = add_d = add_e = ""
+    if n2:
+        hi2, me2, lo2 = (100 * cal2.loc[c, "right"] / max(cal2.loc[c, "calls"], 1) for c in ("high", "medium", "low"))
+        add_b = (f" The last group pools the {every2.genome.nunique()} genomes with a mapped centromere that were added "
+                 "later, whatever their centromere type; they are scored apart, the small fungal and parasite genomes "
+                 "among them within 25 kb.")
+        add_d = (f" The {n2} genomes added later are listed apart; none of the {len(holo2)} chromosomes of their "
+                 f"{holo2.genome.nunique()} holocentric genomes got a confident call." if len(holo2) and not
+                 holo2.confidence.isin(["high", "medium"]).any() else f" The {n2} genomes added later are listed apart.")
+        add_e = (f" Of the {alli2.genome.nunique()} added later, {hi2:.0f}%, {me2:.0f}% and {lo2:.0f}% "
+                 f"({int(cal2.loc['no call', 'calls'])} without a call).")
     paras = [
         [("What a centromere is made of decides which data find it.", "bold"),
          (f" From the FASTA alone cenfuse was right on {pct('satellite', 'FASTA')} of satellite centromeres. "
@@ -617,24 +698,26 @@ def legend_runs(d, lab, r):
                          "placed at random would get right. Beneath: the inputs of each column, and the genomes and "
                          "chromosomes it pools. In fungi and ", N), ("Plasmodium", "italic"),
          (f" a call is right within {span(pr[~hic_pr].tol_bp)} without Hi-C and within one Hi-C bin "
-          f"({span(pr[hic_pr].tol_bp)}) with it.", N)],
-        [("C", "bold"), (" Every genome with every set of inputs it was run with; each cell splits its chromosomes "
-                         "by outcome, and a frame marks the genome's run with the most inputs, the one D pools. ", N)]
-        + twice + [(f"{agree.genome.nunique()} mammals were compared with another tool's satellite locus, not "
-                         f"with a mapped centromere, and are left out of B. The {holo.genome.nunique()} holocentric "
-                         "genomes have no single centromere, so every call counts as wrong; of their "
-                         f"{len(holo)} chromosomes over all sets of inputs, "
-                         f"{int(holo.confidence.isin(['high', 'medium']).sum())} got a confident call.", N)],
-        [("D", "bold"), (f" Over the {alli.genome.nunique()} genomes with a mapped centromere, each run with its "
-                         f"most inputs, {hi:.0f}% of high, {me:.0f}% of medium and {lo:.0f}% of low calls were right "
-                         f"(calls per bar at its foot; dots: genomes); {int(cal.loc['no call', 'calls'])} "
-                         "chromosomes got no call.", N)],
-        [("E", "bold"), (" Calls that adding Hi-C changed (moved, or their confidence), against the same genome "
+          f"({span(pr[hic_pr].tol_bp)}) with it." + add_b, N)],
+        [("C", "bold"), (" Calls that adding Hi-C changed (moved, or their confidence), against the same genome "
                          f"without Hi-C: {pct_of(real)} with real Hi-C ({len(real)} runs), {pct_of(rnd)} with Hi-C "
                          f"whose contacts were randomized ({len(rnd)} runs). Dots: genomes."
                          + (" Hi-C without centromere signal changes nothing." if len(rnd) and
                             rnd.changed.sum() == 0 else "") + " Whether real Hi-C helped: B.", N)],
-        [(f"Data: benchmark/results.tsv (cenfuse {', '.join(sorted(d.version.unique()))}) · Script: "
+        [("D", "bold"), (" Every genome with every set of inputs it was run with; each cell splits its chromosomes "
+                         "by outcome, and a frame marks the genome's run with the most inputs, the one E pools. ", N)]
+        + twice + [(f"{agree.genome.nunique()} mammals were compared with another tool's satellite locus, not "
+                         f"with a mapped centromere, and are left out of B. The {holo.genome.nunique()} holocentric "
+                         "genomes have no single centromere, so every call counts as wrong; of their "
+                         f"{len(holo)} chromosomes over all sets of inputs, "
+                         f"{int(holo.confidence.isin(['high', 'medium']).sum())} got a confident call."
+                         + add_d, N)],
+        [("E", "bold"), (f" Over the {alli.genome.nunique()} genomes with a mapped centromere, each run with its "
+                         f"most inputs, {hi:.0f}% of high, {me:.0f}% of medium and {lo:.0f}% of low calls were right "
+                         f"(calls per bar at its foot; dots: genomes); {int(cal.loc['no call', 'calls'])} "
+                         "chromosomes got no call." + add_e, N)],
+        [(f"Data: benchmark/results.tsv{' and results_017.tsv' if n2 else ''} (cenfuse "
+          f"{', '.join(sorted(d.version.unique()))}) · Script: "
           f"benchmark/performance.py · {date.today().isoformat()}", N)],
     ]
     return paras
@@ -698,6 +781,11 @@ def main(argv=None):
                     help="genome labels, lineages and row order [benchmark/canonical.tsv]")
     ap.add_argument("--truth", type=Path, default=HERE / "truth.tsv",
                     help="the truth manifest: labels of the genomes canonical.tsv lacks [benchmark/truth.tsv]")
+    ap.add_argument("--added", type=Path, default=HERE / "results_017.tsv",
+                    help="the results of the genomes added later, drawn apart; skipped if absent "
+                         "[benchmark/results_017.tsv]")
+    ap.add_argument("--added-labels", type=Path, default=HERE / "canonical_017.tsv",
+                    help="their labels, lineages and row order [benchmark/canonical_017.tsv]")
     ap.add_argument("--png", type=Path, default=REPO / "docs/img/performance.png",
                     help="the figure, without legend [docs/img/performance.png]")
     ap.add_argument("--pdf", type=Path, default=REPO / "docs/img/performance.pdf",
@@ -715,13 +803,19 @@ def main(argv=None):
     d["chance"] = chance(d)
     lab = labels(a.canonical, a.truth)
     canon = list(pd.read_csv(a.canonical, sep="\t", dtype=str).genome) if a.canonical.exists() else []
+    added = read_added(a.added) if a.added.exists() else None
+    if added is not None and a.added_labels.exists():
+        c2 = pd.read_csv(a.added_labels, sep="\t", dtype=str, keep_default_na=False)
+        lab.update({g: (lb, li) for g, lb, li in zip(c2.genome, c2.label, c2.lineage)})
+        canon += list(c2.genome)
     rank = {g: i for i, g in enumerate(canon)}
 
     def order(g):
         return (rank.get(g, len(rank)), lab.get(g, (g, ""))[0].lower(), g)
 
-    print(f"performance: {a.table.name}: {len(d)} chromosome-runs, {d.genome.nunique()} genomes", file=sys.stderr)
-    fig, nums, r = draw(d, lab, order, a.verbose)
+    print(f"performance: {a.table.name}: {len(d)} chromosome-runs, {d.genome.nunique()} genomes"
+          + (f"; {a.added.name}: {len(added)}, {added.genome.nunique()}" if added is not None else ""), file=sys.stderr)
+    fig, nums, r = draw(d, lab, order, a.verbose, added)
     if a.verbose:
         print(r["pool"].drop(columns=["chance_rows"]).round(1).to_string(), file=sys.stderr)
     for p in (a.png, a.pdf):

@@ -97,23 +97,23 @@ def test_samples_table_rejects_bad_names(tmp_path, name):
 def test_gff_attributes_keep_hash_and_fasta_is_cut(tmp_path):
     g = tmp_path / "x.gff3"
     g.write_text("##gff-version 3\n"
-                 "c1\tLTRquest\tLTR_retrotransposon\t11\t20\t.\t+\t.\tID=e1;family_rep=c1:1-2#LTR/Gypsy/CRM;"
+                 "c1\tLTR_peel\tLTR_retrotransposon\t11\t20\t.\t+\t.\tID=e1;family_rep=c1:1-2#LTR/Gypsy/CRM;"
                  "superfamily=Gypsy;clade=CRM;depth=2\n"
-                 "c1\tLTRquest\tlong_terminal_repeat\t11\t13\t.\t+\t.\tID=e1.l;Parent=e1\n"
-                 "c1\tLTRquest\tLTR_retrotransposon\t31\t40\t.\t+\t.\tID=e2;superfamily=Copia;clade=unknown;depth=0\n"
-                 "c1\tLTRquest\tLTR_retrotransposon\t51\t60\t.\t+\t.\tID=e3;superfamily=unknown;clade=mixture\n"
+                 "c1\tLTR_peel\tlong_terminal_repeat\t11\t13\t.\t+\t.\tID=e1.l;Parent=e1\n"
+                 "c1\tLTR_peel\tLTR_retrotransposon\t31\t40\t.\t+\t.\tID=e2;superfamily=Copia;clade=unknown;depth=0\n"
+                 "c1\tLTR_peel\tLTR_retrotransposon\t51\t60\t.\t+\t.\tID=e3;superfamily=unknown;clade=mixture\n"
                  "##FASTA\n>c1\nACGT\n")
-    t = io.read_ltrquest(g)
+    t = io.read_ltr_peel(g)
     assert t.start.tolist() == [10, 30, 50] and t.end.tolist() == [20, 40, 60]
     assert t.cls.tolist() == ["LTR:CRM", "LTR:Copia_unclassified", "LTR:unclassified"]
     assert t.depth.tolist() == [2, 0, 0]
 
 
-def test_ltrquest_without_elements_fails(tmp_path):
+def test_ltr_peel_without_elements_fails(tmp_path):
     g = tmp_path / "x.gff3"
     g.write_text("c1\tx\tgene\t1\t5\t.\t+\t.\tID=g\n")
     with pytest.raises(io.InputError, match="LTR_retrotransposon"):
-        io.read_ltrquest(g)
+        io.read_ltr_peel(g)
 
 
 def test_edta_classes(tmp_path):
@@ -261,7 +261,7 @@ def test_methylation_line_takes_gtf_genes_and_a_pbcpg_cg(syn, tmp_path):
     (tmp_path / "s.tsv").write_text(f"sample\tCHG\tCG\nS1\t{d / 'S1.CHG.bedmethyl.gz'}\t{pb}\n"
                                     f"S2\t{d / 'S2.CHG.bedmethyl.gz'}\t\nS3\t{d / 'S3.CHG.bedmethyl.gz'}\t\n")
     g = SimpleNamespace(name="g", fasta=str(syn["fai"])[:-4], chroms=list(synth.CHROMS), meth=tmp_path / "s.tsv",
-                        tes=syn["ltrquest"], genes=gtf, exclude=None)
+                        tes=syn["ltr_peel"], genes=gtf, exclude=None)
     prep = methfuse.prepare(g, syn["satellites"], tmp_path / "cache", 1)
     assert "gene" in prep.cmap.names and [list(s.files) for s in prep.samples] == [["CHG"]] * 3
 
@@ -384,7 +384,7 @@ def test_exclusions_naming_no_sample_stop_the_methylation_line(syn, tmp_path):
     bad = tmp_path / "bad.bed"
     bad.write_text("chr5\t50000000\t52000000\tS9\n")
     g = SimpleNamespace(name="g", fasta=str(syn["fai"])[:-4], chroms=list(synth.CHROMS), meth=tmp_path / "s.tsv",
-                        tes=syn["ltrquest"], genes=syn["genes"], exclude=bad)
+                        tes=syn["ltr_peel"], genes=syn["genes"], exclude=bad)
     with pytest.raises(CenfuseError, match="names no sample"):
         methfuse.prepare(g, syn["satellites"], tmp_path / "cache", 1)
     g.exclude = syn["exclude"]                                          # column 4 = S2, a sample of the table

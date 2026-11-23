@@ -25,7 +25,7 @@ history: [CHANGELOG.md](../CHANGELOG.md); open problems: [future.md](future.md).
 
 Not goals: centromeres from methylation alone (false dips are as deep as true ones); Hi-C choosing among satellite families
 genome-wide (it only chooses between the sequence line's two candidates on one chromosome). The LTR line is developed on
-LTRquest annotations; the DANTE_LTR and EDTA + TEsorter readers are kept, with their tests, but not developed further.
+LTR_peel annotations; the DANTE_LTR and EDTA + TEsorter readers are kept, with their tests, but not developed further.
 
 | term | meaning |
 |---|---|
@@ -101,7 +101,7 @@ P ≤ 0.05. It needs no known centromere and works when the satellite differs be
 
 ## LTR retrotransposons (`tes/`, `sat/signature.py`)
 
-**Reads** an LTRquest annotation made with the [recipe](inputs.md#ltr-retrotransposons-tes). Lineages come from `clade=` (LTRquest,
+**Reads** an LTR_peel annotation made with the [recipe](inputs.md#ltr-retrotransposons-tes). Lineages come from `clade=` (LTR_peel,
 EDTA + TEsorter) or DANTE_LTR's `Final_Classification` (its rank-D domain clusters are not elements). A file without lineages
 turns the line off. Only part of the CRM clade is centromeric, and other lineages do it too (Bryco in moss, Osser in
 *Chlorella*, one Tekay family in tomato: 308 of the lineage's 11,657 elements), so cenfuse learns, at family level, each
@@ -154,7 +154,7 @@ satellite fails and its Tekay family decides; *Arabidopsis*' CEN180 passes and A
   keeps its level (`te_concordant`, not capped). A core too thin to be significant takes a chromosome without a call, or
   whose satellite failed the one-per-chromosome test: `low` (`weak_core`).
 
-**The age of the elements** (LTRquest's insertion times, `K2P_T=`). Young copies concentrate in the cores more than old ones
+**The age of the elements** (LTR_peel's insertion times, `K2P_T=`). Young copies concentrate in the cores more than old ones
 in nearly every CRM lineage and in Bryco; Athila, Retand and most Tekay show the reverse (reported in `te_signature.tsv`). Age
 is used twice:
 - *Choosing a core* (`signature.age_choice`): among comparable density peaks of the signature's elements (each ≥ half the

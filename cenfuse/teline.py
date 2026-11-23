@@ -24,7 +24,7 @@ def te_line(gff, chroms: dict, sat_dir=None, genome: str = "") -> dict:
         n = te.te_census(gff, chroms)
         why = (f"{n['ltr']:,} LTR retrotransposons on the chromosomes, none classified to a lineage (clade=, or a "
                f"DANTE_LTR Final_Classification); the LTR line needs lineages such as CRM or Athila (e.g. TEsorter "
-               f"with REXdb, or LTRquest)" if n["ltr"] else
+               f"with REXdb, or LTR_peel)" if n["ltr"] else
                f"no LTR retrotransposon on the chromosomes ({n['foreign']:,} on other sequence names: another "
                f"assembly or naming?)" if n["foreign"] else
                "no LTR_retrotransposon feature (or DANTE_LTR transposable_element)")

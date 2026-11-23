@@ -10,7 +10,7 @@ from cenfuse.meth import bins, cli
 
 
 def _args(syn, out, *extra):
-    return ["run", "--samples", str(syn["samples"]), "--fai", str(syn["fai"]), "--ltrquest", str(syn["ltrquest"]),
+    return ["run", "--samples", str(syn["samples"]), "--fai", str(syn["fai"]), "--ltr_peel", str(syn["ltr_peel"]),
             "--satellites", str(syn["satellites"]), "--genes", str(syn["genes"]), "-o", str(out), "-t", "2", *extra]
 
 
@@ -26,7 +26,7 @@ def test_end_to_end_with_anchors_and_resume(syn, prep, tmp_path, capsys):
     assert (cand.label == "centromere_like").sum() >= 15
     assert set(cand.anchor_source) == {"hic"}
     assert all(len(ln.split("\t")) == 9 for ln in (tmp_path / "r" / "x.candidates.bed").read_text().splitlines()[1:])
-    key = bins.fingerprint([syn["ltrquest"], syn["satellites"], syn["genes"]], "|".join(prep["cmap"].names))
+    key = bins.fingerprint([syn["ltr_peel"], syn["satellites"], syn["genes"]], "|".join(prep["cmap"].names))
     assert [p.name for p in (tmp_path / "r" / "meth_cache").iterdir()] == [key]     # keyed by the class list too
     capsys.readouterr()
     other = tmp_path / "r" / "y"                         # another prefix in the same folder shares the cache
@@ -45,14 +45,14 @@ def test_without_anchors(syn, tmp_path, capsys):
 
 def test_edta_input(syn, tmp_path, capsys):
     g = tmp_path / "x.TEanno.gff3"
-    with open(syn["ltrquest"]) as f, open(g, "w") as o:
+    with open(syn["ltr_peel"]) as f, open(g, "w") as o:
         for ln in f:
             p = ln.split("\t")
             if len(p) == 9 and p[2] == "LTR_retrotransposon":
                 p[2], p[8] = "Gypsy_LTR_retrotransposon", "ID=x;Classification=LTR/Gypsy\n"
                 o.write("\t".join(p))
     args = _args(syn, tmp_path / "e" / "x")
-    i = args.index("--ltrquest")
+    i = args.index("--ltr_peel")
     args[i:i + 2] = ["--edta", str(g)]
     assert cli.main(args) == 0
     assert "coarser" in capsys.readouterr().err
@@ -187,3 +187,10 @@ def test_end_to_end_up(up_run):
             want = s["shift"][2] if (smp, c) == s["shift"][:2] else x
             r = top.loc[(smp, c)]
             assert abs(r.peak - want) <= 1e6 and r.label == "centromere_like", (smp, c, r.peak, r.label)
+
+
+def test_the_annotators_earlier_name_is_still_a_flag(syn, tmp_path):
+    """LTR_peel was LTRquest: --ltrquest names the same file as --ltr_peel."""
+    args = _args(syn, tmp_path / "x")
+    old = ["--ltrquest" if x == "--ltr_peel" else x for x in args]
+    assert cli.build_parser().parse_args(old).ltr_peel == cli.build_parser().parse_args(args).ltr_peel == str(syn["ltr_peel"])

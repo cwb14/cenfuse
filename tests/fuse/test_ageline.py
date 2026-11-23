@@ -16,7 +16,7 @@ def _gff(path, elements):
         f.write("##gff-version 3\n")
         for i, (c, s, e, cl, fa, t) in enumerate(elements):
             age = f";K2P_T={t}" if t is not None else ""
-            f.write(f"{c}\tLTRquest\tLTR_retrotransposon\t{s + 1}\t{e}\t.\t+\t.\tID=te{i};clade={cl};family={fa}{age}\n")
+            f.write(f"{c}\tLTR_peel\tLTR_retrotransposon\t{s + 1}\t{e}\t.\t+\t.\tID=te{i};clade={cl};family={fa}{age}\n")
     return path
 
 

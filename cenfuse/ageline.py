@@ -17,7 +17,7 @@ half of the signature's dated copies lies in the cores more often than the older
 copies concentrate in the cores, and not for lineages that accumulate near centromeres with age (Athila, Retand, most Tekay:
 docs/design.md, the age of the elements); there age says nothing about where a centromere is now.
 
-Ages are LTRquest's K2P_T (insertion time from the divergence of the two LTRs); a file without them gives no test."""
+Ages are LTR_peel's K2P_T (insertion time from the divergence of the two LTRs); a file without them gives no test."""
 from __future__ import annotations
 
 import numpy as np

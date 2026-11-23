@@ -20,7 +20,7 @@ One folder per genome, every file named after the FASTA (`asm`). Only the FASTA 
 ```
 mygenome/
 ├── asm.fa + asm.fa.fai    a chromosome-level assembly
-├── tes/asm.gff3           LTR retrotransposons (LTRquest)        strongly recommended for plants
+├── tes/asm.gff3           LTR retrotransposons (LTR_peel)        strongly recommended for plants
 ├── hic/asm.pairs.gz       Hi-C contacts (also .cool/.mcool, HiC-Pro, Juicer)
 ├── meth/asm.tsv           methylation samples (ONT or PacBio HiFi)
 └── genes/asm.gff3         gene annotation
@@ -34,9 +34,16 @@ mygenome/
 | primates, to place the kinetochore inside the array | alpha-satellite arrays | + CpG methylation |
 | holocentric species (nematodes, moths, *Rhynchospora*) | no single centromere | anything: expect no confident call |
 
-Hi-C or methylation that fails its test in your genome is reported but changes no call. How to make each input
-(LTRquest, Hi-C pairs, methylation), which sequences count as chromosomes, and inputs from several plants:
-[docs/inputs.md](docs/inputs.md).
+Hi-C or methylation that fails its test in your genome is reported but changes no call. `tes/` is one command with
+[LTR_peel](https://github.com/cwb14/LTR_peel) at its defaults:
+
+```bash
+ltr_peel --genome asm.fa --threads 32
+mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm.gff3
+```
+
+How to make the other inputs (Hi-C pairs, methylation), which sequences count as chromosomes, and inputs from several
+plants: [docs/inputs.md](docs/inputs.md).
 
 ## What you get
 
@@ -99,11 +106,12 @@ were developed while looking at them; the genomes added in 0.17 are an independe
 
 ![cenfuse on every benchmark genome, by the data it was given](docs/img/performance.png)
 
-*How often cenfuse finds the centromere, by the data it was given (every benchmark genome;
+*How often cenfuse 0.19.0 finds the centromere, by the data it was given (every benchmark genome;
 [PDF with legend](docs/img/performance.pdf)). **A** one genome with each set of inputs: calls, colored by outcome,
 beside the mapped centromeres (black). **B** every chromosome with a mapped centromere, by inputs (dots beneath) and
-centromere type; gray bars: chance; circles: single genomes. **C** every genome and every input set it was run with.
-**D** how often `high`, `medium` and `low` calls were right. **E** Hi-C changes calls only when it carries real signal.*
+centromere type; gray bars: chance; circles: single genomes; "added later": the 22 genomes added in 0.17, scored apart.
+**C** Hi-C changes calls only when it carries real signal. **D** every genome and every input set it was run with.
+**E** how often `high`, `medium` and `low` calls were right, for the earlier genomes and for those added later.*
 
 Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every genome's overview page:
 [docs/gallery.md](docs/gallery.md); every result, one row per chromosome:
@@ -116,11 +124,11 @@ Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every
 git clone https://github.com/cwb14/cenfuse.git && cd cenfuse
 mamba env create -f environment.yml && mamba activate cenfuse
 pip install --no-deps .
-python -m pytest -q -n 8      # optional: ~1,300 tests on tiny synthetic genomes, a few minutes
+python -m pytest -q -n 8      # optional: ~1,400 tests on tiny synthetic genomes, a few minutes
 ```
 
 On linux-64, `mamba create -n cenfuse --file environment.lock.txt` gives the benchmark's exact environment. The tools
-that make the optional inputs (LTRquest, bwa-mem2, pairtools, dorado, modkit) are installed separately.
+that make the optional inputs (LTR_peel, bwa-mem2, pairtools, dorado, modkit) are installed separately.
 
 ## Run
 
@@ -131,7 +139,8 @@ cenfuse run mygenome -t 32
 
 To add `tes/`, Hi-C or methylation later, put the files in place and run the same command: it reuses the finished
 work. From the FASTA, a 1-Gb plant genome takes 13-50 min at 16 threads and up to 46 GB of memory, a 3-Gb T2T mammal
-1-10 h at 12 threads and up to 74 GB; adding an input to a finished run takes minutes.
+1-10 h at 12 threads and up to 74 GB; adding an input to a finished run takes minutes. Making `tes/` is a separate
+step: LTR_peel states about 2.6 h for a 1.1-Gb genome at 16 threads.
 
 | option | meaning |
 |---|---|

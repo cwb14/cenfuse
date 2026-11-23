@@ -1,5 +1,5 @@
 """Tiny synthetic genome for the tests: six 60-Mb chromosomes plus two short unplaced scaffolds, one CHG site per
-kb, three samples (S1 also has CG), LTRquest-style GFF3, satellite-engine-style arrays GFF3, genes GFF3, anchors and
+kb, three samples (S1 also has CG), LTR_peel-style GFF3, satellite-engine-style arrays GFF3, genes GFF3, anchors and
 exclusions. Planted:
 - chr1-chr5: a centromere (satellite arrays + a CRM-rich pericentromere) whose CHG dip is carried by CRM cytosines
   inside the domain (CRM 0.45 -> 0.20); the satellite stays CHG-high (0.68).
@@ -83,10 +83,10 @@ def write_gff_ltr(path, ann):
         for i, r in enumerate(ann[ann.cls.isin(["CRM", "Tekay"])].itertuples()):
             sf = "Gypsy"
             clade = r.cls if i % 25 else "unknown"      # 4% unclassified
-            f.write(f"{r.chrom}\tLTRquest\tLTR_retrotransposon\t{r.start + 1}\t{r.end}\t.\t+\t.\tID=e{i};"
+            f.write(f"{r.chrom}\tLTR_peel\tLTR_retrotransposon\t{r.start + 1}\t{r.end}\t.\t+\t.\tID=e{i};"
                     f"Name={r.chrom}:{r.start + 1}-{r.end};family_rep={r.chrom}:1-2#LTR/{sf}/{r.cls};"
                     f"superfamily={sf};clade={clade};depth={r.depth}\n")
-            f.write(f"{r.chrom}\tLTRquest\tlong_terminal_repeat\t{r.start + 1}\t{r.start + 300}\t.\t+\t.\t"
+            f.write(f"{r.chrom}\tLTR_peel\tlong_terminal_repeat\t{r.start + 1}\t{r.start + 300}\t.\t+\t.\t"
                     f"ID=e{i}.lLTR;Parent=e{i}\n")
 
 
@@ -118,7 +118,7 @@ def make(d, seed: int = 1, depth: float = 40.0, crm_domain: float = P_CRM_DOMAIN
             f.write(f"{c}\t{L}\t0\t60\t61\n")
         f.write("scaf1\t500000\t0\t60\t61\nscaf2\t400000\t0\t60\t61\n")
     ann = annotation(rng)
-    write_gff_ltr(d / "ltrquest.gff3", ann)
+    write_gff_ltr(d / "ltr_peel.gff3", ann)
     write_arrays(d / "g_satellite_arrays.gff", ann)
     write_genes(d / "genes.gff3", ann)
     pos = {c: np.unique(rng.integers(0, L, L // 1000)) for c in CHROMS}
@@ -161,7 +161,7 @@ def make(d, seed: int = 1, depth: float = 40.0, crm_domain: float = P_CRM_DOMAIN
             f.write(f"{c}\t{y - 250000}\t{y + 250000}\t{c}_wrong\n")
     with open(d / "exclude.bed", "w") as f:
         f.write("chr5\t50000000\t52000000\tS2\n")
-    return dict(dir=d, fai=fai, samples=d / "samples.tsv", ltrquest=d / "ltrquest.gff3",
+    return dict(dir=d, fai=fai, samples=d / "samples.tsv", ltr_peel=d / "ltr_peel.gff3",
                 satellites=d / "g_satellite_arrays.gff", genes=d / "genes.gff3", anchors=d / "anchors.bed",
                 anchors_wrong=d / "anchors_wrong.bed", exclude=d / "exclude.bed", ann=ann, cen=CEN, shift=SHIFT,
                 decoy=DECOY, dup=DUP)

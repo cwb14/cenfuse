@@ -7,7 +7,7 @@ from cenfuse import teline
 
 
 def _gff(path, rows):
-    path.write_text("##gff-version 3\n" + "".join(f"{c}\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID=te{i};clade={cl}\n"
+    path.write_text("##gff-version 3\n" + "".join(f"{c}\tLTR_peel\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID=te{i};clade={cl}\n"
                                                   for i, (c, s, e, cl) in enumerate(rows)))
     return path
 

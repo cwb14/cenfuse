@@ -12,17 +12,17 @@ def test_binom_sf_exact_values():
     assert binom_sf(3, 4, 0.5) == pytest.approx(5 / 16)
 
 
-def test_load_te_gff_reads_clades_from_ltrquest_and_edta_style_lines(tmp_path):
+def test_load_te_gff_reads_clades_from_ltr_peel_and_edta_style_lines(tmp_path):
     gff = tmp_path / "g.gff3"
     gff.write_text(
         "##gff-version 3\n"
-        "c1\tLTRquest\tLTR_retrotransposon\t101\t200\t.\t+\t.\tID=a;superfamily=Gypsy;clade=CRM;family=f1\n"
-        "c1\tLTRquest\tlong_terminal_repeat\t101\t120\t.\t+\t.\tParent=a\n"
+        "c1\tLTR_peel\tLTR_retrotransposon\t101\t200\t.\t+\t.\tID=a;superfamily=Gypsy;clade=CRM;family=f1\n"
+        "c1\tLTR_peel\tlong_terminal_repeat\t101\t120\t.\t+\t.\tParent=a\n"
         "c1\tEDTA\tGypsy_LTR_retrotransposon\t1001\t2000\t.\t-\t.\tID=b;Clade=CRM\n"
         "c1\tEDTA\tCopia_LTR_retrotransposon\t5001\t6000\t.\t-\t.\tID=c;Clade=Ale\n"
-        "c1\tLTRquest\tLTR_retrotransposon\t7001\t8000\t.\t+\t.\tID=d;clade=unknown\n"
-        "c1\tLTRquest\tLTR_retrotransposon\t9001\t9100\t.\t+\t.\tID=e\n"
-        "c9\tLTRquest\tLTR_retrotransposon\t1\t100\t.\t+\t.\tID=f;clade=CRM\n")
+        "c1\tLTR_peel\tLTR_retrotransposon\t7001\t8000\t.\t+\t.\tID=d;clade=unknown\n"
+        "c1\tLTR_peel\tLTR_retrotransposon\t9001\t9100\t.\t+\t.\tID=e\n"
+        "c9\tLTR_peel\tLTR_retrotransposon\t1\t100\t.\t+\t.\tID=f;clade=CRM\n")
     t = load_te_gff(gff, {"c1": 20_000})
     assert set(t) == {"CRM", "Ale"} and t["CRM"]["c1"].tolist() == [150, 1500] and t["Ale"]["c1"].tolist() == [5500]
 
@@ -82,7 +82,7 @@ def test_core_floor_counts_independent_insertion_sites(tmp_path):
     gff = tmp_path / "g.gff3"
     rows = [(5_000_000 + i * 50, 5_008_000 + i * 50) for i in range(6)] + [(1_000_000, 1_005_000)]
     gff.write_text("##gff-version 3\n" + "".join(
-        f"c1\tLTRquest\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID=e{i};clade=Osser\n" for i, (s, e) in enumerate(rows)))
+        f"c1\tLTR_peel\tLTR_retrotransposon\t{s}\t{e}\t.\t+\t.\tID=e{i};clade=Osser\n" for i, (s, e) in enumerate(rows)))
     m = load_te_gff(gff, {"c1": L})["Osser"]["c1"]
     assert isinstance(m, Mids) and len(m) == 7 and m.sites == 2
     assert core(m, L) is None                                           # 7 elements but 2 sites: below the floor

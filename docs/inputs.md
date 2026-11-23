@@ -6,7 +6,7 @@ One folder per genome. Every file is named after the FASTA (`asm`):
 mygenome/
 ├── asm.fa + asm.fa.fai    required: a chromosome-level assembly
 ├── asm.chromosomes.txt    optional: the chromosomes to analyze, one name per line
-├── tes/asm.gff3           LTR retrotransposons (LTRquest)     strongly recommended for plants
+├── tes/asm.gff3           LTR retrotransposons (LTR_peel)     strongly recommended for plants
 ├── hic/asm.pairs.gz       Hi-C contacts (or .cool/.mcool, HiC-Pro .allValidPairs, Juicer merged_nodups)
 ├── meth/asm.tsv           methylation samples (ONT or PacBio HiFi)
 └── genes/asm.gff3         gene annotation (or .gff/.gtf)
@@ -40,19 +40,24 @@ which plant each input comes from and lets only the assembled plant's inputs dec
 
 ### LTR retrotransposons (`tes/`)
 
-With [LTRquest](https://github.com/cwb14/LTRquest), the annotator cenfuse is developed and benchmarked with:
+With [LTR_peel](https://github.com/cwb14/LTR_peel) at its defaults:
 
 ```bash
-ltrquest --genome asm.fa --max-rounds 1 --threads 32 \
-  --detect-args "ltr-timeout=300" --run-sdust --no-plots --reboundary
+ltr_peel --genome asm.fa --threads 32
 mkdir -p mygenome/tes && cp asm_LTRs_all_depth_LTR_cleaned.gff3 mygenome/tes/asm.gff3
 ```
 
-`--max-rounds 1` is how every benchmark annotation was made; `ltr-timeout=300` stops the slowest detectors from stalling on
-centromeric satellites. `--proteins related.pep.fa` (genes of this or a related species, masked during detection) is allowed but
-untested with cenfuse. The LTR line needs a sensitive annotation: with less sensitive ones (DANTE_LTR, EDTA's intact set) it lost
-its gains in rice and potato. cenfuse reads LTRquest's `family=` labels; other GFF3 files work if each element's type contains
-`LTR_retrotransposon` and carries `clade=` (e.g. EDTA + TEsorter), or if they are DANTE_LTR output as is.
+That is all cenfuse needs: the GFF3 carries each element's lineage (`clade=`), family (`family=`) and insertion age
+(`K2P_T=`), and cenfuse reads all three. LTR_peel states about 25 min for a 100-400 Mb genome, 2.6 h for 1.1 Gb and 7 h for
+2 Gb at 16 threads; `--no-plots` saves up to a fifth of that and changes no element. If you have the proteins of this or a
+related species, add `--proteins related.pep.fa` as LTR_peel recommends: it keeps genes from being called as elements.
+
+LTR_peel was called LTRquest until November 2026, and the benchmark annotations were made under that name with one round of
+detection (`--max-rounds 1`, no `--proteins`). Today's defaults search further rounds, which adds the elements that later
+insertions had split; cenfuse was not re-benchmarked on them. The LTR line needs a sensitive annotation: with less
+sensitive ones (DANTE_LTR, EDTA's intact set) it lost its gains in rice and potato. Other GFF3 files work if each element's
+type contains `LTR_retrotransposon` and carries `clade=` (e.g. EDTA + TEsorter), or if they are DANTE_LTR output as is;
+without `family=` cenfuse falls back to lineages, and without `K2P_T=` it skips the age test.
 
 ### Hi-C (`hic/`)
 

@@ -559,7 +559,7 @@ def _attrs(col: str) -> dict:
 
 
 def _is_ltr(ftype: str, a: dict) -> bool:
-    """An LTR retrotransposon as cenfuse's LTR line reads one (sat.te): a type holding 'LTR_retrotransposon' (LTRquest,
+    """An LTR retrotransposon as cenfuse's LTR line reads one (sat.te): a type holding 'LTR_retrotransposon' (LTR_peel,
     EDTA), or a DANTE_LTR transposable_element of an LTR lineage."""
     return "LTR_retrotransposon" in ftype or (ftype == "transposable_element"
                                               and "|LTR|" in a.get("final_classification", ""))
@@ -569,7 +569,7 @@ def shuffle_ltr(gff, out_gff, fai, seed: int = 1) -> dict:
     """The control of the LTR line (control_te.py, written out): every feature tree (a top-level feature and all
     under it by ID/Parent) holding an LTR retrotransposon moves as one to a uniform random position on its sequence,
     drawn as control_te.py drew an element's start: start0 = floor(u * max(1, L - width)), u ~ U(0, 1), one draw per
-    tree in the order of their first LTR line. LTRquest's elements are trees of their own (their LTRs and domains under
+    tree in the order of their first LTR line. LTR_peel's elements are trees of their own (their LTRs and domains under
     them), so with a .fai of the chromosome set this repeats control_te.py's shuffle of the same seed. Columns other
     than start and end, other features and comment lines are kept (Name= may still hold the old coordinates). Trees on
     sequences absent from the .fai stay in place (warned). Reads the GFF twice; holds one entry per feature."""

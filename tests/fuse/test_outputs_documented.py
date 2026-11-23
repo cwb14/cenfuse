@@ -3,7 +3,7 @@
 A column counts as documented when its name is in backticks in docs/outputs.md or docs/plants.md, alone or as an item
 of a comma list (`chrom`, `chrom_len`), or matches a backticked wildcard (`meth_*`). The tables come from one run on
 the synthetic genome of fuse_synth.py (Hi-C from two plants, tes/, genes/, CHG methylation of three plants), whose LTR
-retrotransposons are given LTRquest's family= so that the LTR signature table is written too."""
+retrotransposons are given LTR_peel's family= so that the LTR signature table is written too."""
 import fnmatch
 import re
 import sys
@@ -72,7 +72,7 @@ def section(text: str, table: str) -> str:
 
 
 def with_families(gff: Path) -> None:
-    """Name each element's family (LTRquest's family=; fuse_synth gives the lineage only), one family per lineage, so
+    """Name each element's family (LTR_peel's family=; fuse_synth gives the lineage only), one family per lineage, so
     the LTR signature is built and its table written."""
     rows = []
     for x in gff.read_text().splitlines():

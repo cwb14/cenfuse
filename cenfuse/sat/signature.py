@@ -19,7 +19,7 @@ levels, lineage and family, and then learned for each chromosome from the other 
    the seed's cores, each next one from the significant cores of the round before, until they stop changing.
 
 What a signature may do is decided in decisive(): a CRM seed decides as it always has; another lineage decides when it is
-specific, unless a dominant satellite falls one per chromosome (cenfuse.sat.karyotype). A file without family= (not LTRquest) has
+specific, unless a dominant satellite falls one per chromosome (cenfuse.sat.karyotype). A file without family= (not LTR_peel) has
 no signature: the lineage rules of te.py stand alone."""
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def _attrs(col: str) -> dict:
 
 def load_table(gff, chroms: dict):
     """Table of the LTR_retrotransposon features on the genome's chromosomes, or None when most name no family (not an
-    LTRquest annotation) or there are none."""
+    LTR_peel annotation) or there are none."""
     names = list(chroms)
     idx = {c: i for i, c in enumerate(names)}
     rows, lin_code, fam_code = [], {}, {}

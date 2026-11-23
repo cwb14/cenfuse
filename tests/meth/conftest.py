@@ -21,7 +21,7 @@ def prep(syn):
     names, G, D = track.chromosome_set(fai)
     chroms = {c: fai[c] for c in names}
     samples = io.read_samples(syn["samples"])
-    cmap = classes.build([io.read_satellites(syn["satellites"]), io.read_ltrquest(syn["ltrquest"]),
+    cmap = classes.build([io.read_satellites(syn["satellites"]), io.read_ltr_peel(syn["ltr_peel"]),
                           io.read_genes(syn["genes"])], names)
     raw = bins.collect(samples, chroms, cmap, "test", None, 1)
     filt, stats = bins.depth_filter(raw, samples, chroms, io.read_exclusions(syn["exclude"]))
