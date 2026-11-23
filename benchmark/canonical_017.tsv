@@ -1,23 +1,23 @@
-genome	label	lineage
-G1-36576	pepper G1-36576	plants
-Zunla-1	pepper Zunla-1	plants
-peu1	Populus euphratica	plants
-oaus	Oryza australiensis	plants
-sbta	Sesbania bispinosa SbTA02	plants
-sbsa	Sesbania bispinosa SbSA44	plants
-Gossypium_hirsutum.4x.GCA_047301705.1	Gossypium hirsutum	plants
-Nicotiana_benthamiana.4x.GWHFGPU00000000.1	Nicotiana benthamiana	plants
-Brachypodium_hybridum.4x.GCA_036872515.1	Brachypodium hybridum	plants
-Saccharum_longisetosum.4x.GWHFPVA00000000.1	Erianthus rockii	plants
-easi	donkey (T2T)	mammals
-calb	Candida albicans	fungi
-pcar	Pneumocystis carinii	fungi
-pmur	Pneumocystis murina	fungi
-kpin	Kwoniella pini	fungi
-cdeu	Cryptococcus deuterogattii	fungi
-tgon	Toxoplasma gondii	protists
-cjap	Chionographis japonica	holocentric
-lsyl	Luzula sylvatica	holocentric
-lsin	Leptidea sinapis	holocentric
-asuu	Ascaris suum	holocentric
-cepi	Cuscuta epithymum	holocentric
+genome	label	lineage	cen_class	centromere_type
+G1-36576	pepper G1-36576	plants	TE_or_none	CRM retrotransposons
+Zunla-1	pepper Zunla-1	plants	TE_or_none	CRM retrotransposons
+peu1	Populus euphratica	plants	TE_or_none	CENH3 on CRM cores
+oaus	Oryza australiensis	plants	TE_or_none	CENH3 on LTR cores
+sbta	Sesbania bispinosa SbTA02	plants	satellite	satellite arrays
+sbsa	Sesbania bispinosa SbSA44	plants	satellite	satellite arrays
+Gossypium_hirsutum.4x.GCA_047301705.1	Gossypium hirsutum	plants	TE_or_none	retrotransposons
+Nicotiana_benthamiana.4x.GWHFGPU00000000.1	Nicotiana benthamiana	plants	satellite	43-bp satellite on 8 of 18, minor satellites or none on the others
+Brachypodium_hybridum.4x.GCA_036872515.1	Brachypodium hybridum	plants	satellite	satellite arrays
+Saccharum_longisetosum.4x.GWHFPVA00000000.1	Erianthus rockii	plants	satellite	satellite arrays
+easi	donkey (T2T)	mammals	TE_or_none	satellite-free on most chromosomes
+calb	Candida albicans	fungi	point_regional	regional
+pcar	Pneumocystis carinii	fungi	point_regional	regional
+pmur	Pneumocystis murina	fungi	point_regional	regional
+kpin	Kwoniella pini	fungi	point_regional	regional
+cdeu	Cryptococcus deuterogattii	fungi	point_regional	regional
+tgon	Toxoplasma gondii	protists	point_regional	regional
+cjap	Chionographis japonica	holocentric	holocentric	holocentric
+lsyl	Luzula sylvatica	holocentric	holocentric	holocentric
+lsin	Leptidea sinapis	holocentric	holocentric	holocentric, no CenH3
+asuu	Ascaris suum	holocentric	holocentric	holocentric
+cepi	Cuscuta epithymum	holocentric	holocentric	holocentric

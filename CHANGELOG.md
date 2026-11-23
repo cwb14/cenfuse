@@ -10,9 +10,11 @@ or `medium`.
   (`ltr_peel --genome asm.fa --threads 32`); the GFF3 has the same fields, so files made with LTRquest work as before.
   `python -m cenfuse.meth run` takes `--ltr_peel` (`--ltrquest` still works). The benchmark annotations were made under the old
   name with one round of detection; cenfuse was not re-benchmarked on annotations made with today's defaults.
-- **The performance figure now shows every benchmark genome**: the 22 genomes added in 0.17 (0.19.0's results,
-  `benchmark/results_017.tsv`) have their own group in B, their own rows in D and their own bars in E; before, the
-  figure drew only `benchmark/results.tsv`. The Hi-C control is now panel C, beside B.
+- **The performance figure and the README's numbers now cover every benchmark genome**: the 22 genomes added in 0.17
+  (0.19.0's results, `benchmark/results_017.tsv`) are pooled with the others under their centromere type
+  (`benchmark/canonical_017.tsv`); before, both drew only `benchmark/results.tsv`. Over all 80 genomes with a mapped
+  centromere `high` calls were right 557 of 569 times, `medium` 160 of 186, `low` 217 of 280. The Hi-C control is now
+  panel C, beside B. docs/benchmark.md still tabulates the two sets apart.
 - No call changed: results and tables are those of 0.19.0. Three gallery pages (siamang, both *C. neoformans*
   runs) are now the ones 0.19.0 draws, with the repeat-family line's new verdict; the other 44 were already identical.
   The gallery's note for *Ae. tauschii* gives 0.19.0's FASTA-only result (7 of 7, `low`).

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Draw cenfuse's performance over every benchmark genome from the frozen results tables (benchmark/results.tsv, and
-benchmark/results_017.tsv for the genomes added later, which are scored apart and drawn apart).
+benchmark/results_017.tsv for the genomes added in 0.17, which join the others under the centromere class
+benchmark/canonical_017.tsv gives each; a genome without a class there is drawn apart as 'added later').
 
   python -m benchmark.performance [--png docs/img/performance.png] [--pdf docs/img/performance.pdf] [--numbers N.tsv]
 
@@ -9,9 +10,9 @@ chosen by rule: of the genomes with truth coordinates run with all four, the one
 all-inputs run is nearest the median gain (ties: genome id). B: every chromosome with truth pooled per input set and
 centromere class (one run per genome and input set, the 'agreement' mammals left out, as benchmark/summary.py (a)), each
 genome's share right as a dot, beside the chance of a right call by luck (benchmark/README.md; rows whose truth is
-withheld are left out of it), the added genomes as a group of their own. C: calls changed by adding real or randomized
-Hi-C. D: every genome and input set, controls included. E: confidence calibration over each genome's all-inputs run,
-the added genomes beside the others. The PDF is the figure and its legend page; --numbers writes every number it
+withheld are left out of it). C: calls changed by adding real or randomized
+Hi-C. D: every genome and input set, controls included. E: confidence calibration over each genome's all-inputs run.
+The PDF is the figure and its legend page; --numbers writes every number it
 shows."""
 import argparse
 import re
@@ -116,10 +117,9 @@ def tables(d):
 
 def read_added(path):
     """The genomes added later (benchmark/results_017.tsv, scored apart with truth_017.tsv) with the main table's
-    columns: one class, 'added', whatever the centromere type, and the table's own chance column."""
+    columns: one class, 'added', until main() gives each genome the centromere class of canonical_017.tsv."""
     a = read_table(path)
     a["cen_class"], a["all_inputs"] = "added", "0"
-    a["chance"] = pd.to_numeric(a.chance, errors="coerce")
     return a
 
 
@@ -308,7 +308,7 @@ def glyphs(ax, cols, size=7.0, lw=0.7):
 # ---------------------------------------------------------------- the figure
 def layout(blocks, bblocks, lab):
     """Positions (mm): B (bblocks) and its glyphs on wide columns with C beside them, D (blocks) on its own columns
-    after fitted label areas, E under the second block."""
+    after fitted label areas, E under the shortest block after the first."""
     fig = plt.figure(figsize=(W * MM, 4))
     for b in blocks:
         ws = [text_mm(fig, runs_of(*lab.get(g, (g, ""))), FR) for k, g, _ in b["rows"] if k == "g"]
@@ -337,7 +337,8 @@ def layout(blocks, bblocks, lab):
     L["c"] = L["g"] + L["gh"] * (len(TYPES) + 2) + 3.0
     L["rows"] = L["c"] + L["hh"]
     n = [len(b["rows"]) for b in blocks]
-    L["d"] = L["rows"] + (n[1] if len(n) > 2 else max(n[1:] + [0])) * L["rh"] + 7.0
+    L["e"] = min(range(1, len(n)), key=lambda i: n[i]) if len(n) > 1 else 0       # E under the shortest later block
+    L["d"] = L["rows"] + (n[L["e"]] if len(n) > 1 else 0) * L["rh"] + 7.0
     L["d_h"] = max(L["rows"] + max(n) * L["rh"] - 8.0 - L["d"] - 4.5, 22.0)
     L["H"] = max(L["rows"] + max(n) * L["rh"], L["d"] + 4.5 + L["d_h"] + 8.0) + 1.0
     return L
@@ -552,9 +553,9 @@ def draw(d, lab, order, verbose=False, added=None):
                 note("D", "right/chromosomes", f"{g} | {inp}", f"{int(y.outcome.isin(RIGHT).sum())}/{len(y)}")
 
     # ---- E: calibration over each genome's all-inputs run, the added genomes beside the others
-    bd = blocks[1] if len(blocks) > 1 else blocks[0]
-    dx = bd["xc"] - bd["lw"] + 11.0 if len(blocks) > 1 else bd["xc"] + bd["wc"] + 12
-    dw = max(min(46.0, bd["lw"] + bd["wc"] - 12.0 if len(blocks) > 2 else L["right"] - dx), 20.0)
+    bd = blocks[L["e"]]
+    dx = bd["xc"] - bd["lw"] + 13.0 if len(blocks) > 1 else bd["xc"] + bd["wc"] + 12
+    dw = max(min(46.0, bd["lw"] + bd["wc"] - 14.0 if len(blocks) > 1 else L["right"] - dx), 20.0)
     letter(dx - 11.0, L["d"], "E")
     cal, cal2 = calibration(alli), calibration(alli2)
     groups = [("", alli, cal, 0.0)] + ([("added later", alli2, cal2, 3.7)] if len(alli2) else [])
@@ -684,8 +685,8 @@ def legend_runs(d, lab, r):
          (f" From the FASTA alone cenfuse was right on {pct('satellite', 'FASTA')} of satellite centromeres. "
           f"Centromeres of retrotransposons or of no repeat went from {pct('TE_or_none', 'FASTA')} to "
           f"{pct('TE_or_none', 'FASTA+tes')} with the TE annotation, and the point and regional centromeres of fungi "
-          f"and ", N), ("Plasmodium", "italic"),
-         (f" from {pct('point_regional', 'FASTA')} to {pct('point_regional', 'FASTA+Hi-C')} with Hi-C.", N)],
+          f"and parasites (", N), ("Plasmodium", "italic"), (", ", N), ("Toxoplasma", "italic"),
+         (f") from {pct('point_regional', 'FASTA')} to {pct('point_regional', 'FASTA+Hi-C')} with Hi-C.", N)],
         [("A", "bold"), (" One genome, ", N)] + (runs_of(*lab.get(g, (g, "")), short=False) if g else []) +
         [(f": its chromosomes to scale, its centromeres mapped by {ex.truth_kind.iloc[0] if len(ex) else ''} "
           "(black) and the call made from each set of inputs, colored by outcome (small ones drawn as a visible "
@@ -696,9 +697,9 @@ def legend_runs(d, lab, r):
                          "(green, darker when more confident), wrong (vermillion, strong when confident) or no call "
                          "(gray). Dots: each genome's share right. Thin gray bars: the share a call of the same size "
                          "placed at random would get right. Beneath: the inputs of each column, and the genomes and "
-                         "chromosomes it pools. In fungi and ", N), ("Plasmodium", "italic"),
-         (f" a call is right within {span(pr[~hic_pr].tol_bp)} without Hi-C and within one Hi-C bin "
-          f"({span(pr[hic_pr].tol_bp)}) with it." + add_b, N)],
+                         "chromosomes it pools. In fungi and parasites a call is right within "
+                         f"{span(pr[~hic_pr].tol_bp)} without Hi-C and within one Hi-C bin or 25 kb "
+                         f"({span(pr[hic_pr].tol_bp)}) with it." + add_b, N)],
         [("C", "bold"), (" Calls that adding Hi-C changed (moved, or their confidence), against the same genome "
                          f"without Hi-C: {pct_of(real)} with real Hi-C ({len(real)} runs), {pct_of(rnd)} with Hi-C "
                          f"whose contacts were randomized ({len(rnd)} runs). Dots: genomes."
@@ -716,7 +717,7 @@ def legend_runs(d, lab, r):
                          f"most inputs, {hi:.0f}% of high, {me:.0f}% of medium and {lo:.0f}% of low calls were right "
                          f"(calls per bar at its foot; dots: genomes); {int(cal.loc['no call', 'calls'])} "
                          "chromosomes got no call." + add_e, N)],
-        [(f"Data: benchmark/results.tsv{' and results_017.tsv' if n2 else ''} (cenfuse "
+        [(f"Data: {d.attrs.get('tables', 'benchmark/results.tsv' + (' and results_017.tsv' if n2 else ''))} (cenfuse "
           f"{', '.join(sorted(d.version.unique()))}) · Script: "
           f"benchmark/performance.py · {date.today().isoformat()}", N)],
     ]
@@ -800,7 +801,6 @@ def main(argv=None):
     if not a.table.exists():
         sys.exit(f"performance: no table {a.table}")
     d = read_table(a.table)
-    d["chance"] = chance(d)
     lab = labels(a.canonical, a.truth)
     canon = list(pd.read_csv(a.canonical, sep="\t", dtype=str).genome) if a.canonical.exists() else []
     added = read_added(a.added) if a.added.exists() else None
@@ -808,13 +808,22 @@ def main(argv=None):
         c2 = pd.read_csv(a.added_labels, sep="\t", dtype=str, keep_default_na=False)
         lab.update({g: (lb, li) for g, lb, li in zip(c2.genome, c2.label, c2.lineage)})
         canon += list(c2.genome)
+        if "cen_class" in c2:                    # a genome given a centromere class joins the main table's genomes
+            added["cen_class"] = added.genome.map(dict(zip(c2.genome, c2.cen_class))).fillna("added")
+            join = added[added.cen_class != "added"]
+            d = pd.concat([d, join.reindex(columns=d.columns, fill_value=".")], ignore_index=True)
+            d.attrs["tables"] = f"benchmark/{a.table.name} and {a.added.name}"
+            added = added[added.cen_class == "added"] if (added.cen_class == "added").any() else None
+    d["chance"] = chance(d)
+    if added is not None:
+        added["chance"] = chance(added)
     rank = {g: i for i, g in enumerate(canon)}
 
     def order(g):
         return (rank.get(g, len(rank)), lab.get(g, (g, ""))[0].lower(), g)
 
     print(f"performance: {a.table.name}: {len(d)} chromosome-runs, {d.genome.nunique()} genomes"
-          + (f"; {a.added.name}: {len(added)}, {added.genome.nunique()}" if added is not None else ""), file=sys.stderr)
+          + (f" ({d.attrs['tables']})" if "tables" in d.attrs else ""), file=sys.stderr)
     fig, nums, r = draw(d, lab, order, a.verbose, added)
     if a.verbose:
         print(r["pool"].drop(columns=["chance_rows"]).round(1).to_string(), file=sys.stderr)

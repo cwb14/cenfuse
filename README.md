@@ -78,42 +78,42 @@ the call was made.*
 
 ## How good it is
 
-Numbers are from cenfuse 0.19.0 on every genome benchmarked before 0.17, scored against centromeres mapped on the
-same assembly by CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq; the genomes added in 0.17 have their own bullet.
+Numbers are from cenfuse 0.19.0 on every benchmark genome: 80 with centromeres mapped on the same assembly by
+CENP-A/CENH3 ChIP, CUT&Tag or DiMeLo-seq, and 9 holocentric controls.
 
-- **Satellite centromeres** (mammals, birds, most crops): from the FASTA alone, right on 425 of 450 chromosomes in 32
-  genomes, 2 of them confidently wrong.
-- **Retrotransposon or satellite-free centromeres** (barley, *Aegilops*, potato, 14 tomato genomes, moss, green
-  algae): the FASTA alone finds 125 of 272; with `tes/` 213 of 272 (22 genomes), with `tes/` and Hi-C 189 of 231 (19
-  genomes). Most confident errors are here (21 with `tes/`): treat a `medium` call that rests on an LTR core alone
-  with caution.
-- **Fungi and *Plasmodium*** (9 genomes): 50 of 98 chromosomes from the FASTA alone (AT-rich and transposon-rich
-  centromeres), 94 of 98 with Hi-C.
-- **Confidence means what it says.** Over all 63 genomes, each with its fullest set of inputs, `high` calls were right
-  453 of 459 times (99%), `medium` 137 of 155 (88%), `low` 155 of 197 (79%).
+- **Satellite centromeres** (mammals, birds, most crops): from the FASTA alone, right on 477 of 510 chromosomes in 37
+  genomes, 8 of them confidently wrong.
+- **Retrotransposon or satellite-free centromeres** (barley, *Aegilops*, potato, pepper, cotton, 14 tomato genomes,
+  moss, green algae, donkey): the FASTA alone finds 204 of 384 (28 genomes); with `tes/` 284 of 353 (27 genomes), with
+  `tes/` and Hi-C 256 of 300 (23 genomes). Most confident errors are here (30 with `tes/`): treat a `medium` call that
+  rests on an LTR core alone with caution.
+- **Fungi, *Plasmodium* and *Toxoplasma*** (15 genomes): 78 of 178 chromosomes from the FASTA alone (AT-rich and
+  transposon-rich centromeres), 114 of 119 with Hi-C (11 genomes).
+- **Confidence means what it says.** Over all 80 genomes, each with its fullest set of inputs, `high` calls were right
+  557 of 569 times (98%), `medium` 160 of 186 (86%), `low` 217 of 280 (78%).
 - **Controls stay silent.** Randomized Hi-C changed no call (55 runs); holocentric genomes got no confident call (0 of
-  46 chromosomes, with any input).
-- **On genomes it was not developed on** (22 added in 0.17 and scored with 0.16.1, whose rules had never seen them):
+  143 chromosomes in 9 genomes, with any input).
+- **On genomes it was not developed on** (22 of the genomes above, scored with 0.16.1, whose rules had never seen them):
   `high` calls were right 104 of 110 times (95%), `medium` 23 of 31 (74%), `low` 57 of 83 (69%). Most confident
   misses were centromeres that sit away from the genome's main satellite (*Nicotiana benthamiana*) and `medium` calls
   resting on one retrotransposon core; the 5 holocentric genomes got no confident call
   ([details](docs/benchmark.md#genomes-added-in-017)).
 
 Right means overlapping the mapped domain in mammals, within 1 Mb of it in plants (8 Mb in barley), within 100 kb in
-moss and algae, and within one Hi-C bin in fungi (250 kb without Hi-C, a lenient rule); every rule:
+moss and algae, and within one Hi-C bin in fungi (250 kb without Hi-C, a lenient rule; 25 kb in six small fungal and parasite genomes); every rule:
 [benchmark/README.md](benchmark/README.md#scoring-rules). These genomes are not an independent test: cenfuse's rules
-were developed while looking at them; the genomes added in 0.17 are an independent test of 0.16.1.
+were developed while looking at them; the 22 scored with 0.16.1 are the independent test.
 
 ![cenfuse on every benchmark genome, by the data it was given](docs/img/performance.png)
 
 *How often cenfuse 0.19.0 finds the centromere, by the data it was given (every benchmark genome;
 [PDF with legend](docs/img/performance.pdf)). **A** one genome with each set of inputs: calls, colored by outcome,
 beside the mapped centromeres (black). **B** every chromosome with a mapped centromere, by inputs (dots beneath) and
-centromere type; gray bars: chance; circles: single genomes; "added later": the 22 genomes added in 0.17, scored apart.
-**C** Hi-C changes calls only when it carries real signal. **D** every genome and every input set it was run with.
-**E** how often `high`, `medium` and `low` calls were right, for the earlier genomes and for those added later.*
+centromere type; gray bars: chance; circles: single genomes. **C** Hi-C changes calls only when it carries real signal. **D** every
+genome and every input set it was run with. **E** how often `high`, `medium` and `low` calls were right.*
 
-Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md); every genome's overview page:
+Every genome, control and failure: [docs/benchmark.md](docs/benchmark.md), which tabulates the 22 genomes added in 0.17
+apart from the earlier 73, so its pooled counts are these numbers in two parts; every genome's overview page:
 [docs/gallery.md](docs/gallery.md); every result, one row per chromosome:
 [benchmark/results.tsv](benchmark/results.tsv) (the genomes added in 0.17:
 [benchmark/results_017.tsv](benchmark/results_017.tsv)).
